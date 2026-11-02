@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import './hud.css';
 import './screens.css';
 import './log.css';
+import './opening.css';
 import { ctx, $, h, esc, T, reduceMotion, type UIHandlers, type ChartSource, type Layout } from './ctx';
 import { prefs, log, saveLog, debugMode } from './prefs';
 import { fx } from './fx';
@@ -26,7 +27,7 @@ import { chip, pinChip, setLogBadge } from './chip';
 import { titleCard, endTitle } from './title';
 import { dialogue } from './dialogue';
 import { initPause } from './pause';
-import { initLoading, loadingDone } from './loading';
+import { initLoading, loadingDone, setLoadProgress } from './loading';
 import { ERRANDS, openErrands, stamps, newlyDone } from './errands';
 import { DiveHUD } from './dive';
 import { SPECIES, type CaughtFish, type Species } from '../game/fishdata';
@@ -36,7 +37,7 @@ export { showCard, hideCard, showSpecimen, catchHooks } from './catchcard';
 export { showSell, hideSell, onSold } from './market';
 import { showSell as openMarketSheet } from './market';
 export { openLog, closeLog } from './log';
-export { fx, bubble, titleCard, dialogue, chip, loadingDone, DiveHUD };
+export { fx, bubble, titleCard, dialogue, chip, loadingDone, setLoadProgress, DiveHUD };
 
 // ------------------------------------------------------------------ types
 export interface FishingView {
