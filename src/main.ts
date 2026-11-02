@@ -5,7 +5,7 @@ import { buildShoreField } from './render/shorefield';
 import type { SeaVariant } from './render/sea';
 import { backdropHaze, setTint } from './render/materials';
 import { InstanceField } from './render/instances';
-import { Outline, OUTLINE, outlineFromUrl } from './render/outline';
+import { Outline, OUTLINE, outlineFromUrl, mountOutlineSetting } from './render/outline';
 import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingBlend, updateLighting } from './render/lighting';
 import { setLineContext, setNpcRoster } from './game/onfoot/npclines';
 import { DAY_REAL_MIN, LOOK_HOUR, START_HOUR, clockText, lookAt, lookWords, wrapHour, type ClockLook } from './game/clock';
@@ -76,7 +76,7 @@ const save: SaveData = loadSave();
 let quality = QUALITY[save.settings.quality];
 gameAudio.setVolumes(save.settings.music, save.settings.sound);
 sea.setQuality(save.settings.quality);
-// ink outlines (experiment, src/render/outline.ts): ?outline=1 | hull | hybrid, ?tune > Outline, __debug.outline()
+// ink outlines (src/render/outline.ts; on by default, Settings > Ink outlines): ?outline=1 | hull | hybrid, ?tune > Outline, __debug.outline()
 const outline = new Outline();
 outline.setQuality(save.settings.quality);
 
@@ -607,9 +607,11 @@ const upg = createUpgrades({
   snapCamera: () => { if (!foot.active) chase.snap(boat); },
 });
 initTuneOverlay();
+if (save.settings.outline === false) OUTLINE.on = 0;
 outlineFromUrl();
 mountSunShadingSetting();
 mountWindSetting();
+mountOutlineSetting(() => !!OUTLINE.on, (on) => { OUTLINE.on = on ? 1 : 0; save.settings.outline = on; writeSave(save); });
 window.addEventListener('keydown', (e) => {
   if (e.key === 't' || e.key === 'T') cycleTOD();
   if (e.key === 'f' || e.key === 'F') { save.settings.showFps = !save.settings.showFps; refreshSettingsUI(); }

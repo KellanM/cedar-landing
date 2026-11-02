@@ -3,7 +3,7 @@ import { addSunShading, INK_PASS } from './lighting';
 import { backdropMat, flutterMat, leafyMat, shrubMat, treeMat, WIND } from './materials';
 
 /**
- * Ink outlines (experiment, default off). Two techniques, picked with OUTLINE.mode:
+ * Ink outlines (on by default since v0.7.5; Settings > Ink outlines). Two techniques, picked with OUTLINE.mode:
  *
  * 0 "screen" — one fullscreen edge pass. The opaque scene is rendered into a render target with a
  *   depth texture; the pass finds depth silhouettes (1/z Laplacian: the pixel is clearly nearer
@@ -21,7 +21,7 @@ import { backdropMat, flutterMat, leafyMat, shrubMat, treeMat, WIND } from './ma
  * 2 "hybrid" — hulls only on the boat, people and non-foliage props; no terrain, no trees.
  */
 export const OUTLINE = {
-  on: 0,
+  on: 1,
   /** 0 screen-space edges, 1 inverted hull (everything), 2 hull on boat/people/props only */
   mode: 0,
   /** line width, CSS px */
@@ -455,4 +455,18 @@ export function outlineFromUrl() {
   if (v === '0' || v === 'off') { OUTLINE.on = 0; return; }
   OUTLINE.on = 1;
   OUTLINE.mode = v === 'hull' ? 1 : v === 'hybrid' ? 2 : 0;
+}
+
+/** Settings row "Ink outlines" (next to Wind), persisted in save.settings.outline. */
+export function mountOutlineSetting(get: () => boolean, set: (on: boolean) => void) {
+  const anchor = document.getElementById('set-tod')?.closest('.row');
+  if (!anchor || document.getElementById('set-outline')) return;
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = '<span>Ink outlines</span><button class="btn small" id="set-outline"></button>';
+  anchor.parentElement!.insertBefore(row, anchor);
+  const btn = row.querySelector('button')!;
+  const refresh = () => { btn.textContent = get() ? 'On' : 'Off'; };
+  btn.onclick = () => { set(!get()); refresh(); };
+  refresh();
 }
