@@ -29,6 +29,9 @@ export class Skipper {
   /** 0..1 reel speed (crank), 0..1 strain (lean back) */
   crank = 0;
   strain = 0;
+  /** hold_hoist: wanted distance between the wrists (m) so the fists meet the fish; null = the baked pose */
+  gripSpread: number | null = null;
+  private narrow = 0;
   /** world-space target the skipper faces (null = bow) */
   face: THREE.Vector3 | null = null;
   /** true: turn so the ROD points at `face` (the reel pose holds it out to the right); false: the chest */
@@ -117,6 +120,14 @@ export class Skipper {
     return out.add(this.tmp.setFromMatrixPosition(r.matrixWorld)).multiplyScalar(0.5);
   }
 
+  /** One wrist (the one-hand hold uses the raised right hand of hold_show). */
+  hand(side: 'L' | 'R', out: THREE.Vector3): THREE.Vector3 | null {
+    const h = side === 'L' ? this.bones.hand_L : this.bones.hand_R;
+    if (!this.attached || !h) return null;
+    h.updateWorldMatrix(true, false);
+    return out.setFromMatrixPosition(h.matrixWorld);
+  }
+
   head(out: THREE.Vector3): THREE.Vector3 | null {
     const h = this.bones.head;
     if (!this.attached || !h) return null;
@@ -173,6 +184,14 @@ export class Skipper {
       const c = Math.sin(this.t * 14) * 0.35 * this.crank;
       b.forearm_L.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(1, 0, 0), c));
       if (b.upper_arm_L) b.upper_arm_L.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(0, 1, 0), Math.cos(this.t * 14) * 0.12 * this.crank));
+    }
+    // two-hand hold: swing the upper arms in (local Y; measured: 0.3 rad ≈ 0.156 m per hand) so a short
+    // fish sits in the fists instead of floating between wide-apart hands
+    const want = this.gripSpread == null || this.current !== 'hold_hoist' ? 0 : Math.min(0.36, Math.max(0, (0.64 - this.gripSpread) * 0.96));
+    this.narrow += (want - this.narrow) * Math.min(1, dt * 6);
+    if (this.narrow > 0.002 && b.upper_arm_L && b.upper_arm_R) {
+      b.upper_arm_L.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(0, 1, 0), this.narrow));
+      b.upper_arm_R.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(0, 1, 0), -this.narrow));
     }
     if (this.strain > 0.85 && b.hand_R) b.hand_R.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(1, 0, 0), Math.sin(this.t * 50) * 0.04));
   }

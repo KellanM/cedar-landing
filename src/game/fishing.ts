@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { priceFor, type CaughtFish, type Species } from './fishdata';
+import { priceFor, SPECIES, type CaughtFish, type Species } from './fishdata';
 import { gear, pickSpeciesFor, rollSizeFor } from './progression/gear'; // upgrades: tackle stats
 import type { Hotspot } from '../world/types';
 import { Bobber, LineRibbon } from './tackle';
 import { SplashFX } from './splash';
-import { FishModel } from './fishmodel';
+import { FishModel, shownLength } from './fishmodel';
 
 export type Phase = 'idle' | 'casting' | 'waiting' | 'bite' | 'missed' | 'reeling' | 'landed';
 
@@ -33,8 +33,7 @@ export const FIGHT_FX = {
   leapChance: 0.55, // darter/sprinter breach chance per thrash (× rarity)
   leapHeight: 0.9, // m (+0.35 per rarity step)
   landArc: 0.62, // s from the water to the skipper's hands
-  fishScale: 1.15, // fish drawn at real length × this…
-  minShow: 0.3, // …but never shorter than this (m): a 12 cm perch held overhead must still read; the card has the true size
+  // fish are drawn at their real rolled length (fishmodel.shownLength adds a gentle boost below 35 cm)
 };
 
 const BEHAVIOR = {
@@ -43,10 +42,17 @@ const BEHAVIOR = {
   diver: { every: [2.0, 3.2], len: [1.0, 1.4] },
   sprinter: { every: [1.4, 2.4], len: [0.9, 1.3] },
 } as const;
-const DEPTH = { calm: 0.42, darter: 0.3, diver: 0.22, sprinter: 0.26 } as const;
 const START_DIST = { common: 7, uncommon: 10, rare: 13, legendary: 16 } as const;
 const RSCALE = { common: 1, uncommon: 1.2, rare: 1.5, legendary: 2 } as const;
 const SEA_Y = -0.06;
+/** Hold-up layout (fish_models_study.md §scale). */
+export const HOLD = {
+  handMax: 0.42, // m drawn length: below this, one hand by the face (hold_show); above, two fists overhead (hold_hoist)
+  fist: 0.09, // m from the wrist bone to the top of the closed fist (the belly rests here)
+  grip: 0.03, // m above the wrist for a one-hand hold
+  front: 0.1, // m toward the camera from the hand (in front of the face plane, never inside it)
+  present: 0.82, // flatfish/crab held up: 0 = lying flat, 1 = eyed side square to the camera
+};
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
@@ -101,8 +107,12 @@ export class Fishing {
   private shadowPos = new THREE.Vector3();
   /** where the line meets the fish (reeling) — the camera frames this */
   readonly lineEnd = new THREE.Vector3();
-  /** set by main each frame while landed: the skipper's hands (null → boat deck) */
+  /** set by main each frame while landed: the grip point — both wrists (hoist) or the right wrist (hand); null → boat deck */
   handTarget: THREE.Vector3 | null = null;
+  /** set by main with handTarget: the skipper's head (the one-hand hold keeps the fish beside the face) */
+  headPos: THREE.Vector3 | null = null;
+  /** drawn length (m) of the fish on the line / in hand */
+  shownLen = 0.3;
   private held = 0; // steady float submersion
   private puffT = 0;
   private shedT = 0;
@@ -110,6 +120,8 @@ export class Fishing {
   private leap: { t: number; dur: number; h: number; from: THREE.Vector3; to: THREE.Vector3; kind: 'leap' | 'roll' } | null = null;
   private land_: { t: number; from: THREE.Vector3; done: boolean; fish: CaughtFish | null; perfect: boolean } | null = null;
   private flopT = 0;
+  /** debug/captures: force the next species (id) and landed size (cm) */
+  debugNext: { id: string; size?: number } | null = null;
   private v1 = new THREE.Vector3();
   private v2 = new THREE.Vector3();
   private v3 = new THREE.Vector3();
@@ -124,6 +136,9 @@ export class Fishing {
   }
 
   get active() { return this.phase !== 'idle'; }
+  /** Hold-up layout: small fish (drawn < HOLD.handMax m) are shown in one hand by the face, the rest
+   *  rest across both raised fists. */
+  get holdMode(): 'hand' | 'hoist' { return this.shownLen < HOLD.handMax ? 'hand' : 'hoist'; }
   get rarityScale() { return this.species ? RSCALE[this.species.rarity] : 1; }
 
   /** Start a cast toward the hotspot. */
@@ -160,6 +175,7 @@ export class Fishing {
     this.t = 0;
     this.held = 0;
     this.species = pickSpeciesFor(this.hotspot); // line depth gates, bait biases
+    if (this.debugNext) this.species = SPECIES.find((s) => s.id === this.debugNext!.id) ?? this.species;
     const ang = Math.random() * Math.PI * 2;
     this.shadowFrom.set(this.bobberPos.x + Math.cos(ang) * 6, 0.01, this.bobberPos.z + Math.sin(ang) * 6);
     this.shadowPos.copy(this.shadowFrom);
@@ -174,8 +190,9 @@ export class Fishing {
     const big = this.species.rarity === 'common' ? 1 : this.species.rarity === 'uncommon' ? 1.4 : 1.9;
     this.shadow.scale.setScalar(0.8 * big);
     const L = (this.species.size[0] + this.species.size[1]) / 200;
-    this.fish.setLook(this.species.color, DEPTH[this.species.behavior]);
-    this.fish.group.scale.setScalar(Math.max(FIGHT_FX.minShow, L) * FIGHT_FX.fishScale);
+    void this.fish.setSpecies(this.species.id); // lazy: the plate-derived model loads while the float waits
+    this.fish.setLength(L);
+    this.shownLen = shownLength(L);
   }
   private biteAt = 0;
   private approachDur = 2;
@@ -422,6 +439,8 @@ export class Fishing {
     const k = Math.min(1, L.t / L.dur);
     const g = this.fish.group;
     this.v2.copy(L.from).lerp(L.to, k);
+    this.fish.leap = L.kind === 'leap' ? Math.sin(k * Math.PI) : 0.25;
+    this.fish.present = 0;
     if (L.kind === 'leap') {
       const y = SEA_Y + Math.sin(k * Math.PI) * L.h;
       g.position.set(this.v2.x, y, this.v2.z);
@@ -439,13 +458,14 @@ export class Fishing {
       if (L.kind === 'leap') { this.fx.burst(L.to.x, L.to.z, 0.75 * this.rarityScale, Math.round(16 * this.rarityScale)); this.ev.breach?.(L.to.x, L.to.z, this.rarityScale); }
       else this.fx.ring(L.to.x, L.to.z, 0.5);
       this.leap = null;
+      this.fish.leap = 0;
       if (!this.land_) this.fish.group.visible = false;
     }
   }
 
   private land() {
     const sp = this.species!;
-    const size = rollSizeFor(sp);
+    const size = this.debugNext?.size ?? rollSizeFor(sp);
     const perfect = this.maxTension <= T.perfectMax && this.slips === 0;
     const big = (size - sp.size[0]) / Math.max(1, sp.size[1] - sp.size[0]) >= 0.7;
     const stars = 1 + (big ? 1 : 0) + (perfect ? 1 : 0);
@@ -455,7 +475,8 @@ export class Fishing {
     const fish: CaughtFish = { speciesId: sp.id, name: sp.name, size, stars, price: priceFor(sp, size, stars), color: sp.color, rarity: sp.rarity, releaseOnly: sp.releaseOnly };
     // the fish breaches beside the hull and arcs up into the skipper's hands
     const R = this.rarityScale;
-    this.fish.group.scale.setScalar(Math.max(FIGHT_FX.minShow, size / 100) * FIGHT_FX.fishScale);
+    this.fish.setLength(size / 100);
+    this.shownLen = shownLength(size / 100);
     this.fish.group.visible = true;
     this.fish.flop(0.9);
     this.land_ = { t: 0, from: this.shadowPos.clone().setY(SEA_Y), done: false, fish, perfect };
@@ -475,6 +496,8 @@ export class Fishing {
       g.position.copy(L.from).lerp(target, e);
       g.position.y += Math.sin(k * Math.PI) * 1.4;
       g.rotation.set(0, Math.atan2(-(target.z - L.from.z), target.x - L.from.x), (0.5 - k) * 1.6);
+      this.fish.leap = Math.sin(k * Math.PI) * 0.8;
+      this.fish.present = HOLD.present * k;
       if (Math.random() < dt * 30) this.fx.throwAt(g.position.x, g.position.y, g.position.z, 0, 0, 0, 1, 0.5, 0.45);
       if (k >= 1) {
         L.done = true;
@@ -484,10 +507,8 @@ export class Fishing {
         this.ev.landed(L.fish!, this.species!, L.perfect);
       }
     } else {
-      // held up: the fish lies across the hands, broadside to the camera, flopping now and then
-      g.position.copy(target);
-      const cx = this.camPos.x - target.x, cz = this.camPos.z - target.z;
-      g.rotation.set(0, Math.atan2(cx, cz), 0.12); // nose across the view: broadside to the camera
+      // held up, broadside to the camera, flopping now and then
+      this.placeHeld(g, target);
       this.flopT -= dt;
       if (this.flopT <= 0) {
         this.flopT = rand(0.8, 1.4);
@@ -495,6 +516,41 @@ export class Fishing {
         this.fx.throwAt(target.x, target.y, target.z, 0, 0.6, 0, 3, 0.8, 0.4);
       }
     }
+  }
+
+  /** World point a little above the held fish (catch bubble anchor). */
+  fishTop(out: THREE.Vector3) {
+    const b = this.fish.bounds, g = this.fish.group;
+    return out.copy(g.position).setY(g.position.y + (b ? b.yMax : 0.2) * g.scale.x + 0.12);
+  }
+
+  /** Rest the fish on the fists (hoist) or in the right hand beside the face (hand). */
+  private placeHeld(g: THREE.Object3D, grip: THREE.Vector3) {
+    const fm = this.fish, b = fm.bounds, s = g.scale.x;
+    fm.leap = 0;
+    fm.present = HOLD.present;
+    const cx = this.camPos.x - grip.x, cz = this.camPos.z - grip.z;
+    let yaw = Math.atan2(cx, cz); // local +Z (the plate side) toward the camera, nose to screen right
+    const bottom = (b ? b.belly : 0.1) * s; // hold point → belly (fins hang in front of the fists)
+    if (this.holdMode === 'hoist' || !this.headPos) {
+      g.position.copy(grip);
+      g.position.y += HOLD.fist + bottom * (fm.isFlat ? 0.85 : 0.9);
+      g.rotation.set(0, yaw, 0.08);
+      return;
+    }
+    // one hand by the face (hold_show raises the right hand to the cheek): the fish is gripped behind
+    // the gills with its nose turned to the skipper's face, the body sticking out away from the head,
+    // a little in front of the face plane so it never sinks into the head
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw); // camera-right on the ground plane
+    const h = this.headPos;
+    const out = (grip.x - h.x) * rx + (grip.z - h.z) * rz >= 0 ? 1 : -1;
+    const noseOut = fm.isFlat ? 1 : -out; // flatfish/crab keep the eyed side (and nose right) to the camera
+    if (noseOut < 0) yaw += Math.PI;
+    // hold point (42 % from the snout) sits 0.12 L tailward of the grip (30 %); flat/crab: centred out
+    const along = fm.isFlat ? (0.5 * s + 0.04) * out : -0.12 * s * noseOut;
+    const camDx = this.camPos.x - grip.x, camDz = this.camPos.z - grip.z, cl = Math.hypot(camDx, camDz) || 1;
+    g.position.set(grip.x + rx * along + (camDx / cl) * HOLD.front, grip.y + HOLD.grip, grip.z + rz * along + (camDz / cl) * HOLD.front);
+    g.rotation.set(0, yaw, 0.12 * noseOut);
   }
 
   /** Called after the catch card closes. */
@@ -506,6 +562,8 @@ export class Fishing {
     if (this.phase === 'missed') this.startApproach();
     if (this.phase === 'waiting') { this.biteAt = this.t; this.nibbles = []; }
   }
+  /** Debug: reel the fish straight in (captures). */
+  debugLand() { if (this.phase === 'reeling') this.distance = -1; }
   /** Debug: force a thrash now (captures). */
   debugThrash() { if (this.phase === 'reeling' && !this.thrashing) this.nextThrash = this.t; }
 }

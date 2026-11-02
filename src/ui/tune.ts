@@ -30,10 +30,10 @@ const FISH_KEY = 'salish-fish-tune-v1';
 const FISH_DEFAULT = { cam: { ...FISH_CAM }, fx: { ...FIGHT_FX }, tackle: { ...TACKLE_TUNING }, spot: { ...HOTSPOT_FX } };
 const FISH_CAM_RANGES: Record<keyof typeof FISH_CAM, [number, number, number]> = {
   frame: [0, 1, 0.02], sideOn: [0, 90, 1], sideOnPortrait: [0, 90, 1], sideBlend: [0, 1, 0.05], zoomFar: [0.5, 1.3, 0.01], zoomNear: [0.4, 1.2, 0.01],
-  punch: [0, 1.5, 0.05], fovPunch: [0, 10, 0.5], shake: [0, 0.3, 0.01], lean: [0, 3, 0.1], landDist: [2, 10, 0.1], landSide: [0, 80, 1], landFov: [30, 70, 1], landIn: [0.2, 2, 0.05],
+  punch: [0, 1.5, 0.05], fovPunch: [0, 10, 0.5], shake: [0, 0.3, 0.01], lean: [0, 3, 0.1], landDist: [2, 10, 0.1], landNear: [1.2, 5, 0.1], landSide: [0, 80, 1], landFov: [30, 70, 1], landIn: [0.2, 2, 0.05],
 };
 const FIGHT_RANGES: Record<keyof typeof FIGHT_FX, [number, number, number]> = {
-  thrashDisc: [0.05, 0.6, 0.01], shedRate: [0.02, 0.4, 0.01], shedTension: [0, 1, 0.05], leapChance: [0, 1, 0.05], leapHeight: [0.2, 2.5, 0.05], landArc: [0.2, 1.5, 0.02], fishScale: [0.5, 3, 0.05], minShow: [0.1, 0.8, 0.02],
+  thrashDisc: [0.05, 0.6, 0.01], shedRate: [0.02, 0.4, 0.01], shedTension: [0, 1, 0.05], leapChance: [0, 1, 0.05], leapHeight: [0.2, 2.5, 0.05], landArc: [0.2, 1.5, 0.02],
 };
 const TACKLE_RANGES: Record<keyof typeof TACKLE_TUNING, [number, number, number]> = { bobberScale: [0.5, 3, 0.05], screenFloor: [5, 30, 0.5], lineWidth: [0.0005, 0.006, 0.0001] };
 const SPOT_RANGES: Record<keyof typeof HOTSPOT_FX, [number, number, number]> = { churn: [0.3, 2, 0.05], clearR: [0, 3, 0.05], drawDist: [60, 500, 10] };

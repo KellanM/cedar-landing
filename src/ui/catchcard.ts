@@ -26,6 +26,8 @@ const shell = () => `<span class="ico">${ICONS.shell}</span>`;
  */
 export const catchHooks = {
   holdUp: (_fish: CaughtFish): Promise<void> | void => undefined,
+  /** world point just above the held fish (the catch bubble sits there instead of over the boat) */
+  bubbleAt: (): THREE.Vector3 | null => null,
 };
 
 // ------------------------------------------------------------------ SpecimenCard (generic)
@@ -188,7 +190,8 @@ export function showCard(fish: CaughtFish, sp: Species, stamp: 'NEW!' | 'RECORD!
     if (my !== seq) return;
     const at = (ms: number, f: () => void) => timers.push(window.setTimeout(() => { if (my === seq) f(); }, reduceMotion() ? Math.min(ms, 150) : ms));
     const boatAnchor = () => new THREE.Vector3(ctx.boat.x, 0.6, ctx.boat.z);
-    at(300, () => bubble(`${fish.name}! ${fish.size.toFixed(1)} cm`, boatAnchor, { ms: tierB ? 1800 : 3200, cls: 'catch', key: 'catch', pre: fishGlyph(fish.speciesId) }));
+    const held = catchHooks.bubbleAt();
+    at(300, () => bubble(`${fish.name}! ${fish.size.toFixed(1)} cm`, held ? () => catchHooks.bubbleAt() ?? boatAnchor() : boatAnchor, { lift: held ? 0 : undefined, ms: tierB ? 1800 : 3200, cls: 'catch', key: 'catch', pre: fishGlyph(fish.speciesId) }));
     if (!tierB) { at(600, () => showSlip(fish, coolerFull)); return; }
     at(900, () => { killBubble('catch'); showCatchCard(fish, sp, stamp, coolerFull, perfect); });
   });
