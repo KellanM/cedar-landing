@@ -25,6 +25,7 @@ import { mountVersionStamp } from './version';
 mountVersionStamp();
 import { initTuneOverlay } from './ui/tune';
 import { OnFoot, type FootContext } from './game/onfoot/onfoot';
+import { NpcCrowd } from './game/npcs/npcs';
 import { FOOT_CAM } from './game/onfoot/footcamera';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -119,11 +120,15 @@ const foot = new OnFoot({
   persist: (s) => { save.onfoot = s; writeSave(save); },
   landNear: (x, z, r) => !!land && land.hitsCircle(x, z, r),
 });
+foot.onTalk = (name) => crowd?.react(name);
 let footCtx: FootContext | null = null;
 let ashoreOnAction: FootContext | null = null;
 
 // ---------------------------------------------------------------- world
+let crowd: NpcCrowd | null = null;
 function disposeWorld() {
+  crowd?.dispose();
+  crowd = null;
   wildlife?.dispose();
   wildlife = null;
   floaters = null;
@@ -148,6 +153,9 @@ function installWorld(w: LoadedWorld) {
   buildWildlife();
   floaters = w.dynamic?.length ? new Floaters(w.dynamic) : null;
   if (floaters) worldRoot.add(floaters.group);
+  // rigged NPCs (world/npcs.glb); older exports bake their NPCs into the chunks and have none
+  crowd = w.npcs ? new NpcCrowd(w.npcs, w.gameplay.npcs ?? []) : null;
+  if (crowd) scene.add(crowd.group); // not in worldRoot: the capture 'isolate' mode hides worldRoot only
 
   const model = w.boat ?? placeholderBoat();
   if (!boat) { boat = new Boat(model); scene.add(boat.root); } else boat.setModel(model);
@@ -471,9 +479,23 @@ function cull() {
 // ---------------------------------------------------------------- loop
 let last = performance.now();
 let fpsAcc = 0, fpsFrames = 0, fps = 0;
+/** Test hooks: a fixed-step clock (captures step exact frames) and a camera override. */
+let stepClock: { dt: number; steps: number } | null = null;
+let debugCam: { pos?: THREE.Vector3; target?: THREE.Vector3; follow?: { side: number; back: number; up: number; look: number }; fov: number; near: number } | null = null;
+function applyDebugCam() {
+  const d = debugCam;
+  if (!d) return;
+  if (d.follow && foot.active) {
+    const f = foot.feet, y = foot.yaw, fx = -Math.sin(y), fz = -Math.cos(y), rx = Math.cos(y), rz = -Math.sin(y);
+    camera.position.set(f.x + rx * d.follow.side - fx * d.follow.back, f.y + d.follow.up, f.z + rz * d.follow.side - fz * d.follow.back);
+    camera.lookAt(f.x, f.y + d.follow.look, f.z);
+  } else if (d.pos && d.target) { camera.position.copy(d.pos); camera.lookAt(d.target); }
+  if (camera.fov !== d.fov || camera.near !== d.near) { camera.fov = d.fov; camera.near = d.near; camera.updateProjectionMatrix(); }
+}
 function frame(now: number) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  let dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  if (stepClock) { if (stepClock.steps > 0) { stepClock.steps--; dt = stepClock.dt; } else dt = 0; }
   input.update();
 
   if (world && !hud.paused()) {
@@ -521,11 +543,13 @@ function frame(now: number) {
     smoke?.update(dt, camera.position, boat.stackWorld(stackPos), Math.max(Math.abs(throttle), Math.abs(boat.speed) / BOAT_TUNING.maxSpeed));
     fogBanks?.update(dt, camera.position);
     floaters?.update(dt, camera.position);
+    crowd?.update(dt, camera.position, foot.active ? foot.feet : null);
     cull();
     updateUI(dt);
   }
 
   updateLighting(dt);
+  applyDebugCam();
   renderer.render(scene, camera);
 
   fpsAcc += dt; fpsFrames++;
@@ -564,7 +588,7 @@ window.__debug = {
       tod: todKeys[todIndex], nearestHotspot: nearestHotspot()?.hs.name, nearestHotspotDist: nearestHotspot()?.d,
       wildlife: wildlife ? { ...wildlife.birds.stats(), ms: +wildlife.cost.toFixed(3), squawks } : null,
       fx: { smokeEmitters: smoke?.emitterCount ?? 0, floaters: floaters?.count ?? 0, fogBanks: fogBanks?.mesh.visible ? fogBanks.mesh.count : 0 },
-      interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, inShot: chase.inShot, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
+      interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, npcAnim: crowd ? { ...crowd.stats, ms: +crowd.stats.ms.toFixed(3) } : null, inShot: chase.inShot, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
     };
   },
   key: (k: string, down: boolean) => input.setKey(k, down),
@@ -586,6 +610,20 @@ window.__debug = {
   footWalkTo: (x: number | null, z = 0) => foot.setAutoWalk(x, z),
   footPathTo: (x: number, z: number) => foot.setAutoPath(x, z),
   footCam: FOOT_CAM,
+  /** Freeze the sim clock (true) and step it in fixed 1/60 s ticks with advance(ms); false = real time. */
+  clock: (fixed: boolean) => { stepClock = fixed ? { dt: 1 / 60, steps: 0 } : null; },
+  advance: (ms: number) => { if (stepClock) stepClock.steps += Math.round(ms / (1000 * stepClock.dt)); return stepClock?.steps ?? -1; },
+  stepsLeft: () => stepClock?.steps ?? 0,
+  /** Hold the camera: { pos, target } world points, or follow the on-foot player { side, back, up, look }; null = normal. */
+  cam: (c: { pos?: [number, number, number]; target?: [number, number, number]; follow?: { side: number; back: number; up: number; look: number }; fov?: number; near?: number } | null) => {
+    if (!c) { debugCam = null; camera.fov = 55; camera.near = 0.3; camera.updateProjectionMatrix(); return; }
+    // near > 0.3 clips foreground clutter (posts, walls) between a capture camera and its subject
+    debugCam = { pos: c.pos && new THREE.Vector3(...c.pos), target: c.target && new THREE.Vector3(...c.target), follow: c.follow, fov: c.fov ?? 40, near: c.near ?? 0.3 };
+  },
+  footFace: (yaw: number) => { foot.yaw = yaw; },
+  /** Studio mode for animation captures: hide the scenery (collision still works), keep player + NPCs. */
+  isolate: (on: boolean) => { worldRoot.visible = !on; },
+  npcs: () => world?.gameplay.npcs?.map((n) => ({ name: n.name, pos: n.pos, rotY: n.rotY, role: n.props?.npc_role, pose: n.props?.npc_pose })),
   footTeleport: (x: number, z: number, y = 3) => { if (!foot.active) return false; foot.restore({ x, y, z, yaw: foot.yaw }); return foot.debugState; },
   footProbe: (x: number, z: number, y = 3, up = 3, down = 6) => foot.world.groundAt(x, z, y, up, down),
   footPush: (x: number, z: number, y: number) => foot.world.pushOut(new THREE.Vector3(x, y, z), 0.28, 1.65),

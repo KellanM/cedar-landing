@@ -95,7 +95,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
   let instances: Instances = { protos: {} };
   try { instances = await getJSON<Instances>('instances.json', version); } catch (e) { console.warn('[world] no instances.json', e); }
 
-  const total = manifest.chunks.length + manifest.backdrops.length + (manifest.clouds ? 1 : 0) + (manifest.protos ? 1 : 0) + (manifest.dynamic ? 1 : 0);
+  const total = manifest.chunks.length + manifest.backdrops.length + (manifest.clouds ? 1 : 0) + (manifest.protos ? 1 : 0) + (manifest.dynamic ? 1 : 0) + (manifest.npcs ? 1 : 0);
   let done = 0;
   const tick = (what: string) => progress(what, ++done / Math.max(1, total));
 
@@ -187,5 +187,11 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
     tick('Growing the forests…');
   }
 
-  return { source: 'export', chunks, backdrops, clouds, dynamic, protos, instances, boat, gameplay };
+  let npcs: THREE.Object3D | null = null;
+  if (manifest.npcs) {
+    try { npcs = (await loadGLB(manifest.npcs, version)).scene; } catch (e) { console.warn('[world] npcs failed', e); }
+    tick('Waking the village…');
+  }
+
+  return { source: 'export', chunks, backdrops, clouds, dynamic, protos, instances, boat, gameplay, npcs };
 }

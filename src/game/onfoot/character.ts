@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { worldMat } from '../../render/materials';
+import { Spring } from '../npcs/rigpose';
 
 /**
  * The skipper on foot. Loads `public/models/skipper.glb` (rigged, 15 bones) when
@@ -151,6 +152,12 @@ export class PlayerCharacter {
         fwd: new THREE.Vector3(0, 0, -1).applyQuaternion(inv),
       };
     }
+    // stride from the real hip height (rigs differ: placeholder 0.78 m, skipper.glb ~0.75 m)
+    const hip = objs.legL ?? objs.hips;
+    if (hip) {
+      const hy = hip.getWorldPosition(new THREE.Vector3()).y - this.root.getWorldPosition(new THREE.Vector3()).y;
+      if (hy > 0.3 && hy < 1.4) this.legLen = hy;
+    }
   }
 
   private async tryLoadGlb() {
@@ -208,42 +215,87 @@ export class PlayerCharacter {
     if (yaw) jn.obj.quaternion.multiply(this.q.setFromAxisAngle(jn.up, yaw));
   }
 
+  // ---- gait state (docs/study/people_animation.md, experiment E2)
+  private lastSpeed = 0;
+  private accelS = new Spring(0, 9, 0.45); // start/stop lean: under-damped so a stop overshoots, then settles
+  private headLag = new Spring(0, 16, 0.55); // head trails the body bob (overlap)
+  private armLag = new Spring(0, 14, 0.7); // arm swing trails the legs (overlap)
+  private bodyRoll = new Spring(0, 8, 0.8); // lean into turns
+  private glance = { t: 3, yaw: 0 };
+  private glanceS = new Spring(0, 6, 0.9);
+  /** hip-joint height above the soles (m); sets the stride so feet don't skate */
+  legLen = 0.8;
+
   update(dt: number, a: AnimInput) {
     this.t += dt;
-    const moving = Math.min(1, a.speed / 1.2);
-    this.moveBlend += (moving - this.moveBlend) * Math.min(1, dt * 10);
+    const moving = Math.min(1, a.speed / 0.9);
+    this.moveBlend += (moving - this.moveBlend) * Math.min(1, dt * 9);
     const mb = this.moveBlend;
-    const stride = THREE.MathUtils.lerp(1.15, 1.9, a.runFrac); // metres per full cycle
+    const run = a.runFrac;
+    // Two key poses (contact / passing) driven by distance travelled, not time (Rosen's stride wheel).
+    // Leg swing amplitude A gives a foot excursion of ~2·L·sin(A) per step; a cycle is two steps.
+    const legAmp = THREE.MathUtils.lerp(0.42, 0.72, run);
+    const stride = 4 * this.legLen * Math.sin(legAmp) * 0.92; // metres per full cycle
     const prev = this.phase;
     this.phase += (a.speed * dt / stride) * Math.PI * 2;
-    // footfall when sin(phase) crosses zero
     if (a.speed > 0.3 && Math.floor(prev / Math.PI) !== Math.floor(this.phase / Math.PI)) this.onStep?.(a.speed);
     const ph = this.phase;
-    const s = Math.sin(ph);
-    const legAmp = THREE.MathUtils.lerp(0.5, 0.85, a.runFrac) * mb;
-    const knee = THREE.MathUtils.lerp(0.45, 1.0, a.runFrac) * mb;
-    this.pose('legL', s * legAmp);
-    this.pose('legR', -s * legAmp);
-    this.pose('shinL', -knee * Math.max(0, Math.sin(ph + 1.9)) - 0.05);
-    this.pose('shinR', -knee * Math.max(0, Math.sin(ph + 1.9 + Math.PI)) - 0.05);
-    const armAmp = THREE.MathUtils.lerp(0.45, 0.8, a.runFrac) * mb;
-    const breathe = Math.sin(this.t * 1.7) * (1 - mb);
-    this.pose('armL', -s * armAmp + 0.04 * breathe, 0.1 + 0.03 * breathe);
-    this.pose('armR', s * armAmp + 0.04 * breathe, -0.1 - 0.03 * breathe);
-    const elbow = 0.2 + THREE.MathUtils.lerp(0.25, 1.1, a.runFrac) * mb;
-    this.pose('foreL', elbow);
-    this.pose('foreR', elbow);
-    const lean = -(0.06 + 0.12 * a.runFrac) * mb;
-    this.pose('spine', lean + 0.025 * breathe, THREE.MathUtils.clamp(-a.turn * 0.06, -0.15, 0.15), -s * 0.12 * mb);
-    this.pose('hips', 0, 0, s * 0.1 * mb);
-    // Head: look toward targets, counter the torso lean.
+    const s = Math.sin(ph); // +1 = left leg forward contact, 0 = passing
+    const c = Math.cos(ph);
+    // legs: stance knee softens just after contact; swing knee folds most at passing
+    const swingKneeL = Math.max(0, Math.sin(ph + 1.75)), swingKneeR = Math.max(0, Math.sin(ph + 1.75 + Math.PI));
+    const knee = THREE.MathUtils.lerp(0.75, 1.35, run) * mb;
+    const absorb = 0.05 * mb;
+    this.pose('legL', s * legAmp * mb);
+    this.pose('legR', -s * legAmp * mb);
+    this.pose('shinL', -knee * swingKneeL - absorb * Math.max(0, Math.sin(ph - 1.2)) - 0.04);
+    this.pose('shinR', -knee * swingKneeR - absorb * Math.max(0, Math.sin(ph - 1.2 + Math.PI)) - 0.04);
+    // arms counter-swing, lagging the legs (overlap); elbows bend more on the forward swing (follow-through)
+    const armAmp = THREE.MathUtils.lerp(0.38, 0.75, run) * mb;
+    const arm = this.armLag.step(s, dt);
+    const breathe = Math.sin(this.t * (Math.PI * 2 / 3.8));
+    const idle = 1 - mb;
+    const shift = Math.sin(this.t * (Math.PI * 2 / 9.5)) + 0.3 * Math.sin(this.t * (Math.PI * 2 / 4.1) + 1.1); // weight shift
+    this.pose('armL', -arm * armAmp + 0.035 * breathe * idle, 0.09 + 0.025 * breathe * idle);
+    this.pose('armR', arm * armAmp + 0.035 * breathe * idle, -0.09 - 0.025 * breathe * idle);
+    const elbowBase = 0.22 + THREE.MathUtils.lerp(0.1, 1.05, run) * mb;
+    this.pose('foreL', elbowBase + Math.max(0, -arm) * 0.35 * mb);
+    this.pose('foreR', elbowBase + Math.max(0, arm) * 0.35 * mb);
+    // start/stop: lean into acceleration; on a sudden stop the torso carries forward then settles back
+    const acc = dt > 0 ? (a.speed - this.lastSpeed) / dt : 0;
+    this.lastSpeed = a.speed;
+    const accLean = this.accelS.step(THREE.MathUtils.clamp(Math.abs(acc) * 0.018, 0, 0.16), dt);
+    const lean = -(0.05 + 0.13 * run) * mb - accLean;
+    // turning: bank the whole body into the turn (scaled by speed), spine adds a little
+    const bank = this.bodyRoll.step(THREE.MathUtils.clamp(-a.turn * a.speed * 0.022, -0.16, 0.16), dt);
+    // pelvis: yaw with the forward leg, drop on the swing side; chest counter-rotates
+    this.pose('hips', 0, (c * 0.05 * mb) + shift * 0.035 * idle, s * 0.13 * mb);
+    this.pose('spine', lean + 0.022 * breathe * idle, THREE.MathUtils.clamp(-a.turn * 0.05, -0.12, 0.12) - c * 0.04 * mb - shift * 0.025 * idle, -s * 0.17 * mb);
+    // head: looks at targets, otherwise glances around when idle; stays level against the body lean
+    this.glance.t -= dt;
+    if (this.glance.t <= 0) {
+      this.glance.t = 2.5 + Math.random() * 4.5;
+      this.glance.yaw = Math.random() < 0.4 ? 0 : (Math.random() - 0.5) * 1.1;
+    }
+    const gl = this.glanceS.step(Math.abs(a.lookYaw) > 0.01 || mb > 0.3 ? 0 : this.glance.yaw, dt);
     this.lookYaw += (a.lookYaw - this.lookYaw) * Math.min(1, dt * 5);
-    this.pose('head', -lean * 0.6 + 0.04 * Math.sin(this.t * 0.8) * (1 - mb), 0, this.lookYaw);
-
-    // Sneaky-Sasquatch bounce: a hop on every step + squash on landing; airborne stretch.
-    const bounce = Math.abs(s) * THREE.MathUtils.lerp(0.045, 0.1, a.runFrac) * mb;
-    const squash = 1 + (Math.abs(Math.cos(ph)) - 0.5) * 0.09 * mb + 0.012 * breathe + a.airborne * 0.08;
-    this.body.position.y = bounce;
+    // body bob: lowest at contact (legs apart), highest at passing; flatter when running (Rosen: half the step
+    // time, a quarter of the fall), with a short flight bump for the run
+    const bobA = THREE.MathUtils.lerp(0.008, 0.03, run) * mb; // run: a little flight at passing
+    // Ground contact without foot IK: the hip joint stays at the rig's height, so a leg swung by angle θ lifts its
+    // sole by L·(1−cos θ). Dropping the body by that amount keeps the planted foot on the deck at every phase
+    // (both feet at contact, the stance foot at passing) — which is also the natural low-at-contact bob.
+    const legAng = Math.abs(s) * legAmp * mb;
+    const plant = -this.legLen * (1 - Math.cos(legAng));
+    const bob = plant + bobA * (0.5 + 0.5 * Math.cos(2 * ph)); // small extra lift at passing
+    const hl = this.headLag.step(bob, dt); // head trails the bob
+    this.pose('head', -lean * 0.65 + 0.03 * Math.sin(this.t * 0.8) * idle + (hl - bob) * 2.2, 0, this.lookYaw + gl);
+    // squash at contact, a touch of stretch at passing; airborne stretch for hops
+    const contact = Math.pow(Math.abs(s), 6) * mb;
+    const squash = 1 - 0.035 * contact + 0.012 * (1 - Math.abs(s)) * mb + 0.008 * breathe * idle + a.airborne * 0.07;
+    this.body.position.y = bob - 0.012 * idle * (1 - breathe) * 0.3;
+    this.body.position.x = c * 0.022 * mb + shift * 0.01 * idle; // weight over the stance foot
+    this.body.rotation.z = bank;
     this.body.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash));
   }
 }

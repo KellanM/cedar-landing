@@ -37,7 +37,7 @@ export interface BirdSpawn {
 
 export interface Buoy { name: string; pos: Vec3; side?: string }
 export interface CameraShot { name: string; pos: Vec3; target: Vec3; fov?: number }
-export interface Npc { name?: string; npc_name?: string; pos: Vec3; rotY?: number; role?: string; props?: Record<string, unknown> }
+export interface Npc { name?: string; npc_name?: string; pos: Vec3; rotY?: number; role?: string; props?: Record<string, unknown>; rig?: boolean; idle?: string }
 
 export interface TimeOfDay {
   zenith: string;
@@ -88,6 +88,8 @@ export interface Manifest {
   protos?: string;
   /** world/dynamic.glb: bobbing buoys/boats/kelp (floaters.ts) and flutter flags (flutterMat) */
   dynamic?: string;
+  /** world/npcs.glb: rigged NPCs (one armature node per NPC, extras npc_idle / rig_rest_params) animated by game/npcs */
+  npcs?: string;
 }
 
 /** instances.json: [x,y,z, qx,qy,qz,qw, s] per instance (older rotY form [x,y,z,rotY,s] also accepted). */
@@ -107,4 +109,6 @@ export interface LoadedWorld {
   gameplay: Gameplay;
   /** world/dynamic.glb nodes (buoys, moored boats, flotsam, kelp) animated by game/floaters.ts */
   dynamic?: THREE.Object3D[];
+  /** world/npcs.glb scene (rigged NPCs); absent with older exports, whose NPCs are baked into the chunks */
+  npcs?: THREE.Object3D | null;
 }

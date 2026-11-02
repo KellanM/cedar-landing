@@ -82,6 +82,8 @@ export class OnFoot {
   private returnBlend: { pos: THREE.Vector3; q: THREE.Quaternion; t: number } | null = null;
   lastSpeed = 0;
   steps = 0;
+  /** Fires when the player talks to an NPC (gameplay name): the NPC animator turns / nods / waves. */
+  onTalk: ((name: string) => void) | null = null;
 
   constructor(private host: FootHost) {
     injectFootCss();
@@ -309,6 +311,7 @@ export class OnFoot {
     const key = n.name ?? npcDisplayName(n);
     const k = this.talkCount.get(key) ?? 0;
     this.talkCount.set(key, k + 1);
+    if (n.name) this.onTalk?.(n.name);
     const role = String(n.props?.npc_role ?? n.role ?? '');
     this.bubble.say(npcDisplayName(n), npcLine(n, k), new THREE.Vector3(n.pos[0], n.pos[1] + (role === 'cat' ? 0.6 : 2.05), n.pos[2]));
   }
