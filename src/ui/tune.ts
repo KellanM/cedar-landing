@@ -3,6 +3,16 @@ import { CAMERA_TUNING, FISH_CAM } from '../game/camera';
 import { FIGHT_FX } from '../game/fishing';
 import { TACKLE_TUNING } from '../game/tackle';
 import { HOTSPOT_FX } from '../game/hotspots';
+import { WATER_TUNE } from '../render/sea';
+
+// water study (docs/water_study.md): sea crests, shore foam, shallows, glints, swell, wind lines
+const WATER_KEY = 'salish-water-tune-v1';
+const WATER_DEFAULT = { ...WATER_TUNE };
+const WATER_RANGES: Record<keyof typeof WATER_TUNE, [number, number, number]> = {
+  crest: [0, 1, 0.05], crestDensity: [0, 1, 0.05], crestScale: [0.5, 1.6, 0.05], crestSpeed: [0, 1.5, 0.05], crestFar: [30, 200, 5],
+  shore: [0, 1, 0.05], surfPeriod: [2, 12, 0.25], surfReach: [1, 8, 0.1], shallow: [0, 1, 0.05], shallowDepth: [1, 12, 0.25],
+  glint: [0, 2, 0.05], glintCone: [0.6, 0.98, 0.01], swell: [0, 0.08, 0.005], windLines: [0, 1, 1],
+};
 
 // fishing polish (docs/study/fishing_polish.md): camera framing/juice, fight VFX, float, spot marker
 const FISH_KEY = 'salish-fish-tune-v1';
@@ -45,6 +55,7 @@ export function initTuneOverlay() {
     const f = JSON.parse(localStorage.getItem(FISH_KEY) ?? '{}');
     Object.assign(FISH_CAM, f.cam ?? {}); Object.assign(FIGHT_FX, f.fx ?? {}); Object.assign(TACKLE_TUNING, f.tackle ?? {}); Object.assign(HOTSPOT_FX, f.spot ?? {});
   } catch { /* ignore */ }
+  try { Object.assign(WATER_TUNE, JSON.parse(localStorage.getItem(WATER_KEY) ?? '{}')); } catch { /* ignore */ }
   const saveFish = () => localStorage.setItem(FISH_KEY, JSON.stringify({ cam: FISH_CAM, fx: FIGHT_FX, tackle: TACKLE_TUNING, spot: HOTSPOT_FX }));
 
   const panel = document.createElement('div');
@@ -64,10 +75,10 @@ export function initTuneOverlay() {
   btn('–', () => { body.style.display = body.style.display === 'none' ? '' : 'none'; });
   btn('reset', () => {
     Object.assign(BOAT_TUNING, BOAT_T0); Object.assign(CAMERA_TUNING, CAM_DEFAULT);
-    Object.assign(FISH_CAM, FISH_DEFAULT.cam); Object.assign(FIGHT_FX, FISH_DEFAULT.fx); Object.assign(TACKLE_TUNING, FISH_DEFAULT.tackle); Object.assign(HOTSPOT_FX, FISH_DEFAULT.spot);
-    localStorage.removeItem(KEY); localStorage.removeItem(CAM_KEY); localStorage.removeItem(FISH_KEY); render();
+    Object.assign(FISH_CAM, FISH_DEFAULT.cam); Object.assign(FIGHT_FX, FISH_DEFAULT.fx); Object.assign(TACKLE_TUNING, FISH_DEFAULT.tackle); Object.assign(HOTSPOT_FX, FISH_DEFAULT.spot); Object.assign(WATER_TUNE, WATER_DEFAULT);
+    localStorage.removeItem(WATER_KEY); localStorage.removeItem(KEY); localStorage.removeItem(CAM_KEY); localStorage.removeItem(FISH_KEY); render();
   });
-  btn('copy', () => { navigator.clipboard?.writeText(JSON.stringify({ BOAT_TUNING, CAMERA_TUNING, FISH_CAM, FIGHT_FX, TACKLE_TUNING, HOTSPOT_FX }, null, 2)).catch(() => {}); });
+  btn('copy', () => { navigator.clipboard?.writeText(JSON.stringify({ BOAT_TUNING, CAMERA_TUNING, FISH_CAM, FIGHT_FX, TACKLE_TUNING, HOTSPOT_FX, WATER_TUNE }, null, 2)).catch(() => {}); });
   panel.append(head, body);
 
   function section(title: string, obj: Record<string, number>, ranges: Record<string, [number, number, number]>, key: string | (() => void)) {
@@ -104,6 +115,7 @@ export function initTuneOverlay() {
     section('Fight FX', FIGHT_FX as Record<string, number>, FIGHT_RANGES, saveFish);
     section('Float + line', TACKLE_TUNING as Record<string, number>, TACKLE_RANGES, saveFish);
     section('Fishing spot', HOTSPOT_FX as Record<string, number>, SPOT_RANGES, saveFish);
+    section('Water', WATER_TUNE as Record<string, number>, WATER_RANGES, WATER_KEY);
   }
   render();
   document.body.appendChild(panel);

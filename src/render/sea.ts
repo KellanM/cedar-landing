@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { TimeOfDay } from '../world/types';
 import type { ShoreField } from './shorefield';
 import { LIGHT_U } from './lighting';
+import { WindLines } from './windlines';
 
 /**
  * Stylised sea (docs/water_study.md). One unlit shader on two meshes (near patch + far ring), no
@@ -31,6 +32,7 @@ export const WATER_TUNE = {
   glint: 1, // glint strength multiplier
   glintCone: 0.86, // cos of the reflection cone the glints live in
   swell: 0.025, // swell banding amplitude (brightness)
+  windLines: 1, // wind swooshes in the air (0 = off)
 };
 
 /** Comparison variants for the study: ?sea=classic|flat|crests|full|field (default full). */
@@ -206,7 +208,7 @@ void main() {
   // ---- slow swell: 3 tones, banded
   if (uSwell > 0.0 && nearK > 0.0) {
     vec2 perp = vec2(-uWind.y, uWind.x);
-    float s = sin(dot(wp.xz, uWind) * 0.06 - uTime * 0.55 * uMotion) * 0.6 + sin(dot(wp.xz, perp) * 0.037 + uTime * 0.31 * uMotion + nz.r * 3.0) * 0.4;
+    float s = sin(dot(wp.xz, uWind) * 0.06 - uTime * 0.55) * 0.6 + sin(dot(wp.xz, perp) * 0.037 + uTime * 0.31 + nz.r * 3.0) * 0.4;
     float tw = fwidth(s) + 1e-3;
     float tone = smoothstep(0.35 - tw, 0.35 + tw, s) - smoothstep(0.35 - tw, 0.35 + tw, -s);
     col *= 1.0 + tone * uSwell * nearK;
@@ -241,11 +243,11 @@ void main() {
   // ---- shore foam: broken waterline + surf bands rolling in
   if (uShore > 0.0 && sd < uSurfReach + 2.0) {
     float sdw = max(fwidth(sd), 0.02);
-    float edgeW = (0.3 + nz.g * 0.3) * mix(1.0, 0.55, smoothstep(1.5, 4.0, depth)) + 0.05 * sin(uTime * 1.3 * uMotion + nz.r * 9.0);
+    float edgeW = (0.3 + nz.g * 0.3) * mix(1.0, 0.55, smoothstep(1.5, 4.0, depth)) + 0.05 * sin(uTime * 1.3 + nz.r * 9.0);
     float foam = fill(sd - edgeW, sdw);
     float surf = 0.0;
     for (int k = 0; k < 2; k++) {
-      float ph = fract(uTime * uMotion / uSurfPeriod + float(k) * 0.5 + nz.r * 0.35);
+      float ph = fract(uTime / uSurfPeriod + float(k) * 0.5 + nz.r * 0.35);
       float c = mix(uSurfReach, edgeW + 0.15, ph);
       float bw = mix(0.2, 0.08, ph);
       float band = fill(abs(sd - c) - bw, sdw);
@@ -268,7 +270,7 @@ void main() {
       vec2 id = mod(floor(g), 512.0);
       vec2 f = fract(g) - 0.5;
       vec2 h = hash22(id + 91.0);
-      float tw = fract(uTime * (0.35 + h.y * 0.5) * mix(0.3, 1.0, uMotion) + h.x * 13.0);
+      float tw = fract(uTime * (0.35 + h.y * 0.5) + h.x * 13.0);
       float on = step(1.0 - cone * 0.55, hash12(id + 7.0));
       float size = sin(3.14159 * clamp(tw / 0.22, 0.0, 1.0)) * 0.13;
       float gd = glintSdf(f - (h - 0.5) * 0.5, size);
@@ -302,6 +304,7 @@ export class Sea {
   private low = false;
   private motion = 1;
   private field: ShoreField | null = null;
+  readonly wind = new WindLines();
 
   constructor(variant: SeaVariant = 'full') {
     this.variant = variant;
@@ -336,7 +339,7 @@ export class Sea {
     this.far.renderOrder = -3;
     this.near.frustumCulled = false;
     this.far.frustumCulled = false;
-    this.group.add(this.near, this.far);
+    this.group.add(this.near, this.far, this.wind.mesh);
     if (variant === 'classic') this.useClassic();
     this.applyVariant();
   }
@@ -417,6 +420,7 @@ export class Sea {
     const g = /night|moon/.test(k) ? { amt: 0.7, col: 0xcfdcf4 } : /dusk|sunset|golden/.test(k) ? { amt: 1, col: 0xffd8a6 } : /dawn|sunrise/.test(k) ? { amt: 1, col: 0xffe2c4 }
       : /fog|mist|overcast|marine/.test(k) ? { amt: 0, col: 0xf4f6f4 } : { amt: 1, col: 0xfffaf0 };
     this.glintAmt = g.amt;
+    this.wind.setTOD(key, haze);
     (u.uGlintCol.value as THREE.Color).set(g.col);
     this.applyVariant();
   }
@@ -445,12 +449,14 @@ export class Sea {
   /** Live re-read of WATER_TUNE (tune overlay). */
   retune() { this.applyVariant(); }
 
-  update(dt: number, focus: THREE.Vector3) {
+  update(dt: number, focus: THREE.Vector3, cam?: THREE.Camera) {
     const u = this.uniforms;
+    this.applyVariant(); // live WATER_TUNE (the ?tune overlay edits it in place)
     const target = this.reduceMotion ? 0.15 : 1;
     this.motion += (target - this.motion) * Math.min(1, dt * 2);
     u.uMotion.value = this.motion;
-    if (this.wavesEnabled) this.time = (this.time + dt) % 3600;
+    // one clock for every animated layer, slowed (not jumped) under reduced motion
+    if (this.wavesEnabled) this.time = (this.time + dt * this.motion) % 3600;
     u.uTime.value = this.time;
     u.uWave.value = this.reduceMotion ? 0.3 : 1;
     // wind + sun from the lighting module (eased there)
@@ -461,6 +467,8 @@ export class Sea {
     this.scroll.y = (this.scroll.y - sp / 7.0) % 512;
     this.scroll.w = (this.scroll.w - (sp * 0.75) / 4.6) % 512;
     (u.uScroll.value as THREE.Vector4).copy(this.scroll);
+    this.wind.enabled = !this.reduceMotion && WATER_TUNE.windLines > 0 && this.variant !== 'classic';
+    if (cam) this.wind.update(dt, cam, u.uWind.value as THREE.Vector2);
     // Snap to a 5 m grid so the vertex ripple does not swim with the camera.
     const sx = Math.round(focus.x / 5) * 5, sz = Math.round(focus.z / 5) * 5;
     this.near.position.x = sx; this.near.position.z = sz;

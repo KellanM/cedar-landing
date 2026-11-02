@@ -228,7 +228,7 @@ function installWorld(w: LoadedWorld) {
 /** Sea shore field (distance to shore + depth) from the chunks, once per world / quality change. */
 let seaFieldInfo: { ms: number; res: [number, number] } | null = null;
 function buildSeaField(w: LoadedWorld) {
-  const f = buildShoreField(renderer, w.chunks, land, save.settings.quality === 'low' ? 512 : 1024);
+  const f = buildShoreField(renderer, w.chunks, land, save.settings.quality === 'low' ? 512 : 1024, w.dynamic ?? []);
   sea.setShoreField(f);
   seaFieldInfo = f && { ms: +f.ms.toFixed(1), res: f.res };
 }
@@ -663,7 +663,7 @@ function frame(now: number) {
     maybeReveal();
     sky.follow(camera.position);
     sea.reduceMotion = reduceMotion();
-    sea.update(dt, boat.pos);
+    sea.update(dt, boat.pos, camera);
     hotspotFX?.update(dt, camera.position, fishing.active ? fishing.hotspot : null, fishing.active && fishing.phase !== 'reeling' && fishing.phase !== 'landed' ? fishing.bobber.position : null);
     wildlife?.update(dt, camera.position, boat.pos);
     if (wildlife) wake.update(dt, boat, wildlife.splash);

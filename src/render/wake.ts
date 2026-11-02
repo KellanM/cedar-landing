@@ -6,18 +6,25 @@ import type { SplashFX } from '../game/splash';
 const N = 44; // history points per strip
 const LIFE = 4.2; // s a wake point lives
 const EMIT_DIST = 0.55; // m between history points
-const STRIPS = 3; // 0 stern trail, 1 left bow arm, 2 right bow arm
+const STRIPS = 4; // 0 stern trail, 1 left bow arm, 2 right bow arm, 3 hull collar (closed ring)
 
 /**
  * Stylized, speed-dependent boat wake: an opaque flat foam V from the bow (two thin arms that
  * spread outward) plus a churned foam trail behind the stern. Points are world-fixed once
  * emitted; strips narrow to nothing as they age (no transparency), so a stopped boat's wake
  * simply shrinks away. Bow spray and turn ripples go through the shared SplashFX pool.
+ *
+ * Water study (docs/water_study.md §wake): drawn in the sea's crest language. The bow arms break
+ * into tapered brush-stroke dashes, the stern trail gets a scalloped edge, and a thin broken foam
+ * collar breathes around the hull at the waterline. Shapes are cut in the fragment shader with
+ * alpha-to-coverage (MSAA-smooth edges, still opaque and unsorted).
  */
 export class BoatWake {
   mesh: THREE.Mesh;
   private pos: Float32Array;
   private col: Float32Array;
+  private aw: Float32Array;
+  private t = 0;
   // ring buffer of history points (index 0 = newest)
   private hx = new Float32Array(N); private hz = new Float32Array(N); // stern centre
   private bx = new Float32Array(N); private bz = new Float32Array(N); // bow
@@ -39,6 +46,7 @@ export class BoatWake {
     const verts = STRIPS * N * 2;
     this.pos = new Float32Array(verts * 3);
     this.col = new Float32Array(verts * 3);
+    this.aw = new Float32Array(verts * 3);
     const idx: number[] = [];
     for (let s = 0; s < STRIPS; s++) {
       const o = s * N * 2;
@@ -50,8 +58,25 @@ export class BoatWake {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
+    // aW: x = point index along the strip, y = 0/1 across, z = strip id
+    for (let s = 0; s < STRIPS; s++) for (let k = 0; k < N; k++) for (let e = 0; e < 2; e++) {
+      const v = ((s * N + k) * 2 + e) * 3;
+      this.aw[v] = k; this.aw[v + 1] = e; this.aw[v + 2] = s;
+    }
+    g.setAttribute('aW', new THREE.BufferAttribute(this.aw, 3));
     g.setIndex(idx);
-    const mat = register(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
+    const mat = register(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2, alphaToCoverage: true }));
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('void main() {', 'attribute vec3 aW;\nvarying vec3 vW;\nvoid main() {\n  vW = aW;');
+      sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'varying vec3 vW;\nvoid main() {').replace('#include <color_fragment>', `#include <color_fragment>
+        float acr = abs(vW.y * 2.0 - 1.0);
+        float t;
+        if (vW.z > 2.5) { float s = fract(vW.x * 0.16); t = sin(3.14159 * clamp(s / 0.78, 0.0, 1.0)) * step(s, 0.78); }        // collar: broken ring
+        else if (vW.z > 0.5) { float s = fract(vW.x * 0.21 + vW.z * 0.37); t = sin(3.14159 * clamp(s / 0.7, 0.0, 1.0)) * step(s, 0.7); } // bow arms: strokes
+        else { float s = fract(vW.x * 0.19); t = (0.8 + 0.2 * sin(vW.x * 1.9)) * mix(1.0, sin(3.14159 * clamp(s / 0.75, 0.0, 1.0)) * step(s, 0.75), smoothstep(5.0, 14.0, vW.x)); } // stern: scallops, breaking into strokes as it ages
+        diffuseColor.a *= clamp((t - acr) / max(fwidth(acr), 1e-3) + 0.5, 0.0, 1.0);`);
+    };
+    mat.customProgramCacheKey = () => 'wake-strokes';
     this.mesh = new THREE.Mesh(g, mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 0;
@@ -59,7 +84,14 @@ export class BoatWake {
   }
 
   /** Light water tint the foam fades into (from the time-of-day sea colour). */
-  setSea(hex: string) { this.water.set(hex).lerp(new THREE.Color(0xffffff), 0.32); }
+  setSea(hex: string) {
+    const sea = new THREE.Color(hex);
+    this.water.copy(sea).lerp(new THREE.Color(0xffffff), 0.32);
+    // the sea's foam tone: off-white pulled a touch toward the water, dimmer at night
+    const night = sea.r * 0.3 + sea.g * 0.55 + sea.b * 0.15 < 0.02;
+    this.foam.set(0xf1f3ee).lerp(sea, 0.1);
+    if (night) { this.foam.multiplyScalar(0.55); this.water.copy(sea).lerp(new THREE.Color(0xffffff), 0.12); }
+  }
 
   update(dt: number, boat: Boat, splash: SplashFX) {
     const spd = Math.abs(boat.speed);
@@ -110,6 +142,20 @@ export class BoatWake {
       const lx = ox - ppx * off, lz = oz - ppz * off, qx = ox + ppx * off, qz = oz + ppz * off;
       this.setV(1, k, lx - ppx * aw, lz - ppz * aw, lx + ppx * aw, lz + ppz * aw);
       this.setV(2, k, qx - ppx * aw, qz - ppz * aw, qx + ppx * aw, qz + ppz * aw);
+    }
+    // hull collar: a thin broken ring that breathes around the waterline, thinning with speed
+    this.t += dt;
+    const breathe = 0.5 + 0.5 * Math.sin(this.t * 1.7);
+    const cw = (0.07 + 0.06 * breathe) * (1 - 0.7 * strength);
+    const ax = L * (1.0 + 0.05 * breathe), az = B * (1.35 + 0.12 * breathe);
+    this.c.copy(this.foam).lerp(this.water, 0.25);
+    for (let k = 0; k < N; k++) {
+      const a = (k / (N - 1)) * Math.PI * 2;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const ox = fx * ca * ax + rx * sa * az, oz = fz * ca * ax + rz * sa * az;
+      const nx = fx * ca * az + rx * sa * ax, nz = fz * ca * az + rz * sa * ax, nl = Math.hypot(nx, nz) || 1; // ellipse normal
+      const cx = boat.pos.x + ox - fx * L * 0.05, cz = boat.pos.z + oz - fz * L * 0.05;
+      this.setV(3, k, cx - (nx / nl) * cw, cz - (nz / nl) * cw, cx + (nx / nl) * cw, cz + (nz / nl) * cw);
     }
     const g = this.mesh.geometry;
     g.attributes.position.needsUpdate = true;

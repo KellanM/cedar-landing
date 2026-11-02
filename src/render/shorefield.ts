@@ -13,6 +13,8 @@ import type { LandCollision } from '../game/collision';
  *  2. Wire pass: the same meshes as lines in a thin slab just above the waterline. Lines rasterise
  *     even when edge-on, so pilings, posts and sea stacks mark themselves as land and get a foam
  *     collar (a filled pass would see their vertical faces as zero-area).
+ *     `extras` (buoys, moored boats from dynamic.glb, at their rest pose) join the wire pass only,
+ *     so they get a collar without their hulls tinting the water as shallows.
  *  3. Cleared texels are either land interior (clipped) or open water past the terrain. Each cleared
  *     region is classified by its rim (a shore slope reaching the surface → land) and by the coarse
  *     gameplay land grid.
@@ -36,7 +38,7 @@ const LAND_H = -0.04; // m: anything higher than this is above the water line
 const DEEP = 30; // m: depth reported for open water past the terrain
 const MAX_D = 60; // m: distance clamp
 
-export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object: THREE.Object3D; bounds: THREE.Box3 }[], land: LandCollision | null, maxRes: number): ShoreField | null {
+export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object: THREE.Object3D; bounds: THREE.Box3 }[], land: LandCollision | null, maxRes: number, extras: THREE.Object3D[] = []): ShoreField | null {
   const t0 = performance.now();
   const box = new THREE.Box3();
   for (const c of chunks) if (!c.bounds.isEmpty() && c.bounds.max.x - c.bounds.min.x > 1) box.union(c.bounds);
@@ -70,6 +72,18 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
       tmp.add(a);
     });
   }
+  const wireOnly: THREE.Mesh[] = [];
+  for (const root of extras) {
+    if (/kelp/i.test(root.name)) continue;
+    root.updateMatrixWorld(true);
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const a = new THREE.Mesh(m.geometry, wireMat);
+      a.matrixAutoUpdate = false; a.matrix.copy(m.matrixWorld); a.frustumCulled = false;
+      wireOnly.push(a);
+    });
+  }
   const cam = new THREE.OrthographicCamera(-sizeX / 2, sizeX / 2, sizeZ / 2, -sizeZ / 2, 0, FLOOR);
   cam.up.set(0, 0, -1); // screen up = world −z
   cam.position.set(minX + sizeX / 2, TOP, minZ + sizeZ / 2);
@@ -89,6 +103,7 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
     renderer.render(tmp, cam);
     // wire pass: only the thin slab above the waterline, on top of everything
     tmp.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = wireMat; });
+    if (wireOnly.length) tmp.add(...wireOnly);
     cam.far = TOP - LAND_H; cam.updateProjectionMatrix();
     renderer.clearDepth();
     renderer.render(tmp, cam);
