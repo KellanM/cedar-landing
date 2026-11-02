@@ -3,6 +3,7 @@ import type { TimeOfDay } from '../world/types';
 import type { ShoreField } from './shorefield';
 import { LIGHT_U } from './lighting';
 import { WindLines } from './windlines';
+import { CrestSprites, CREST_GLSL, CREST_TUNE } from './crests';
 
 /**
  * Stylised sea (docs/water_study.md). One unlit shader on two meshes (near patch + far ring), no
@@ -10,8 +11,9 @@ import { WindLines } from './windlines';
  *  - shallow -> deep tint from the shore field (real seabed depth + distance to shore), in two
  *    hard-edged steps, colours derived from the time-of-day `sea` / `shallow`;
  *  - slow swell: a 3-tone banded brightness (a few %), downwind;
- *  - drawn wave crests: two layers of procedural crescent "curl" marks drifting with the wind,
- *    masked by low-frequency noise so they appear and fade, eroded (not alpha-faded) as they live;
+ *  - drawn wave crests (docs/crest_study.md): by default a pool of crest sprites with a life cycle
+ *    (src/render/crests.ts, own draw call); `?crests=cells` draws the same life cycle in jittered
+ *    world cells inside this shader, `?crests=old` the first-pass crescent layers;
  *  - shore foam: a broken waterline plus surf bands that roll in toward land;
  *  - sun / moon glints: hard-edged four-point flecks that twinkle inside the sun's reflection cone.
  * All edges are anti-aliased with fwidth, and detail fades both with distance and with the
@@ -37,6 +39,8 @@ export const WATER_TUNE = {
 
 /** Comparison variants for the study: ?sea=classic|flat|crests|full|field (default full). */
 export type SeaVariant = 'classic' | 'flat' | 'crests' | 'full' | 'field';
+/** Crest approaches (crest study): sprites (default), cells (same life cycle in shader cells), old (v0.7 crescents). */
+export type CrestMode = 'sprites' | 'cells' | 'old';
 
 function noiseTexture(size = 128) {
   // tileable value noise, 2 octaves, three independent channels (b is finer)
@@ -110,6 +114,10 @@ uniform float uCrest;
 uniform float uCrestDensity;
 uniform float uCrestScale;
 uniform float uCrestFar;
+uniform float uCrestMode; // 0 old crescents, 1 life-cycle cells, 2 sprites (drawn elsewhere)
+uniform vec3 uBeadCol;
+uniform float uCrestLife;
+uniform float uCrestShelter;
 uniform float uShore;
 uniform float uSurfPeriod;
 uniform float uSurfReach;
@@ -171,6 +179,39 @@ float crestLayer(vec2 wp, vec2 off, float cellSize, float lifeRate, float seed, 
   return fill(d, w);
 }
 
+${CREST_GLSL}
+// Life-cycle crests in jittered wind-space cells (?crests=cells): one crest per occupied 10 m cell,
+// each on its own clock with a rest between lives, gated by shelter at the cell centre.
+vec2 crestCells(vec2 wp, vec2 wdir, float seed) {
+  vec2 wper = vec2(-wdir.y, wdir.x);
+  const float CELL = 10.0;
+  vec2 uv = vec2(dot(wp, wper), dot(wp, wdir)) / CELL + vec2(0.0, uScroll.y * 0.7);
+  vec2 id = mod(floor(uv), 512.0);
+  vec2 h = hash22(id + seed);
+  float h3 = hash12(id + seed + 17.0);
+  if (h3 > 0.85) return vec2(1e3);
+  float life = uCrestLife * (0.7 + 0.6 * h.x);
+  float period = life * (1.3 + 0.6 * h.y);
+  float t = fract(uTime / period + h3 * 5.0) * period / life;
+  if (t >= 1.0) return vec2(1e3);
+  float hl = (0.9 + 0.7 * h.x) * uCrestScale;
+  vec2 c = (h - 0.5) * (CELL - 4.0 * hl) / CELL;
+  vec2 p = (fract(uv) - 0.5 - c) * CELL;
+  // shelter at the cell centre (so a crest is gated whole, never cut)
+  if (uHasField > 0.5) {
+    vec2 cw = (floor(uv) + 0.5 + c - vec2(0.0, uScroll.y * 0.7)) * CELL;
+    vec2 cxz = wper * cw.x + wdir * cw.y;
+    vec2 fuv = (cxz - uFieldRect.xy) * uFieldRect.zw;
+    if (all(greaterThan(fuv, vec2(0.0))) && all(lessThan(fuv, vec2(1.0)))) {
+      vec2 fs = texture2D(uField, fuv).rg;
+      if (smoothstep(5.0, uCrestShelter, fs.r) * smoothstep(1.5, 5.0, fs.g) < hash12(id + 5.0)) return vec2(1e3);
+    }
+  }
+  float a = (h.y - 0.5) * 0.6;
+  p = mat2(cos(a), sin(a), -sin(a), cos(a)) * p;
+  return crestShape(p / hl, t, h.x < 0.5 ? -1.0 : 1.0, h3) * hl;
+}
+
 // Four-point star glint
 float glintSdf(vec2 p, float s) {
   p = abs(p);
@@ -226,9 +267,16 @@ void main() {
     float px = smoothstep(0.42, 0.12, footprint);
     float fadeD = 1.0 - smoothstep(uCrestFar * 0.55, uCrestFar, dist);
     float fadeS = smoothstep(2.5, 6.0, sd);
+    if (uCrestMode > 0.5) { m = 1.0; px = smoothstep(0.5, 0.15, footprint); }
     crestK = m * px * fadeD * fadeS * uCrest;
   }
-  if (crestK > 0.004) {
+  if (crestK > 0.004 && uCrestMode > 0.5 && uCrestMode < 1.5) {
+    vec2 cd = crestCells(wp.xz, uWind, 3.0);
+    float cw = footprint * 0.9;
+    col = mix(col, uBeadCol, fill(cd.y, cw) * 0.85 * crestK);
+    col = mix(col, uCrestCol, fill(cd.x, cw) * crestK);
+  }
+  if (crestK > 0.004 && uCrestMode < 0.5) {
     vec2 wdir = uWind, wper = vec2(-wdir.y, wdir.x);
     float cA = crestLayer(vec2(dot(wp.xz, wper), dot(wp.xz, wdir)), uScroll.xy, 7.0, 0.11, 3.0, footprint, 0.5);
     float cB = 0.0;
@@ -310,9 +358,12 @@ export class Sea {
   private motion = 1;
   private field: ShoreField | null = null;
   readonly wind = new WindLines();
+  readonly crests: CrestSprites;
+  crestMode: CrestMode;
 
-  constructor(variant: SeaVariant = 'full') {
+  constructor(variant: SeaVariant = 'full', crestMode: CrestMode = 'sprites') {
     this.variant = variant;
+    this.crestMode = crestMode;
     this.uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
       uTime: { value: 0 }, uWave: { value: 1 },
       uDeep: { value: new THREE.Color(0x4e6670) }, uMid: { value: new THREE.Color(0x4e6670) }, uShallow: { value: new THREE.Color(0x6f8a7e) },
@@ -321,6 +372,7 @@ export class Sea {
       uWind: { value: new THREE.Vector2(0.62, -0.78).normalize() }, uScroll: { value: new THREE.Vector4() },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uGlint: { value: 0 }, uGlintCone: { value: 0.86 },
       uCrest: { value: 1 }, uCrestDensity: { value: 0.5 }, uCrestScale: { value: 1 }, uCrestFar: { value: 95 },
+      uCrestMode: { value: 2 }, uBeadCol: { value: new THREE.Color(0xb8c6c4) }, uCrestLife: { value: 4.2 }, uCrestShelter: { value: 30 },
       uShore: { value: 1 }, uSurfPeriod: { value: 5.5 }, uSurfReach: { value: 3.2 },
       uShallowAmt: { value: 1 }, uShallowDepth: { value: 4.5 }, uSwell: { value: 0.025 }, uMotion: { value: 1 }, uLow: { value: 0 },
       uDebug: { value: variant === 'field' ? 1 : 0 },
@@ -344,7 +396,8 @@ export class Sea {
     this.far.renderOrder = -3;
     this.near.frustumCulled = false;
     this.far.frustumCulled = false;
-    this.group.add(this.near, this.far, this.wind.mesh);
+    this.crests = new CrestSprites(this.uniforms as never);
+    this.group.add(this.near, this.far, this.wind.mesh, this.crests.mesh);
     if (variant === 'classic') this.useClassic();
     this.applyVariant();
   }
@@ -387,6 +440,17 @@ export class Sea {
     u.uShallowDepth.value = T.shallowDepth;
     u.uGlintCone.value = T.glintCone;
     u.uLow.value = this.low ? 1 : 0;
+    u.uCrestMode.value = this.crestMode === 'old' ? 0 : this.crestMode === 'cells' ? 1 : 2;
+    u.uCrestLife.value = CREST_TUNE.life;
+    u.uCrestShelter.value = CREST_TUNE.shelter;
+    const cs = this.crests;
+    cs.enabled = this.crestMode === 'sprites' && T.crest > 0 && v !== 'flat' && v !== 'classic';
+    cs.density = T.crestDensity;
+    cs.scale = T.crestScale;
+    cs.speed = T.crestSpeed;
+    cs.far = u.uCrestFar.value;
+    cs.low = this.low;
+    cs.opacity = T.crest;
   }
 
   setQuality(q: 'high' | 'low') { this.low = q === 'low'; this.applyVariant(); }
@@ -397,6 +461,7 @@ export class Sea {
     const u = this.uniforms;
     u.uField.value = f?.texture ?? null;
     u.uHasField.value = f ? 1 : 0;
+    this.crests.setField(f);
     if (f) u.uFieldRect.value.set(f.min.x, f.min.y, 1 / f.size.x, 1 / f.size.y);
   }
 
@@ -419,7 +484,8 @@ export class Sea {
     const foam = new THREE.Color(0xf1f3ee).lerp(haze, night ? 0.55 : 0.18);
     if (night) foam.multiplyScalar(0.55);
     (u.uFoam.value as THREE.Color).copy(foam);
-    (u.uCrestCol.value as THREE.Color).copy(sea).lerp(foam, night ? 0.35 : 0.5);
+    (u.uCrestCol.value as THREE.Color).copy(sea).lerp(foam, this.crestMode === 'old' ? (night ? 0.35 : 0.5) : night ? 0.42 : 0.66);
+    (u.uBeadCol.value as THREE.Color).copy(sea).lerp(foam, night ? 0.24 : 0.36);
     // glints by key (overcast / fog have no sun)
     const k = key.toLowerCase();
     const g = /night|moon/.test(k) ? { amt: 0.7, col: 0xcfdcf4 } : /dusk|sunset|golden/.test(k) ? { amt: 1, col: 0xffd8a6 } : /dawn|sunrise/.test(k) ? { amt: 1, col: 0xffe2c4 }
@@ -428,6 +494,7 @@ export class Sea {
     this.glintAmt = this.glintInit ? this.glintAmt + (g.amt - this.glintAmt) * 0.15 : g.amt;
     this.glintInit = true;
     this.wind.setTOD(key, haze);
+    this.crests.todK = /night/.test(k) ? 0.5 : /fog|mist/.test(k) ? 0.6 : /dusk|sunset|golden/.test(k) ? 0.75 : /overcast|marine/.test(k) ? 1 : 0.85;
     (u.uGlintCol.value as THREE.Color).set(g.col);
     this.applyVariant();
   }
@@ -476,6 +543,8 @@ export class Sea {
     (u.uScroll.value as THREE.Vector4).copy(this.scroll);
     this.wind.enabled = !this.reduceMotion && WATER_TUNE.windLines > 0 && this.variant !== 'classic';
     if (cam) this.wind.update(dt, cam, u.uWind.value as THREE.Vector2);
+    this.crests.motion = this.reduceMotion ? this.motion : 1;
+    if (cam) this.crests.update(dt, cam, focus, u.uWind.value as THREE.Vector2);
     // Snap to a 5 m grid so the vertex ripple does not swim with the camera.
     const sx = Math.round(focus.x / 5) * 5, sz = Math.round(focus.z / 5) * 5;
     this.near.position.x = sx; this.near.position.z = sz;
