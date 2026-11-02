@@ -15,8 +15,6 @@ export interface SaveData {
     quality: 'high' | 'low'; autoReel: boolean; showFps: boolean; tod: string | null;
     /** player volumes 0..1 (0 = off): Music, and Sound (effects + ambience + UI) */
     music: number; sound: number;
-    /** ink outlines (render/outline.ts); undefined = on */
-    outline?: boolean;
   };
   boat?: { x: number; z: number; yaw: number; moored: boolean };
   /** which world the saved boat position belongs to */

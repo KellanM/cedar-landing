@@ -266,25 +266,17 @@ const WIND_FLUTTER_GLSL = /* glsl */ `
  * `wind`: 'tree' sways InstancedMesh protos, 'flutter' waves cloth meshes (see prepareFlutter);
  * `leaf` adds canopy flutter (broadleaf trees / shrubs); `windScale` scales the whole motion.
  */
-/** 1 only while the outline pass renders the scene into its target (ink classes go to alpha). */
-export const INK_PASS = { value: 0 };
-
 export function addSunShading(m: THREE.MeshBasicMaterial, strength = 1, wind: WindMode = 'none', leaf = 0, windScale = 1) {
   const uStrength = { value: strength };
   const uLeaf = { value: leaf };
   const uWindScale = { value: windScale };
-  // ink class for the screen-space outline pass (outline.ts), written to the alpha channel:
-  // 0 = no ink, 0.5 = silhouette only, 1 = silhouette + creases. The canvas has no alpha, so this
-  // only matters when the scene is rendered into the outline pass's render target.
-  const uInk = { value: 1 };
   m.userData.lightStrength = uStrength;
   m.userData.windScale = uWindScale;
-  m.userData.ink = uInk;
   const prev = m.onBeforeCompile;
   const prevKey = m.customProgramCacheKey.bind(m);
   m.onBeforeCompile = (shader, renderer) => {
     prev.call(m, shader, renderer);
-    Object.assign(shader.uniforms, U, { uLightStrength: uStrength, uLeaf, uWindScale, uInk, uInkPass: INK_PASS });
+    Object.assign(shader.uniforms, U, { uLightStrength: uStrength, uLeaf, uWindScale });
     const head = `varying vec3 vSunViewPos;
 uniform float uWindTime;
 uniform vec2 uWindDir;
@@ -313,11 +305,8 @@ uniform float uSky;
 uniform float uAmbient;
 uniform float uShadeOn;
 uniform float uLightStrength;
-uniform float uInk;
-uniform float uInkPass;
 void main() {`,
       )
-      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n  gl_FragColor.a = mix(gl_FragColor.a, uInk, uInkPass);')
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
