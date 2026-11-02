@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { fishStudio, type StudioView } from './game/fishstudio';
 import { Sky, Sea } from './render/environment';
 import { buildShoreField } from './render/shorefield';
 import type { SeaVariant } from './render/sea';
@@ -116,11 +117,13 @@ scene.add(fishing.group);
 const skipper = new Skipper();
 skipper.load().then(() => { if (boat) skipper.attachTo(boat.modelObject); });
 // UI hook: the catch bubble / slip / card wait for the "show it off" beat of the hold-up.
+const bubbleV = new THREE.Vector3();
+hud.catchHooks.bubbleAt = () => (fishing.phase === 'landed' && fishing.handTarget ? fishing.fishTop(bubbleV) : null);
 hud.catchHooks.holdUp = (fish) => {
   if (!skipper.attached) return;
-  // Two-hand overhead "item get" for every catch (the baked hold_show pose puts a hand to the face).
+  // Big fish: two-hand overhead "item get"; small ones are shown in one hand by the face (hold_show).
   skipper.showRod(false);
-  skipper.pose('hold_hoist', 0.22);
+  skipper.pose(fishing.holdMode === 'hand' ? 'hold_show' : 'hold_hoist', 0.22);
   return new Promise<void>((res) => setTimeout(res, reduceMotion() ? 120 : 650));
 };
 
@@ -463,6 +466,7 @@ function rodTip() {
   return boat.root.localToWorld(tipV.set(0.45, 1.7, -0.6));
 }
 
+const headPosV = new THREE.Vector3();
 const fishFace = new THREE.Vector3(), handsV = new THREE.Vector3(), headV = new THREE.Vector3(), fwdV = new THREE.Vector3(), leanV = new THREE.Vector3();
 let landingShot = false;
 /** Skipper pose + camera layers that follow the fishing state (runs after fishing.update). */
@@ -486,10 +490,15 @@ function fishingDirector(adt: number) {
   }
   // the rod is in hand only while fishing (it rests in the holder otherwise; hidden in the hold-up)
   skipper.showRod(fishing.active && !(ph === 'landed' && fishing.handTarget));
+  // two-hand hold: the fists close in to cradle a short fish (about half its drawn length apart)
+  skipper.gripSpread = ph === 'landed' && fishing.holdMode === 'hoist' ? Math.max(0.3, 0.5 * fishing.shownLen + 0.08) : null;
   skipper.update(adt);
   // the fish flies to the hands (or the deck if there is no rig)
-  fishing.handTarget = skipper.attached && ph === 'landed' ? skipper.hands(handsV) : null;
-  if (fishing.handTarget) fishing.handTarget.y += 0.45; // held clear above the sou'wester (hand bones sit at the wrists)
+  // grip point: both wrists (hoist) or the raised right wrist (one-hand hold); fishing.placeHeld rests
+  // the fish on the fists / in the hand from there, using the model's own belly depth
+  const oneHand = fishing.holdMode === 'hand';
+  fishing.handTarget = skipper.attached && ph === 'landed' ? (oneHand ? skipper.hand('R', handsV) : skipper.hands(handsV)) : null;
+  fishing.headPos = fishing.handTarget ? skipper.head(headPosV) : null;
   // camera: frame boat + float/fish; lean toward the pull side during a thrash
   chase.focus = fishing.active && ph !== 'landed' ? (ph === 'reeling' ? fishing.lineEnd : fishing.bobber.position) : null;
   chase.fishAt = ph === 'reeling' ? fishing.lineEnd : null;
@@ -503,7 +512,7 @@ function fishingDirector(adt: number) {
   if (ph === 'landed' && fishing.handTarget && !landingShot && skipper.head(headV)) {
     landingShot = true;
     fwdV.set(camera.position.x - headV.x, 0, camera.position.z - headV.z).normalize();
-    chase.landing(headV, fwdV, fishing.handTarget);
+    chase.landing(headV, fwdV, fishing.handTarget, fishing.shownLen, fishing.holdMode);
   } else if (ph === 'landed' && !fishing.handTarget && !landingShot) {
     landingShot = true; // no rig: keep the chase view
   }
@@ -826,6 +835,9 @@ window.__debug = {
   footPushH: (x: number, z: number, y: number, h: number) => foot.world.pushOut(new THREE.Vector3(x, y, z), 0.28, h),
   forceBite: () => fishing.debugForceBite(),
   forceThrash: () => fishing.debugThrash(),
+  /** Force the next catch: species id + size (cm); null clears. landNow() reels it straight in. */
+  nextCatch: (id: string | null, size?: number) => { fishing.debugNext = id ? { id, size } : null; },
+  landNow: () => fishing.debugLand(),
   /** Draw calls with each new fishing system hidden in turn (same frame, same view). */
   drawBreakdown: () => {
     const count = () => { renderer.render(scene, camera); return renderer.info.render.calls; };
@@ -860,6 +872,8 @@ window.__debug = {
   sellAll: () => sellFish(save.cooler.map((_, i) => i)),
   closeModals: () => { hud.hideSell(); hud.hideCard(); hud.closeLog(); },
   ui: hud.debug,
+  /** 3D fish studio render (dataURL) for the model-vs-plate contact sheet */
+  fishStudio: (id: string, view: StudioView = 'side', w = 512, h = 256) => fishStudio(renderer, id, view, w, h),
   upg: upg.debug,
   /** Audio (src/audio): live state, forced music, and offline renders (WAV base64 + level stats). */
   audio: {

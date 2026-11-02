@@ -33,7 +33,8 @@ export const FISH_CAM = {
   fovPunch: 4, // deg FOV kick on the hook-set
   shake: 0.09, // m max shake offset (trauma^2 * noise, no roll)
   lean: 0.9, // m the aim leans toward the pull side during a thrash
-  landDist: 5.6, // m hold-up shot: camera distance from the skipper
+  landDist: 5.6, // m hold-up shot: camera distance from the skipper (×0.62 + 0.5·length for two-hand holds)
+  landNear: 2.3, // m one-hand hold-up (small fish): base distance (+1.6·length)
   landSide: 38, // deg off the skipper's facing
   landFov: 48,
   landIn: 0.75, // s blend into the hold-up shot
@@ -170,7 +171,9 @@ export class ChaseCamera {
     else { this.leanT.set(x, 0, z); const l = this.leanT.length(); if (l > 1e-4) this.leanT.multiplyScalar(m / l); }
   }
   /** Hold-up shot: a 3/4 front view of the skipper (`head`, facing `fwd`) and the fish in their hands. */
-  landing(head: THREE.Vector3, fwd: THREE.Vector3, fish: THREE.Vector3) {
+  /** Hold-up shot. `len` = drawn fish length (m): small fish in one hand get a close shot, big ones
+   *  pull the camera back until the whole fish fits the frame width (portrait included). */
+  landing(head: THREE.Vector3, fwd: THREE.Vector3, fish: THREE.Vector3, len = 0.4, mode: 'hand' | 'hoist' = 'hoist') {
     const F = FISH_CAM, L = this.land;
     const portrait = this.cam.aspect < 1;
     // pick the side the camera is already on, so the swing is short
@@ -178,11 +181,18 @@ export class ChaseCamera {
     const cur = Math.atan2(this.cam.position.x - head.x, this.cam.position.z - head.z);
     const side = wrap(cur - s0) >= 0 ? 1 : -1;
     const az = s0 + side * F.landSide * D2R;
-    const d = F.landDist * (portrait ? 1.15 : 1);
-    L.eye.set(head.x + Math.sin(az) * d, head.y + 1.0, head.z + Math.cos(az) * d); // looks down ~10°: mostly sea behind, not the whole horizon
-    L.at.copy(head).lerp(fish, 0.5);
+    // frame-width fit: the fish (+ margin) spans at most ~80 % of the horizontal field of view
+    const tanH = Math.tan((F.landFov * D2R) / 2) * this.cam.aspect;
+    const fit = (len * 1.05 + 0.35) / (2 * tanH * 0.8);
+    const base = mode === 'hand' ? F.landNear + 1.6 * len : F.landDist * (0.62 + 0.25 * len);
+    const d = Math.max(base * (portrait ? 1.15 : 0.75), fit);
+    // looks down ~10° (mostly sea behind, not the whole horizon); the close one-hand shot stays near
+    // face height so the sou'wester brim does not hide the face
+    const up = mode === 'hand' ? 0.3 : 0.45 + 0.1 * d;
+    L.eye.set(head.x + Math.sin(az) * d, head.y + up, head.z + Math.cos(az) * d);
+    L.at.copy(head).lerp(fish, mode === 'hand' ? 0.6 : 0.5);
     // portrait: put the hold-up in the top third, clear of the catch card / slip below
-    if (portrait) L.at.y -= d * 0.2;
+    if (portrait) L.at.y -= d * (mode === 'hand' ? 0.2 : 0.14);
     L.dir = 1;
   }
   endLanding() { if (this.land.k > 0 || this.land.dir > 0) this.land.dir = -1; }

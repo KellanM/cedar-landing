@@ -1,0 +1,187 @@
+{
+ "copper-rockfish": {
+  "plan": "rockfish",
+  "bytes": 7701,
+  "game_id": "copper_rockfish"
+ },
+ "quillback-rockfish": {
+  "plan": "rockfish",
+  "bytes": 8387,
+  "game_id": "quillback_rockfish"
+ },
+ "yelloweye-rockfish": {
+  "plan": "rockfish",
+  "bytes": 7679,
+  "game_id": "yelloweye_rockfish"
+ },
+ "black-rockfish": {
+  "plan": "rockfish",
+  "bytes": 6913,
+  "game_id": "black_rockfish"
+ },
+ "lingcod": {
+  "plan": "lingcod",
+  "bytes": 8284,
+  "game_id": "lingcod"
+ },
+ "kelp-greenling": {
+  "plan": "fusiform",
+  "bytes": 8437,
+  "game_id": "kelp_greenling"
+ },
+ "cabezon": {
+  "plan": "sculpin",
+  "bytes": 7444,
+  "game_id": "cabezon"
+ },
+ "red-irish-lord": {
+  "plan": "sculpin",
+  "bytes": 7713,
+  "game_id": "red_irish_lord"
+ },
+ "staghorn-sculpin": {
+  "plan": "sculpin",
+  "bytes": 7869,
+  "game_id": "staghorn_sculpin"
+ },
+ "buffalo-sculpin": {
+  "plan": "sculpin",
+  "bytes": 7980,
+  "game_id": "buffalo_sculpin"
+ },
+ "shiner-perch": {
+  "plan": "perch",
+  "bytes": 7272,
+  "game_id": "shiner_perch"
+ },
+ "pile-perch": {
+  "plan": "perch",
+  "bytes": 6426,
+  "game_id": "pile_perch"
+ },
+ "striped-seaperch": {
+  "plan": "perch",
+  "bytes": 8056,
+  "game_id": "striped_seaperch"
+ },
+ "pacific-herring": {
+  "plan": "slim",
+  "bytes": 5670,
+  "game_id": "pacific_herring"
+ },
+ "pacific-sand-lance": {
+  "plan": "eel",
+  "bytes": 6535,
+  "game_id": "pacific_sand_lance"
+ },
+ "surf-smelt": {
+  "plan": "slim",
+  "bytes": 6431,
+  "game_id": "surf_smelt"
+ },
+ "starry-flounder": {
+  "plan": "flat",
+  "bytes": 8806,
+  "game_id": "starry_flounder"
+ },
+ "english-sole": {
+  "plan": "flat",
+  "bytes": 8496,
+  "game_id": "english_sole"
+ },
+ "pacific-sanddab": {
+  "plan": "flat",
+  "bytes": 9651,
+  "game_id": "pacific_sanddab"
+ },
+ "sand-sole": {
+  "plan": "flat",
+  "bytes": 9871,
+  "game_id": "sand_sole"
+ },
+ "pacific-halibut": {
+  "plan": "flat",
+  "bytes": 7049,
+  "game_id": "pacific_halibut"
+ },
+ "coho-salmon": {
+  "plan": "fusiform",
+  "bytes": 7908,
+  "game_id": "coho_salmon"
+ },
+ "chinook-salmon": {
+  "plan": "fusiform",
+  "bytes": 9543,
+  "game_id": "chinook_salmon"
+ },
+ "pink-salmon": {
+  "plan": "fusiform",
+  "bytes": 7315,
+  "game_id": "pink_salmon"
+ },
+ "sockeye-salmon": {
+  "plan": "fusiform",
+  "bytes": 6510,
+  "game_id": "sockeye_salmon"
+ },
+ "chum-salmon": {
+  "plan": "fusiform",
+  "bytes": 7146,
+  "game_id": "chum_salmon"
+ },
+ "cutthroat-trout": {
+  "plan": "fusiform",
+  "bytes": 9804,
+  "game_id": "cutthroat_trout"
+ },
+ "coho-smolt": {
+  "plan": "fusiform",
+  "bytes": 6963,
+  "game_id": "coho_smolt"
+ },
+ "sablefish": {
+  "plan": "fusiform",
+  "bytes": 6231,
+  "game_id": "sablefish"
+ },
+ "spiny-dogfish": {
+  "plan": "shark",
+  "bytes": 5979,
+  "game_id": "spiny_dogfish"
+ },
+ "bluntnose-sixgill": {
+  "plan": "shark",
+  "bytes": 5205,
+  "game_id": "bluntnose_sixgill"
+ },
+ "spotted-ratfish": {
+  "plan": "ratfish",
+  "bytes": 7168,
+  "game_id": "spotted_ratfish"
+ },
+ "wolf-eel": {
+  "plan": "eel",
+  "bytes": 7631,
+  "game_id": "wolf_eel"
+ },
+ "bay-pipefish": {
+  "plan": "pipe",
+  "bytes": 5494,
+  "game_id": "bay_pipefish"
+ },
+ "dungeness-crab": {
+  "plan": "crab",
+  "bytes": 5201,
+  "game_id": "dungeness_crab"
+ },
+ "oarfish": {
+  "plan": "eel",
+  "bytes": 7141,
+  "game_id": "oarfish"
+ },
+ "unknown-fish": {
+  "plan": "fusiform",
+  "bytes": 5547,
+  "game_id": ""
+ }
+}
