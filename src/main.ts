@@ -14,6 +14,8 @@ import { HotspotFX } from './game/hotspots';
 import { lookupSpecies, type CaughtFish } from './game/fishdata';
 import { clearSave, loadSave, writeSave, type SaveData } from './game/save';
 import * as hud from './ui/hud';
+import { OnFoot, type FootContext } from './game/onfoot/onfoot';
+import { FOOT_CAM } from './game/onfoot/footcamera';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -85,6 +87,20 @@ let todKeys: string[] = [];
 let todIndex = 0;
 let pendingCatch: CaughtFish | null = null;
 let modalOpen = false;
+// On-foot mode (src/game/onfoot): walk around the village with the boat tied up.
+const foot = new OnFoot({
+  scene, camera, input, boat: () => boat,
+  labelFor: (it) => labelFor(it), doInteract: (it) => doInteract(it), toast: (m, k) => hud.toast(m, k),
+  setMode: (on) => {
+    document.body.classList.toggle('onfoot', on);
+    if (on) { fishing.cancel(); boat.moored = true; save.boat = { x: boat.pos.x, z: boat.pos.z, yaw: boat.yaw, moored: true }; save.worldTag = world?.source; }
+    writeSave(save);
+  },
+  persist: (s) => { save.onfoot = s; writeSave(save); },
+  landNear: (x, z, r) => !!land && land.hitsCircle(x, z, r),
+});
+let footCtx: FootContext | null = null;
+let ashoreOnAction: FootContext | null = null;
 
 // ---------------------------------------------------------------- world
 function disposeWorld() {
@@ -121,6 +137,8 @@ function installWorld(w: LoadedWorld) {
   }
   boat.update(0, 0, 0, land);
   chase.snap(boat);
+  foot.setWorld(w);
+  if (save.onfoot && boat.moored && save.worldTag === w.source && !foot.active) foot.restore(save.onfoot);
 
   const ints = w.gameplay.interacts;
   landing = ints.find((i) => i.name === 'Interact_SellFish') ?? ints.find((i) => i.kind === 'sell_fish') ?? null;
@@ -289,6 +307,7 @@ $('card-release').onclick = () => closeCard(false);
 
 function onAction() {
   if (modalOpen || chase.inShot) return;
+  if (ashoreOnAction && !fishing.active) { ashoreOnAction.run(); return; }
   if (fishing.active) { fishing.press(); return; }
   const near = nearestHotspot();
   if (!near || near.d > HOTSPOT_RANGE) { hud.toast('Find the ripples to fish'); return; }
@@ -367,8 +386,20 @@ function updateUI(dt: number) {
   if (fishing.phase !== 'bite') $('bite').classList.add('hidden');
 
   // interact prompt
-  currentInteract = fishing.active ? null : nearestInteract();
-  if (currentInteract) {
+  currentInteract = fishing.active || foot.active ? null : nearestInteract();
+  footCtx = fishing.active ? null : foot.active ? foot.context() : foot.boatContext(boat, currentInteract, save.cooler.length > 0);
+  // When selling from the boat holds the context button, the idle Cast button offers "Ashore".
+  ashoreOnAction = !fishing.active && !foot.active && !canCast && !footCtx ? foot.ashoreContext(boat) : null;
+  if (ashoreOnAction) { actionLabel.textContent = 'Ashore'; actionBtn.classList.remove('disabled'); }
+  if (footCtx) {
+    $('interact-label').textContent = footCtx.label.length > 10 ? footCtx.label.split(' ')[0] : footCtx.label;
+    promptEl.textContent = footCtx.prompt;
+    interactBtn.classList.remove('hidden');
+    promptEl.classList.remove('hidden');
+  } else if (foot.active) {
+    interactBtn.classList.add('hidden');
+    promptEl.classList.add('hidden');
+  } else if (currentInteract) {
     const lbl = boat.moored && currentInteract.kind === 'moor_boat' ? 'Untie' : labelFor(currentInteract);
     $('interact-label').textContent = lbl.length > 10 ? lbl.split(' ')[0] : lbl;
     promptEl.textContent = currentInteract.kind === 'sell_fish' ? `${lbl} · ${save.cooler.length} fish in cooler` : lbl;
@@ -462,11 +493,14 @@ function frame(now: number) {
       $('skip-hint').classList.add('hidden');
     }
 
-    if (input.consumeAction()) onAction();
-    if (input.consumeInteract() && currentInteract && !modalOpen && !fishing.active) doInteract(currentInteract);
+    if (input.consumeAction() && !foot.active) onAction();
+    if (input.consumeInteract() && !modalOpen && !fishing.active) {
+      if (footCtx) footCtx.run();
+      else if (currentInteract) doInteract(currentInteract);
+    }
 
     let throttle = input.throttle, steer = input.steer;
-    if (modalOpen || chase.inShot) { throttle = 0; steer = 0; }
+    if (modalOpen || chase.inShot || foot.active) { throttle = 0; steer = 0; }
     if (fishing.active) {
       // Paddling away while waiting reels the line in; during the fight the boat holds still.
       if ((fishing.phase === 'casting' || fishing.phase === 'waiting' || fishing.phase === 'missed') && Math.abs(throttle) > 0.3) {
@@ -478,7 +512,12 @@ function frame(now: number) {
 
     boat.update(dt, throttle, steer, land);
     fishing.update(dt, input.actionHeld, rodTip(), boat.pos);
-    chase.update(dt, boat, input.takeOrbit(), input.lastOrbitTime);
+    if (foot.active) foot.update(dt, modalOpen || chase.inShot);
+    else {
+      chase.update(dt, boat, input.takeOrbit(), input.lastOrbitTime);
+      foot.afterChase(dt);
+      foot.boatTick(boat);
+    }
     maybeReveal();
     sky.follow(camera.position);
     sea.update(dt, boat.pos);
@@ -523,7 +562,7 @@ window.__debug = {
       phase: fishing.phase, tension: fishing.tension, distance: fishing.distance, species: fishing.species?.name,
       shells: save.shells, cooler: save.cooler.map((f) => `${f.name} ${f.size}cm ${f.stars}★ ${f.price}`), fps: Math.round(fps),
       tod: todKeys[todIndex], nearestHotspot: nearestHotspot()?.hs.name, nearestHotspotDist: nearestHotspot()?.d,
-      interact: currentInteract?.name, inShot: chase.inShot, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
+      interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, inShot: chase.inShot, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
     };
   },
   key: (k: string, down: boolean) => input.setKey(k, down),
@@ -538,7 +577,16 @@ window.__debug = {
     return true;
   },
   action: () => onAction(),
-  interact: () => { if (currentInteract) doInteract(currentInteract); return currentInteract?.name; },
+  interact: () => { if (footCtx) { footCtx.run(); return footCtx.name; } if (currentInteract) doInteract(currentInteract); return currentInteract?.name; },
+  // on-foot test hooks
+  stepAshore: () => foot.stepAshore(boat),
+  board: () => foot.board(),
+  footWalkTo: (x: number | null, z = 0) => foot.setAutoWalk(x, z),
+  footPathTo: (x: number, z: number) => foot.setAutoPath(x, z),
+  footCam: FOOT_CAM,
+  footTeleport: (x: number, z: number, y = 3) => { if (!foot.active) return false; foot.restore({ x, y, z, yaw: foot.yaw }); return foot.debugState; },
+  footProbe: (x: number, z: number, y = 3, up = 3, down = 6) => foot.world.groundAt(x, z, y, up, down),
+  footPush: (x: number, z: number, y: number) => foot.world.pushOut(new THREE.Vector3(x, y, z), 0.28, 1.65),
   forceBite: () => fishing.debugForceBite(),
   keep: () => closeCard(true),
   sellAll: () => sellFish(save.cooler.map((_, i) => i)),

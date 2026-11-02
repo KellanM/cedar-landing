@@ -13,6 +13,11 @@ export class Input {
   orbitDX = 0;
   orbitDY = 0;
   lastOrbitTime = 0;
+  /** On-foot raw move stick (camera-relative): x right, y forward, magnitude 0..1. */
+  moveX = 0;
+  moveY = 0;
+  /** On foot: run (stick pushed far, or keyboard without Shift). */
+  moveRun = false;
 
   private keys = new Set<string>();
   private actionPresses = 0;
@@ -113,6 +118,14 @@ export class Input {
       // Pushing mostly sideways should still move a little so you can turn on the spot-ish.
       if (Math.abs(s) > 0.5 && t === 0) t = 0.25 * Math.abs(s);
     }
+    // Raw on-foot stick (no boat-specific sideways hack).
+    let mx = s, my = t;
+    if (this.joyId !== null) { mx = this.joyVec.x; my = -this.joyVec.y; }
+    let ml = Math.hypot(mx, my);
+    if (ml > 1) { mx /= ml; my /= ml; ml = 1; }
+    if (this.joyId !== null && ml < 0.15) { mx = 0; my = 0; ml = 0; }
+    this.moveX = mx; this.moveY = my;
+    this.moveRun = this.joyId !== null ? ml > 0.8 : !k.has('shift');
     this.throttle = Math.max(-1, Math.min(1, t));
     this.steer = Math.max(-1, Math.min(1, s));
     this.actionHeld = this.touchAction || k.has(' ');
