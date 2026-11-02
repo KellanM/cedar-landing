@@ -199,7 +199,8 @@ function installWorld(w: LoadedWorld) {
   const removed = hideBakedHotspotMarkers(w.chunks.map((c) => c.object), w.gameplay.hotspots);
   if (removed) console.info(`[hotspots] collapsed ${removed} baked marker triangles (procedural marker replaces them)`);
   buildSeaField(w);
-  hotspotFX = new HotspotFX(w.gameplay.hotspots);
+  hotspotFX = new HotspotFX(w.gameplay.hotspots, new URLSearchParams(location.search).get('spot') === 'contour' ? 'contour' : 'boil');
+  hotspotFX.useSea(sea.uniforms);
   worldRoot.add(hotspotFX.group);
   buildWildlife();
   floaters = w.dynamic?.length ? new Floaters(w.dynamic) : null;
@@ -944,6 +945,8 @@ window.__debug = {
   seaFieldImage: () => sea.fieldImage(),
   seaObj: () => sea,
   crestStats: () => sea.crests.stats(),
+  hotspotStats: () => hotspotFX?.stats(),
+  hotspotObj: () => hotspotFX,
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,

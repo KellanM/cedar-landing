@@ -44,7 +44,7 @@ const FIGHT_RANGES: Record<keyof typeof FIGHT_FX, [number, number, number]> = {
   thrashDisc: [0.05, 0.6, 0.01], shedRate: [0.02, 0.4, 0.01], shedTension: [0, 1, 0.05], leapChance: [0, 1, 0.05], leapHeight: [0.2, 2.5, 0.05], landArc: [0.2, 1.5, 0.02],
 };
 const TACKLE_RANGES: Record<keyof typeof TACKLE_TUNING, [number, number, number]> = { bobberScale: [0.5, 3, 0.05], screenFloor: [5, 30, 0.5], lineWidth: [0.0005, 0.006, 0.0001] };
-const SPOT_RANGES: Record<keyof typeof HOTSPOT_FX, [number, number, number]> = { churn: [0.3, 2, 0.05], clearR: [0, 3, 0.05], drawDist: [60, 500, 10] };
+const SPOT_RANGES: Record<keyof typeof HOTSPOT_FX, [number, number, number]> = { activity: [0, 3, 0.05], slick: [0.4, 2, 0.05], fogK: [0.3, 1, 0.05], clearR: [0, 3, 0.05], drawDist: [60, 500, 10], eventDist: [40, 300, 10] };
 
 const CAM_DEFAULT = { ...CAMERA_TUNING };
 const CAM_KEY = 'salish-cam-tune-v1';
@@ -72,7 +72,7 @@ export function initTuneOverlay() {
   try { Object.assign(CAMERA_TUNING, JSON.parse(localStorage.getItem(CAM_KEY) ?? '{}')); } catch { /* ignore */ }
   try {
     const f = JSON.parse(localStorage.getItem(FISH_KEY) ?? '{}');
-    Object.assign(FISH_CAM, f.cam ?? {}); Object.assign(FIGHT_FX, f.fx ?? {}); Object.assign(TACKLE_TUNING, f.tackle ?? {}); Object.assign(HOTSPOT_FX, f.spot ?? {});
+    Object.assign(FISH_CAM, f.cam ?? {}); Object.assign(FIGHT_FX, f.fx ?? {}); Object.assign(TACKLE_TUNING, f.tackle ?? {}); for (const [k, v] of Object.entries(f.spot ?? {})) if (k in HOTSPOT_FX && typeof v === 'number') (HOTSPOT_FX as Record<string, number>)[k] = v;
   } catch { /* ignore */ }
   try { Object.assign(AUDIO_TUNING, JSON.parse(localStorage.getItem(AUDIO_KEY) ?? '{}')); } catch { /* ignore */ }
   try { Object.assign(WATER_TUNE, JSON.parse(localStorage.getItem(WATER_KEY) ?? '{}')); } catch { /* ignore */ }
