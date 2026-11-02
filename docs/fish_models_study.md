@@ -60,7 +60,7 @@ blob floating well above the skipper's raised fists.
   point. The fins hang in front of the fists. The fists close to `max(0.3, 0.5·L + 0.08)` m apart.
 - **The hold-up camera** (`ChaseCamera.landing`): the distance is `max(base, fit)`.
   - The base is `landNear (2.3) + 1.6·L` for one-hand holds and `landDist (5.6) × (0.62 + 0.25·L)` for
-    two-hand holds. Portrait multiplies it by 1.15, landscape by 0.85.
+    two-hand holds. Portrait multiplies it by 1.15, landscape by 0.75.
   - `fit` keeps `1.05·L + 0.35 m` inside 80 % of the horizontal FOV, which makes the 3.2 m sixgill fit
     on a 390 px wide phone.
   - The eye sits at head + 0.3 m (one hand, under the sou'wester brim) or head + 0.45 + 0.1·d.

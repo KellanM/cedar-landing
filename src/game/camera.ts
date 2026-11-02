@@ -185,7 +185,7 @@ export class ChaseCamera {
     const tanH = Math.tan((F.landFov * D2R) / 2) * this.cam.aspect;
     const fit = (len * 1.05 + 0.35) / (2 * tanH * 0.8);
     const base = mode === 'hand' ? F.landNear + 1.6 * len : F.landDist * (0.62 + 0.25 * len);
-    const d = Math.max(base * (portrait ? 1.15 : 0.85), fit);
+    const d = Math.max(base * (portrait ? 1.15 : 0.75), fit);
     // looks down ~10° (mostly sea behind, not the whole horizon); the close one-hand shot stays near
     // face height so the sou'wester brim does not hide the face
     const up = mode === 'hand' ? 0.3 : 0.45 + 0.1 * d;
