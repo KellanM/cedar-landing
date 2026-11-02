@@ -95,13 +95,14 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
   let instances: Instances = { protos: {} };
   try { instances = await getJSON<Instances>('instances.json', version); } catch (e) { console.warn('[world] no instances.json', e); }
 
-  const total = manifest.chunks.length + manifest.backdrops.length + (manifest.clouds ? 1 : 0) + (manifest.protos ? 1 : 0);
+  const total = manifest.chunks.length + manifest.backdrops.length + (manifest.clouds ? 1 : 0) + (manifest.protos ? 1 : 0) + (manifest.dynamic ? 1 : 0);
   let done = 0;
   const tick = (what: string) => progress(what, ++done / Math.max(1, total));
 
   const chunks: LoadedChunk[] = [];
   const backdrops: THREE.Object3D[] = [];
   const clouds: THREE.Object3D[] = [];
+  const dynamic: THREE.Object3D[] = [];
 
   // Load chunks with limited concurrency (phones choke on dozens of parallel Draco decodes).
   const queue = [...manifest.chunks];
@@ -137,6 +138,17 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
       clouds.push(g.scene);
     } catch (e) { console.warn('[world] clouds failed', e); }
     tick('clouds');
+  }
+  if (manifest.dynamic) {
+    try {
+      const g = await loadGLB(manifest.dynamic, version);
+      applyWorldMaterial(g.scene, 'dynamic');
+      // top-level nodes animate individually in game/floaters.ts (unwrap a single root wrapper)
+      let nodes = g.scene.children;
+      if (nodes.length === 1 && !(nodes[0] as THREE.Mesh).isMesh && !nodes[0].userData.anim && nodes[0].children.length > 1) nodes = nodes[0].children;
+      dynamic.push(...nodes);
+    } catch (e) { console.warn('[world] dynamic failed', e); }
+    tick('dynamic');
   }
 
   const protos = new Map<string, THREE.BufferGeometry>();
@@ -175,29 +187,5 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
     tick('protos');
   }
 
-  const dynamic = await loadDynamic(manifest.dynamic ?? 'dynamic.glb', version);
-  return { source: 'export', chunks, backdrops, clouds, protos, instances, boat, gameplay, dynamic };
-}
-
-/**
- * world/dynamic.glb (optional): separate nodes for buoys, moored boats, flotsam, kelp heads that
- * bob in the game. Each top-level node keeps its transform; extras.anim ("bob"|"buoy"|"kelp")
- * arrive in userData. Missing file → [] (Vite's SPA fallback serves HTML, which is rejected).
- */
-async function loadDynamic(file: string, version: string): Promise<THREE.Object3D[]> {
-  try {
-    const r = await fetch(`${WORLD}${file}?v=${encodeURIComponent(version)}`, { cache: 'no-store' });
-    if (!r.ok || (r.headers.get('content-type') ?? '').includes('text/html')) return [];
-    const buf = await r.arrayBuffer();
-    if (buf.byteLength < 12 || new TextDecoder().decode(new Uint8Array(buf, 0, 4)) !== 'glTF') return [];
-    const g = await loader().parseAsync(buf, WORLD);
-    applyWorldMaterial(g.scene, 'chunk');
-    // top-level content nodes (unwrap a single root wrapper if the exporter added one)
-    let nodes = g.scene.children;
-    if (nodes.length === 1 && !(nodes[0] as THREE.Mesh).isMesh && !nodes[0].userData.anim && nodes[0].children.length > 1) nodes = nodes[0].children;
-    return [...nodes];
-  } catch (e) {
-    console.warn('[world] dynamic.glb failed', e);
-    return [];
-  }
+  return { source: 'export', chunks, backdrops, clouds, dynamic, protos, instances, boat, gameplay };
 }

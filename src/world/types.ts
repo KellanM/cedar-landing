@@ -86,7 +86,7 @@ export interface Manifest {
   backdrops: string[];
   clouds?: string;
   protos?: string;
-  /** optional bobbing objects; defaults to dynamic.glb if present */
+  /** world/dynamic.glb: bobbing buoys/boats/kelp (floaters.ts) and flutter flags (flutterMat) */
   dynamic?: string;
 }
 
