@@ -1,7 +1,7 @@
 // Water comparison capture: node scripts/water_capture.mjs [baseUrl] [tag] [only=phone|desktop|-] [tods=all|overcast,dusk] [query]
 // Same five views at every time of day, phone (390x844 @3x) and desktop (1280x800):
 //   harbour (Cedar Landing docks), open (open water), shore (island shoreline), wake (boat under way, chase cam),
-//   hotspot (fishing spot, chase cam). Writes screenshots/water_<tag>_<vp>_<tod>_<view>.png, a perf log
+//   hotspot (fishing spot, chase cam), sunward (open water toward the sun or moon: glints). Writes screenshots/water_<tag>_<vp>_<tod>_<view>.png, a perf log
 //   (fps / draw calls / tris / sea GPU bench) and one contact sheet per viewport: screenshots/water_<tag>_<vp>_sheet.png.
 //   `query` is appended to the URL (e.g. "sea=classic" or "sea=crests") to capture a variant.
 import { chromium } from 'playwright';
@@ -38,8 +38,9 @@ const VIEWS = {
   harbour: { pos: [62, 15, 90], target: [21, 0, 131], fov: 50 },
   open: { pos: [135, 5, 205], target: [138, 0, 260], fov: 50 },
   shore: { pos: [-46, 3, 18], target: [-86, 0, 56], fov: 50 },
-  wake: { chase: true },
+  sunward: { sun: true }, // open water looking toward the sun / moon azimuth (glints)
   hotspot: { chase: true },
+  wake: { chase: true }, // last: a teleport leaves a stretched wake strip for a few seconds
 };
 
 const browser = await chromium.launch({
@@ -78,13 +79,21 @@ async function run(name, viewport, isMobile) {
           await page.evaluate(() => window.__debug.viewHotspot('LIFE_HS02_KeeperEastShelf', 9, 2.2));
           await sleep(1400);
         }
+      } else if (v.sun) {
+        const az = await page.evaluate(async (t) => {
+          const g = await (await fetch('world/gameplay.json')).json();
+          return g.time_of_day[t]?.clouds?.sun?.[0] ?? 200;
+        }, tod);
+        const a = (az * Math.PI) / 180, p = [130, 4, 215];
+        await page.evaluate((c) => window.__debug.cam(c), { pos: p, target: [p[0] + Math.sin(a) * 60, 0, p[2] - Math.cos(a) * 60], fov: 50 });
+        await sleep(900);
       } else {
         await page.evaluate((c) => window.__debug.cam(c), { pos: v.pos, target: v.target, fov: v.fov });
         await sleep(900);
       }
       const file = `water_${TAG}_${name}_${tod}_${view}.png`;
       await page.screenshot({ path: `${OUT}/${file}` });
-      if (view === 'wake') await page.evaluate(() => window.__debug.key('w', false));
+      if (view === 'wake') { await page.evaluate(() => window.__debug.key('w', false)); await sleep(4500); }
       const s = await page.evaluate(() => { const s = window.__debug.state; return { fps: s.fps, draws: s.drawCalls, tris: s.tris, tod: s.tod }; });
       files.push({ file, tod, view });
       log(`[${name}] ${file}`, JSON.stringify(s));

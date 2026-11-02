@@ -75,6 +75,9 @@ const U = {
   uWindOn: { value: 1 },
 };
 
+/** Shared lighting uniforms (read by the sea for the sun and wind direction). */
+export const LIGHT_U = U;
+
 /** Current (animated) and target state, kept in plain numbers so blending is trivial. */
 interface State { dir: THREE.Vector3; lit: THREE.Color; side: THREE.Color; shadow: THREE.Color; t0: number; t1: number; sky: number; ambient: number; wind: number }
 const mkState = (): State => ({ dir: new THREE.Vector3(0, 1, 0), lit: new THREE.Color(1, 1, 1), side: new THREE.Color(1, 1, 1), shadow: new THREE.Color(1, 1, 1), t0: 0.5, t1: 0.1, sky: 0, ambient: 0.6, wind: 0.7 });

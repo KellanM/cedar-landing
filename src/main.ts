@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { Sky, Sea } from './render/environment';
+import { buildShoreField } from './render/shorefield';
+import type { SeaVariant } from './render/sea';
 import { backdropHaze, setTint } from './render/materials';
 import { InstanceField } from './render/instances';
 import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingTOD, updateLighting } from './render/lighting';
@@ -62,11 +64,12 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xc7ced1, 90, 1100);
 const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 20000);
 const sky = new Sky();
-const sea = new Sea();
+const sea = new Sea((new URLSearchParams(location.search).get('sea') ?? 'full') as SeaVariant);
 scene.add(sky.mesh, sea.group);
 
 const save: SaveData = loadSave();
 let quality = QUALITY[save.settings.quality];
+sea.setQuality(save.settings.quality);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -178,6 +181,7 @@ function installWorld(w: LoadedWorld) {
   land = new LandCollision(w.gameplay);
   const removed = hideBakedHotspotMarkers(w.chunks.map((c) => c.object), w.gameplay.hotspots);
   if (removed) console.info(`[hotspots] collapsed ${removed} baked marker triangles (procedural marker replaces them)`);
+  buildSeaField(w);
   hotspotFX = new HotspotFX(w.gameplay.hotspots);
   worldRoot.add(hotspotFX.group);
   buildWildlife();
@@ -221,6 +225,14 @@ function installWorld(w: LoadedWorld) {
   badge.classList.toggle('hidden', w.source !== 'placeholder');
 }
 
+/** Sea shore field (distance to shore + depth) from the chunks, once per world / quality change. */
+let seaFieldInfo: { ms: number; res: [number, number] } | null = null;
+function buildSeaField(w: LoadedWorld) {
+  const f = buildShoreField(renderer, w.chunks, land, save.settings.quality === 'low' ? 512 : 1024);
+  sea.setShoreField(f);
+  seaFieldInfo = f && { ms: +f.ms.toFixed(1), res: f.res };
+}
+
 function buildInstances() {
   if (!world) return;
   instances?.dispose();
@@ -247,7 +259,7 @@ function applyTOD() {
   const key = todKeys[todIndex];
   const t = world.gameplay.time_of_day[key];
   sky.apply(t);
-  sea.apply(t);
+  sea.apply(t, key);
   (scene.fog as THREE.Fog).color.set(t.haze);
   renderer.setClearColor(t.haze);
   setTint(t.tint);
@@ -504,6 +516,8 @@ hud.init({
       quality = QUALITY[save.settings.quality];
       resize();
       buildInstances();
+      sea.setQuality(save.settings.quality);
+      if (world) buildSeaField(world);
       applyTOD();
       writeSave(save);
     },
@@ -648,6 +662,7 @@ function frame(now: number) {
     }
     maybeReveal();
     sky.follow(camera.position);
+    sea.reduceMotion = reduceMotion();
     sea.update(dt, boat.pos);
     hotspotFX?.update(dt, camera.position, fishing.active ? fishing.hotspot : null, fishing.active && fishing.phase !== 'reeling' && fishing.phase !== 'landed' ? fishing.bobber.position : null);
     wildlife?.update(dt, camera.position, boat.pos);
@@ -701,7 +716,7 @@ window.__debug = {
       tod: todKeys[todIndex], nearestHotspot: nearestHotspot()?.hs.name, nearestHotspotDist: nearestHotspot()?.d,
       wildlife: wildlife ? { ...wildlife.birds.stats(), mammals: wildlife.mammals.count, blows: wildlife.mammals.blows.count, ms: +wildlife.cost.toFixed(3), squawks } : null,
       fx: { smokeEmitters: smoke?.emitterCount ?? 0, floaters: floaters?.count ?? 0, fogBanks: fogBanks?.mesh.visible ? fogBanks.mesh.count : 0 },
-      interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, npcAnim: crowd ? { ...crowd.stats, ms: +crowd.stats.ms.toFixed(3) } : null, inShot: chase.inShot, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
+      interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, npcAnim: crowd ? { ...crowd.stats, ms: +crowd.stats.ms.toFixed(3) } : null, inShot: chase.inShot, seaField: seaFieldInfo, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
     };
   },
   key: (k: string, down: boolean) => input.setKey(k, down),
@@ -768,6 +783,8 @@ window.__debug = {
     sea.group.visible = true;
     return { full: +full.toFixed(3), noSea: +noSea.toFixed(3), sea: +(full - noSea).toFixed(3) };
   },
+  seaFieldImage: () => sea.fieldImage(),
+  seaObj: () => sea,
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,
