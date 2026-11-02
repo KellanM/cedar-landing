@@ -40,6 +40,9 @@ The test runs at a phone viewport (390×844) and on desktop. It loads the game, 
 | Look around | Drag on the right half | Mouse drag |
 | Cast / hook / reel | Big round button (hold it to reel) | Space (hold it to reel) |
 | Interact (sell, tie up…) | Green button above it, with a prompt | E / Enter |
+| Step ashore / Board | Context button when stopped near a deck or mooring (the Cast button says **Ashore** when the context button is busy selling) | E (or Space for "Ashore") |
+| Walk / run (on foot) | Left joystick: push past ~80% to run | WASD runs, hold Shift to walk |
+| Orbit (on foot) | Drag on the right half; eases back after ~2 s | Mouse drag |
 | Skip the establishing shot | Tap | Space / tap |
 | Time of day (debug) | Settings → Time of day | T |
 | FPS counter | Settings → Show FPS | F |
@@ -110,8 +113,16 @@ src/render/fogbanks.ts    low fog banks around a clearing (fog preset; light wis
 src/ui/tune.ts            ?tune overlay: live sliders for BOAT_TUNING
 src/game/save.ts          localStorage save
 src/ui/hud.ts             DOM HUD: toasts, cooler, catch card, sell panel
+src/game/onfoot/          on-foot mode: walk the village with the boat tied up
+  onfoot.ts               mode switch (step ashore / board hops), controller, interacts, NPC talk, save
+  footworld.ts            lazy per-chunk three-mesh-bvh: ground ray (highest walkable ≤0.45 m step), capsule wall push, no water
+  character.ts            skipper.glb (public/models, via models.json) or placeholder; procedural walk/run/idle/head-look
+  footcamera.ts           three-quarter foot camera (8 m, 40°, 30° off-behind), spring arm + pitch drop under roofs, blends
+  fx.ts / npclines.ts     footstep dust, speech bubble, placeholder NPC greetings by role
+  debugpath.ts            test-only grid A* used by __debug.footPathTo
 scripts/smoke.mjs         Playwright smoke test
 scripts/birds_capture.mjs Playwright capture of a hotspot frenzy (screenshots/birds_*.png)
+scripts/foot_verify.mjs   on-foot Playwright run: moor → ashore → market (sell) → plaza (talk) → reload → board
 ```
 
 **Tuning knobs:**

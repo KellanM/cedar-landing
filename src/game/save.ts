@@ -14,6 +14,8 @@ export interface SaveData {
   boat?: { x: number; z: number; yaw: number; moored: boolean };
   /** which world the saved boat position belongs to */
   worldTag?: string;
+  /** set while the player is on foot (boat tied up); position of the feet */
+  onfoot?: { x: number; y: number; z: number; yaw: number } | null;
 }
 
 export function defaultSave(): SaveData {
