@@ -47,6 +47,11 @@ async function run(name, viewport, isMobile) {
   await page.reload({ waitUntil: 'load' });
   await page.waitForFunction(() => window.__debug && window.__debug.state.chunks > 0, null, { timeout: 120000 });
   await page.evaluate(() => { window.__debug.markRevealSeen(); window.__debug.setAutoReel(false); });
+  if (process.env.BOAT) {
+    const r = await page.evaluate((id) => { const u = window.__debug.upg; u.give(5000); u.openShipwright('boats'); const b = u.buyBoat(id); const t = u.takeBoat(id); u.close(); return { b, t, state: u.state.boat, model: u.state.model }; }, process.env.BOAT);
+    log(`[${name}] boat ${process.env.BOAT}`, JSON.stringify(r));
+    await sleep(1500);
+  }
   const st = () => page.evaluate(() => {
     const d = window.__debug, s = d.state, f = d.fishing;
     return { phase: s.phase, tension: +s.tension.toFixed(2), dist: +s.distance.toFixed(1), thrash: f.thrashing, fps: s.fps, draws: s.drawCalls, tris: s.tris, species: s.species };

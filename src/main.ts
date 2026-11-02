@@ -582,6 +582,7 @@ const upg = createUpgrades({
   toast: (m, k) => hud.toast(m, k), setShells: (n) => hud.setShells(n), renderCooler: () => hud.renderCooler(save.cooler, save.coolerCap, true),
   titleCard: (t, s) => hud.titleCard(t, s), openLog: (t) => hud.openLog(t as Parameters<typeof hud.openLog>[0]),
   snapCamera: () => { if (!foot.active) chase.snap(boat); },
+  modelChanged: () => skipper.attachTo(boat.modelObject),
 });
 initTuneOverlay();
 mountSunShadingSetting();

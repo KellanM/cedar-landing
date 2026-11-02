@@ -30,6 +30,8 @@ export interface UpgradeDeps {
   titleCard(title: string, sub: string): void;
   openLog(tab: string): void;
   snapCamera(): void;
+  /** the boat's model was swapped (re-seat the skipper, etc.) */
+  modelChanged?(): void;
 }
 
 export function createUpgrades(d: UpgradeDeps) {
@@ -87,6 +89,7 @@ export function createUpgrades(d: UpgradeDeps) {
     b.setModel(m);
     model = m;
     dress(m);
+    d.modelChanged?.();
     // a bigger hull may need a little more water around it
     const land = d.land();
     if (land) { const f = land.nearestFree(b.pos.x, b.pos.z, BOAT_TIERS[id].tuning.radius); b.place(f.x, f.z, b.yaw); }

@@ -12,6 +12,10 @@ import { worldMat } from '../render/materials';
 export type Pose = 'stand' | 'cast_windup' | 'reel' | 'hold_show' | 'hold_hoist';
 
 const SOCKET = { pos: new THREE.Vector3(-2.5, 0.92, -0.15), yaw: Math.PI / 2 }; // faces bow +X
+/** Per-model fixes over the exported socket_skipper. The Packer's exported socket (x -3.0) sits under
+ *  the aft canopy roof (x -3.2..-1, ~2.4 m), hiding him from the chase and hold-up cameras; the open
+ *  stern deck (y 1.1) runs x -4.5..-3.25. */
+const SOCKET_FIX: Record<string, [number, number, number]> = { BOAT_T1: [-3.85, 1.1, -0.15] };
 
 export class Skipper {
   root = new THREE.Group(); // placed at the socket in the boat model's space
@@ -83,10 +87,16 @@ export class Skipper {
     }
   }
 
-  /** Attach to the boat model (BOAT_T0 local space, bow +X). Canoe/placeholder: hidden. */
+  /** Attach to the boat model (bow +X) at its skipper socket. Canoe/placeholder: hidden. */
   attachTo(model: THREE.Object3D | null) {
     this.root.removeFromParent();
-    if (!model || model.name !== 'BOAT_T0') { this.root.visible = false; return; }
+    // the troller uses the rig's own socket; upgrade tiers carry socket_skipper in node extras
+    const sock = model?.userData.socket_skipper as number[] | undefined;
+    const ok = !!model && (model.name === 'BOAT_T0' || (Array.isArray(sock) && sock.length === 3));
+    if (!model || !ok) { this.root.visible = false; return; }
+    const at = SOCKET_FIX[model.name] ?? (model.name === 'BOAT_T0' || !sock ? null : sock);
+    if (at) this.root.position.set(at[0], at[1], at[2]); else this.root.position.copy(SOCKET.pos);
+    this.root.rotation.y = SOCKET.yaw; // every tier faces bow +X
     model.add(this.root);
     this.root.visible = this.ready;
   }
