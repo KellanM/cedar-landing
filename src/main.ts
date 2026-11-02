@@ -424,7 +424,8 @@ let landingShot = false;
 function fishingDirector(adt: number) {
   const ph = fishing.phase;
   chase.motion = !reduceMotion();
-  skipper.root.visible = skipper.ready && !foot.active && !!skipper.root.parent;
+  // on deck only for the fishing minigame (cast → fight → hold-up); the boat sails unmanned otherwise
+  skipper.root.visible = skipper.ready && !foot.active && !!skipper.root.parent && (fishing.active || !!pendingCatch);
   if (fishing.active && ph !== 'landed' && ph !== 'idle') swingStern(adt);
   if (fishing.active) {
     skipper.face = ph === 'landed' && fishing.handTarget ? fishFace.copy(camera.position) : fishFace.copy(ph === 'reeling' ? fishing.lineEnd : fishing.bobberPos);
