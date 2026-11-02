@@ -37,11 +37,7 @@ export class Boat {
 
   setModel(model: THREE.Object3D) {
     this.visual.clear();
-    // Auto-detect the hull's long axis: physics assumes the bow points down −Z.
-    // The exported BOAT_T0 is modelled lengthwise along X, so turn it a quarter.
-    const bb = new THREE.Box3().setFromObject(model);
-    const sz = bb.getSize(new THREE.Vector3());
-    model.rotation.y = BOAT_MODEL_YAW + (sz.x > sz.z * 1.2 ? Math.PI / 2 : 0);
+    model.rotation.y = BOAT_MODEL_YAW + Math.PI / 2; // BOAT_T0 bow points along local +X (export extras bow_axis)
     model.position.set(0, 0, 0);
     model.updateMatrix();
     model.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.geometry.getAttribute('color')) m.material = boatMat; });

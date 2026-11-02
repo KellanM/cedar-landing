@@ -95,7 +95,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
   let instances: Instances = { protos: {} };
   try { instances = await getJSON<Instances>('instances.json', version); } catch (e) { console.warn('[world] no instances.json', e); }
 
-  const total = manifest.chunks.length + manifest.backdrops.length + (manifest.clouds ? 1 : 0) + (manifest.protos ? 1 : 0);
+  const total = manifest.chunks.length + (manifest.dynamic ? 1 : 0) + manifest.backdrops.length + (manifest.clouds ? 1 : 0) + (manifest.protos ? 1 : 0);
   let done = 0;
   const tick = (what: string) => progress(what, ++done / Math.max(1, total));
 
@@ -104,7 +104,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
   const clouds: THREE.Object3D[] = [];
 
   // Load chunks with limited concurrency (phones choke on dozens of parallel Draco decodes).
-  const queue = [...manifest.chunks];
+  const queue = [...manifest.chunks, ...(manifest.dynamic ? [{ file: manifest.dynamic, bounds: [] as number[] }] : [])];
   const workers = Array.from({ length: 4 }, async () => {
     while (queue.length) {
       const c = queue.shift()!;

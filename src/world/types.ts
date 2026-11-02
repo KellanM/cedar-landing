@@ -68,6 +68,8 @@ export interface Manifest {
   backdrops: string[];
   clouds?: string;
   protos?: string;
+  /** Floating/animated props (buoys, moored boats, kelp, flags). Interim: rendered as static scenery. */
+  dynamic?: string;
 }
 
 /** instances.json: [x,y,z, qx,qy,qz,qw, s] per instance (older rotY form [x,y,z,rotY,s] also accepted). */

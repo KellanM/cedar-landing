@@ -14,6 +14,8 @@ import { HotspotFX } from './game/hotspots';
 import { lookupSpecies, type CaughtFish } from './game/fishdata';
 import { clearSave, loadSave, writeSave, type SaveData } from './game/save';
 import * as hud from './ui/hud';
+import { mountVersionStamp } from './version';
+mountVersionStamp();
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
