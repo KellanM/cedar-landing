@@ -12,7 +12,9 @@ import { LandCollision } from './game/collision';
 import { Boat, BOAT_TUNING } from './game/boat';
 import { ChaseCamera } from './game/camera';
 import { Fishing } from './game/fishing';
-import { HotspotFX } from './game/hotspots';
+import { HotspotFX, hideBakedHotspotMarkers } from './game/hotspots';
+import { Skipper } from './game/skipper';
+import { reduceMotion } from './ui/ctx';
 import { Wildlife } from './game/wildlife';
 import { Floaters } from './game/floaters';
 import { BoatWake } from './render/wake';
@@ -76,15 +78,38 @@ resize();
 // ---------------------------------------------------------------- game state
 const input = new Input(canvas, $('btn-action'), $('btn-interact'));
 const chase = new ChaseCamera(camera);
+// ---------------------------------------------------------------- fishing juice: actor clock (hit-stop / slow-mo)
+// Freezes only the fishing actors (float, line, fish, splashes, skipper) — never the UI, sea or camera.
+const actorClock = { scale: 1, until: 0, slowUntil: 0, slow: 1 };
+function hitStop(ms: number) { actorClock.until = Math.max(actorClock.until, performance.now() + ms); }
+function slowMo(ms: number, k: number) { if (reduceMotion()) return; actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; }
+function actorScale(now: number) { return now < actorClock.until ? 0.04 : now < actorClock.slowUntil ? actorClock.slow : 1; }
+const fv = new THREE.Vector3();
 const fishing = new Fishing({
   toast: (m, k) => hud.toast(m, k),
-  bite: () => hud.onBite(),
+  bite: () => { hud.onBite(); chase.shake(0.12); },
   nibble: () => hud.onNibble(),
-  slip: () => hud.onSlip(),
+  slip: () => { hud.onSlip(); chase.shake(0.2); },
   landed: (fish, sp, perfect) => onLanded(fish, sp, perfect),
+  // hook-set: hit-stop scaled by rarity + a punch toward the float + a little trauma
+  strike: (x, z, r) => { hitStop(55 + 15 * r); chase.punch(fv.set(x, 0, z)); chase.shake(0.22 * r); },
+  thrash: (_x, _z, _pull, r) => { chase.shake(0.1 * r); },
+  leap: (x, z, r) => { chase.punch(fv.set(x, 0.8, z), 0.18, 1.5); if (r >= 1.5) slowMo(240, 0.4); },
+  breach: (_x, _z, r) => { chase.shake(0.08 * r); },
 });
 fishing.autoReel = save.settings.autoReel;
 scene.add(fishing.group);
+// The skipper on deck (rod in hand) — feeds the rod tip and does the hold-up.
+const skipper = new Skipper();
+skipper.load().then(() => { if (boat) skipper.attachTo(boat.modelObject); });
+// UI hook: the catch bubble / slip / card wait for the "show it off" beat of the hold-up.
+hud.catchHooks.holdUp = (fish) => {
+  if (!skipper.attached) return;
+  // Two-hand overhead "item get" for every catch (the baked hold_show pose puts a hand to the face).
+  skipper.showRod(false);
+  skipper.pose('hold_hoist', 0.22);
+  return new Promise<void>((res) => setTimeout(res, reduceMotion() ? 120 : 650));
+};
 
 let world: LoadedWorld | null = null;
 let worldVersion = '';
@@ -143,6 +168,8 @@ function installWorld(w: LoadedWorld) {
   buildInstances();
 
   land = new LandCollision(w.gameplay);
+  const removed = hideBakedHotspotMarkers(w.chunks.map((c) => c.object), w.gameplay.hotspots);
+  if (removed) console.info(`[hotspots] collapsed ${removed} baked marker triangles (procedural marker replaces them)`);
   hotspotFX = new HotspotFX(w.gameplay.hotspots);
   worldRoot.add(hotspotFX.group);
   buildWildlife();
@@ -151,6 +178,7 @@ function installWorld(w: LoadedWorld) {
 
   const model = w.boat ?? placeholderBoat();
   if (!boat) { boat = new Boat(model); scene.add(boat.root); } else boat.setModel(model);
+  skipper.attachTo(boat.modelObject);
 
   const sp = w.gameplay.spawn;
   let yaw = sp.rotY ?? 0;
@@ -343,6 +371,8 @@ function closeCard(keep: boolean) {
   pendingCatch = null;
   hud.hideCard();
   fishing.finish();
+  chase.endLanding();
+  skipper.showRod(true);
   if (!f) return;
   const rec = save.records[f.speciesId] ?? { size: 0, stars: 0, count: 0 };
   save.records[f.speciesId] = { size: Math.max(rec.size, f.size), stars: Math.max(rec.stars, f.stars), count: rec.count + 1 };
@@ -367,7 +397,74 @@ function onAction() {
   boat.speed = 0;
   fishing.cast(near.hs, rodTip(), boat.pos);
 }
-function rodTip() { return boat.root.localToWorld(new THREE.Vector3(0.45, 1.7, -0.6)); }
+const tipV = new THREE.Vector3();
+/** Rod tip: the skipper's rod when the rig is on deck; otherwise a point off the stern rail (troller, bow +X) or the canoe bow. */
+function rodTip() {
+  if (skipper.attached && !foot.active && skipper.rodTip(tipV)) return tipV;
+  const m = boat.modelObject;
+  if (m && m.name === 'BOAT_T0') { m.updateWorldMatrix(true, false); return tipV.set(-2.2, 2.6, 1.4).applyMatrix4(m.matrixWorld); }
+  return boat.root.localToWorld(tipV.set(0.45, 1.7, -0.6));
+}
+
+const fishFace = new THREE.Vector3(), handsV = new THREE.Vector3(), headV = new THREE.Vector3(), fwdV = new THREE.Vector3(), leanV = new THREE.Vector3();
+let landingShot = false;
+/** Skipper pose + camera layers that follow the fishing state (runs after fishing.update). */
+function fishingDirector(adt: number) {
+  const ph = fishing.phase;
+  chase.motion = !reduceMotion();
+  skipper.root.visible = skipper.ready && !foot.active && !!skipper.root.parent;
+  if (fishing.active && ph !== 'landed' && ph !== 'idle') swingStern(adt);
+  if (fishing.active) {
+    skipper.face = ph === 'landed' && fishing.handTarget ? fishFace.copy(camera.position) : fishFace.copy(ph === 'reeling' ? fishing.lineEnd : fishing.bobberPos);
+    skipper.aimRod = ph !== 'landed';
+    if (ph === 'casting') skipper.pose(fishingCastT < 0.22 ? 'cast_windup' : 'reel', fishingCastT < 0.22 ? 0.1 : 0.12);
+    else if (ph !== 'landed') skipper.pose('reel');
+    skipper.crank += ((ph === 'reeling' ? (fishing.reelHeld ? 1 : 0.15) : 0) - skipper.crank) * Math.min(1, adt * 8);
+    skipper.strain += ((ph === 'reeling' ? fishing.tension : 0) - skipper.strain) * Math.min(1, adt * 6);
+  } else {
+    skipper.face = null;
+    skipper.crank = 0; skipper.strain = 0;
+    if (!pendingCatch) skipper.pose('stand', 0.3);
+  }
+  // the rod is in hand only while fishing (it rests in the holder otherwise; hidden in the hold-up)
+  skipper.showRod(fishing.active && !(ph === 'landed' && fishing.handTarget));
+  skipper.update(adt);
+  // the fish flies to the hands (or the deck if there is no rig)
+  fishing.handTarget = skipper.attached && ph === 'landed' ? skipper.hands(handsV) : null;
+  if (fishing.handTarget) fishing.handTarget.y += 0.45; // held clear above the sou'wester (hand bones sit at the wrists)
+  // camera: frame boat + float/fish; lean toward the pull side during a thrash
+  chase.focus = fishing.active && ph !== 'landed' ? (ph === 'reeling' ? fishing.lineEnd : fishing.bobber.position) : null;
+  chase.fishAt = ph === 'reeling' ? fishing.lineEnd : null;
+  chase.fishAxis = fishing.active ? fishing.bobberPos : null;
+  if (ph === 'reeling' && fishing.thrashing) {
+    const dx = fishing.lineEnd.x - boat.pos.x, dz = fishing.lineEnd.z - boat.pos.z, l = Math.hypot(dx, dz) || 1;
+    leanV.set(-dz / l * fishing.pull + dx / l * 0.5, 0, dx / l * fishing.pull + dz / l * 0.5);
+    chase.lean(leanV.x, leanV.z);
+  } else chase.lean(null);
+  // hold-up shot once the fish is in hand
+  if (ph === 'landed' && fishing.handTarget && !landingShot && skipper.head(headV)) {
+    landingShot = true;
+    fwdV.set(camera.position.x - headV.x, 0, camera.position.z - headV.z).normalize();
+    chase.landing(headV, fwdV, fishing.handTarget);
+  } else if (ph === 'landed' && !fishing.handTarget && !landingShot) {
+    landingShot = true; // no rig: keep the chase view
+  }
+  if (!fishing.active) { landingShot = false; swingSide = 0; }
+}
+let fishingCastT = 0;
+/** While fishing, the boat slowly swings so the float sits abaft the beam (≈105° off the bow):
+ *  the skipper fishes off the stern quarter and the cabin never hides the line. */
+const STERN_BEARING = 105 * Math.PI / 180;
+let swingSide = 0;
+function swingStern(adt: number) {
+  const dx = fishing.bobberPos.x - boat.pos.x, dz = fishing.bobberPos.z - boat.pos.z;
+  if (Math.hypot(dx, dz) < 1) return;
+  const b = Math.atan2(-dx, -dz); // yaw that points the bow at the float
+  const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+  if (!swingSide) swingSide = wrap(boat.yaw - b) >= 0 ? 1 : -1;
+  const d = wrap(b + swingSide * STERN_BEARING - boat.yaw);
+  boat.yaw += Math.sign(d) * Math.min(Math.abs(d), 0.45 * adt * Math.min(1, Math.abs(d) * 2 + 0.2));
+}
 
 // ---------------------------------------------------------------- settings (rows live in the Log → Settings tab)
 function refreshSettingsUI() {
@@ -504,8 +601,10 @@ function frame(now: number) {
     if (boat.moored && Math.abs(throttle) > 0.3) { boat.moored = false; hud.toast('Cast off!'); }
 
     boat.update(dt, throttle, steer, land);
-    fishing.update(dt, input.actionHeld, rodTip(), boat.pos);
-    chase.focus = fishing.active && fishing.phase !== 'landed' ? fishing.bobber.position : null;
+    const adt = dt * actorScale(now);
+    fishingCastT = fishing.phase === 'casting' ? fishingCastT + adt : 0;
+    fishing.update(adt, input.actionHeld, rodTip(), boat.pos, camera.position);
+    fishingDirector(adt);
     if (foot.active) foot.update(dt, modalOpen || chase.inShot);
     else {
       chase.update(dt, boat, input.takeOrbit(), input.lastOrbitTime, land);
@@ -515,7 +614,7 @@ function frame(now: number) {
     maybeReveal();
     sky.follow(camera.position);
     sea.update(dt, boat.pos);
-    hotspotFX?.update(dt, camera.position, fishing.active ? fishing.hotspot : null);
+    hotspotFX?.update(dt, camera.position, fishing.active ? fishing.hotspot : null, fishing.active && fishing.phase !== 'reeling' && fishing.phase !== 'landed' ? fishing.bobber.position : null);
     wildlife?.update(dt, camera.position, boat.pos);
     if (wildlife) wake.update(dt, boat, wildlife.splash);
     smoke?.update(dt, camera.position, boat.stackWorld(stackPos), Math.max(Math.abs(throttle), Math.abs(boat.speed) / BOAT_TUNING.maxSpeed));
@@ -591,6 +690,19 @@ window.__debug = {
   footPush: (x: number, z: number, y: number) => foot.world.pushOut(new THREE.Vector3(x, y, z), 0.28, 1.65),
   footPushH: (x: number, z: number, y: number, h: number) => foot.world.pushOut(new THREE.Vector3(x, y, z), 0.28, h),
   forceBite: () => fishing.debugForceBite(),
+  forceThrash: () => fishing.debugThrash(),
+  /** Draw calls with each new fishing system hidden in turn (same frame, same view). */
+  drawBreakdown: () => {
+    const count = () => { renderer.render(scene, camera); return renderer.info.render.calls; };
+    const all = count();
+    const parts: Record<string, THREE.Object3D | undefined> = { fishing: fishing.group, skipper: skipper.root, hotspots: hotspotFX?.group };
+    const out: Record<string, number> = { all };
+    for (const [k, o] of Object.entries(parts)) { if (!o) continue; const v = o.visible; o.visible = false; out[k] = all - count(); o.visible = v; }
+    return out;
+  },
+  /** slow the actor clock (captures): k = 1 normal */
+  actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
+  skipperState: () => ({ ready: skipper.ready, attached: skipper.attached, pose: skipper.currentPose, landingK: chase.landingK }),
   keep: () => closeCard(true),
   sellAll: () => sellFish(save.cooler.map((_, i) => i)),
   closeModals: () => { hud.hideSell(); hud.hideCard(); hud.closeLog(); },

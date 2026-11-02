@@ -98,6 +98,8 @@ export class Boat {
   }
 
   get turnRate() { return this.yawRate; }
+  /** The exported hull (BOAT_T0 local space, bow +X) — sockets attach here. */
+  get modelObject() { return this.model; }
 
   /** World position of the smoke stack, or null if this boat has none. */
   stackWorld(out: THREE.Vector3): THREE.Vector3 | null {
