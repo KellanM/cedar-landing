@@ -15,6 +15,9 @@ export class LandCollision {
     this.colliders = g.colliders ?? [];
   }
 
+  /** Land-grid extent (null without a grid). */
+  get gridBox(): LandGrid | null { return this.grid; }
+
   /** Is the point (x,z) on land? */
   blocked(x: number, z: number): boolean {
     const gr = this.grid;

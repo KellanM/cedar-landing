@@ -35,6 +35,30 @@ export interface BirdSpawn {
   count?: number;
 }
 
+/**
+ * gameplay.json.mammals (export v3): marine mammals animated in-game (src/game/mammals.ts) instead of
+ * statics baked into chunks. One entry per designer object; `parts` are the individual animals found in
+ * a joined group (bottom-centre pos, heading dir in xz, body length), so the designer's layout is kept.
+ */
+export interface MammalSpawn {
+  name: string;
+  species: string;
+  /** pod (deep/underwater), surface (travelling at the surface), haulout (on rocks), heads (bobbing),
+   *  float (otters), fluke (fluke-up diving whale), swim (single underwater animal) */
+  kind: 'pod' | 'surface' | 'haulout' | 'heads' | 'float' | 'fluke' | 'swim' | string;
+  behaviour?: string;
+  pos: Vec3;
+  rotY?: number;
+  count?: number;
+  calf?: number;
+  radius?: number;
+  bounds?: number[];
+  underwater?: boolean;
+  in_region?: boolean;
+  parts?: { pos: Vec3; top?: number; dir: [number, number]; length: number }[];
+  props?: Record<string, unknown>;
+}
+
 export interface Buoy { name: string; pos: Vec3; side?: string }
 export interface CameraShot { name: string; pos: Vec3; target: Vec3; fov?: number }
 export interface Npc { name?: string; npc_name?: string; pos: Vec3; rotY?: number; role?: string; props?: Record<string, unknown> }
@@ -69,6 +93,7 @@ export interface Gameplay {
   interacts: Interact[];
   hotspots: Hotspot[];
   birds?: BirdSpawn[];
+  mammals?: MammalSpawn[];
   /** smoke emitters (chimneys, stacks, smoke holes, the burner, steam) */
   smoke?: { pos: Vec3; size?: number; kind?: string }[];
   buoys?: Buoy[];

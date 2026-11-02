@@ -224,7 +224,7 @@ function buildInstances() {
 function buildWildlife() {
   if (!world || !land) return;
   wildlife?.dispose();
-  wildlife = new Wildlife(world.gameplay, land, save.settings.quality === 'low');
+  wildlife = new Wildlife(world.gameplay, land, save.settings.quality === 'low', world.chunks);
   wildlife.onSquawk = () => { squawks++; }; // audio hook: no sound assets yet
   worldRoot.add(wildlife.group);
   // smoke + fog banks are quality-dependent pools too
@@ -674,7 +674,7 @@ window.__debug = {
       phase: fishing.phase, tension: fishing.tension, distance: fishing.distance, species: fishing.species?.name,
       shells: save.shells, cooler: save.cooler.map((f) => `${f.name} ${f.size}cm ${f.stars}★ ${f.price}`), fps: Math.round(fps),
       tod: todKeys[todIndex], nearestHotspot: nearestHotspot()?.hs.name, nearestHotspotDist: nearestHotspot()?.d,
-      wildlife: wildlife ? { ...wildlife.birds.stats(), ms: +wildlife.cost.toFixed(3), squawks } : null,
+      wildlife: wildlife ? { ...wildlife.birds.stats(), mammals: wildlife.mammals.count, blows: wildlife.mammals.blows.count, ms: +wildlife.cost.toFixed(3), squawks } : null,
       fx: { smokeEmitters: smoke?.emitterCount ?? 0, floaters: floaters?.count ?? 0, fogBanks: fogBanks?.mesh.visible ? fogBanks.mesh.count : 0 },
       interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, inShot: chase.inShot, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
     };
@@ -734,6 +734,66 @@ window.__debug = {
   forceDives: () => wildlife?.birds.forceDives(boat.pos.x, boat.pos.z) ?? 0,
   addSmoke: (x: number, y: number, z: number, kind = 'chimney', size = 1) => smoke?.addEmitter([x, y, z], size, kind),
   seaLife: () => wildlife?.sea.stats(),
+  mammals: () => wildlife?.mammals.stats(),
+  mammalState: (q: string) => wildlife?.mammals.state(q),
+  bringMammals: (q: string, x: number, z: number) => wildlife?.mammals.bring(q, x, z),
+  /**
+   * Captures: frame a marine-mammal group ('orca' | 'fluke' | 'dolphin' | 'porpoise' | 'haulout' | 'heads' |
+   * 'lion' | 'otter') and trigger `action` ('surface' | 'breach' | 'spyhop' | 'taillob' | 'fluke' | 'wide' |
+   * 'approach' | 'near' | 'idle' | 'boat' | 'track' = re-aim only).
+   */
+  viewMammals: (q: string, action = 'idle') => {
+    const mf = wildlife?.mammals;
+    if (!mf) return false;
+    const whale = /orca|fluke|humpback|dolphin|porpoise/.test(q);
+    if (whale && action !== 'track' && action !== 'boat') {
+      // bring the pod in front of a free stretch of water near the boat's current spot
+      const L0 = mf.locate(q);
+      if (!L0) return false;
+      if (Math.hypot(L0.x - boat.pos.x, L0.z - boat.pos.z) > 120) mf.bring(q, L0.x, L0.z);
+    }
+    if (['breach', 'spyhop', 'taillob'].includes(action)) mf.force(q, action, boat.pos);
+    const L = mf.locate(q);
+    if (!L) return false;
+    const big = L.kind === 'orca' || L.kind === 'humpback';
+    const side = L.yaw + Math.PI / 2;
+    const special = ['breach', 'spyhop', 'taillob', 'fluke'].includes(action);
+    const portrait = innerWidth < innerHeight ? 0.72 : 1; // phones: come closer, the frame is narrow
+    const dist = portrait * (action === 'wide' ? 75 : big ? (action === 'surface' ? 34 : special ? 24 : 30) : L.kind === 'seal' ? 10 : L.kind === 'otter' ? 7 : 18);
+    const lead = L.spd * (action === 'track' ? 0.6 : 2.2);
+    const tx = L.x + Math.sin(L.yaw) * lead, tz = L.z + Math.cos(L.yaw) * lead;
+    let px = tx + Math.sin(side) * dist, pz = tz + Math.cos(side) * dist;
+    // camera over water with water between it and the animals (narrow coves)
+    for (let k = 0; k < 16; k++) {
+      const a = side + Math.ceil(k / 2) * 0.4 * (k % 2 ? -1 : 1);
+      const cx = tx + Math.sin(a) * dist, cz = tz + Math.cos(a) * dist;
+      if (!land.blocked(cx, cz) && !land.blocked((cx + tx) / 2, (cz + tz) / 2) && !land.blocked(cx * 0.75 + tx * 0.25, cz * 0.75 + tz * 0.25)) { px = cx; pz = cz; break; }
+    }
+    if (action === 'bowride') {
+      // boat just behind the pod, heading the way the pod travels (its path ahead is open water)
+      const f = land.nearestFree(L.x - Math.sin(L.yaw) * 22, L.z - Math.cos(L.yaw) * 22, 1.1);
+      boat.place(f.x, f.z, L.yaw + Math.PI);
+      boat.speed = 0;
+      chase.snap(boat);
+      chase.skipShot();
+      mf.force(q, 'bowride', boat.pos);
+      return true;
+    }
+    if (action !== 'track') {
+      const bd = action === 'near' ? 6 : action === 'approach' ? 30 : action === 'boat' ? 70 : Math.max(dist + 25, big ? 85 : 30);
+      const bs = action === 'near' ? side + 2.2 : side; // close boat comes in from another side (not in front of the lens)
+      const f = land.nearestFree(tx + Math.sin(bs) * bd, tz + Math.cos(bs) * bd, 1.1);
+      boat.place(f.x, f.z, Math.atan2(-(tx - f.x), -(tz - f.z)));
+      boat.speed = 0;
+      chase.snap(boat);
+      if (action === 'boat') { chase.skipShot(); return true; }
+    }
+    const h = action === 'wide' ? 16 : big ? 5.5 : L.kind === 'otter' ? 1.8 : 3.6;
+    const ty = action === 'spyhop' || action === 'breach' ? 2 : L.kind === 'seal' ? 0.6 : 0.3;
+    chase.playShot({ name: 'debug', pos: [px, h, pz], target: [tx, ty, tz], fov: action === 'wide' ? 55 : 50 }, 600);
+    if (action === 'surface' || action === 'fluke') mf.force(q, action, boat.pos);
+    return { x: Math.round(L.x), z: Math.round(L.z), kind: L.kind };
+  },
   exciteBirds: () => wildlife?.onCatch(boat.pos.x, boat.pos.z),
   /** Park the boat `dist` m from a hotspot, facing it (for bird captures). */
   viewHotspot: (name: string, dist = 24, side = 0) => {

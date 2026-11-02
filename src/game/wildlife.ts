@@ -1,24 +1,27 @@
 import * as THREE from 'three';
-import type { Gameplay } from '../world/types';
+import type { Gameplay, LoadedChunk } from '../world/types';
 import type { LandCollision } from './collision';
 import { BirdField } from './birds';
 import { SeaLife } from './sealife';
+import { MammalField } from './mammals';
 import { SplashFX } from './splash';
 
-/** All animated wildlife: birds (gull frenzies, flocks, perched), sea life, and their splashes. */
+/** All animated wildlife: birds (gull frenzies, flocks, perched), sea life, marine mammals, and their splashes. */
 export class Wildlife {
   group = new THREE.Group();
   splash = new SplashFX();
   birds: BirdField;
   sea: SeaLife;
+  mammals: MammalField;
   /** ms spent in update() last frame (perf readout). */
   cost = 0;
 
-  constructor(gp: Gameplay, land: LandCollision, low: boolean) {
+  constructor(gp: Gameplay, land: LandCollision, low: boolean, chunks: LoadedChunk[] = []) {
     this.birds = new BirdField(gp.hotspots, gp.birds, low, this.splash);
     this.sea = new SeaLife(gp.hotspots, gp, land, low, this.splash);
+    this.mammals = new MammalField(gp.mammals, land, low, this.splash, chunks);
     this.group.name = 'wildlife';
-    this.group.add(this.birds.group, this.sea.group, this.splash.group);
+    this.group.add(this.birds.group, this.sea.group, this.mammals.group, this.splash.group);
   }
 
   /** Squawk-cue hook for future audio. */
@@ -28,6 +31,7 @@ export class Wildlife {
     const t0 = performance.now();
     this.birds.update(dt, cam, boat);
     this.sea.update(dt, cam, boat);
+    this.mammals.update(dt, cam, boat);
     this.splash.update(dt);
     this.cost = performance.now() - t0;
   }
