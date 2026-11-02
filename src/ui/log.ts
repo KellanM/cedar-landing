@@ -75,6 +75,8 @@ export function openLog(t?: Tab, opts: { species?: string; filter?: Filter } = {
   if (opts.species && ctx.layout === 'portrait') root.classList.add('detail-open');
 }
 
+chart.onArt = () => refreshLog();
+
 export function closeLog() {
   if (root.classList.contains('hidden')) return;
   chart.persist();

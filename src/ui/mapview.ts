@@ -243,19 +243,6 @@ export class MapView {
         g.moveTo(X - rr, Y); g.lineTo(X + rr, Y); g.moveTo(X, Y - rr); g.lineTo(X, Y + rr);
       }
       g.stroke();
-      // soundings: italic numerals in open water; thinned out when zoomed out so the sea stays calm
-      const spacing = 38 * this.s; // css px between soundings
-      const keep = spacing >= 46 ? 1 : spacing >= 30 ? 0.5 : spacing >= 18 ? 0.22 : 0;
-      if (keep > 0) {
-        g.font = `italic 600 ${Math.round(10.5 * dpr * ts)}px ${F_DISPLAY}`;
-        g.fillStyle = 'rgba(85,98,96,.72)'; g.textAlign = 'center'; g.textBaseline = 'middle';
-        for (const q of art.soundings) {
-          if (keep < 1 && hash2(q.x | 0, q.y | 0) > keep) continue;
-          const X = q.x * a + ox, Y = q.y * a + oy;
-          if (X < -20 || Y < -20 || X > W + 20 || Y > H + 20) continue;
-          g.fillText(String(q.v), X, Y);
-        }
-      }
       // fishing marks (seen hotspots): a small fish, quieter than places
       for (const hs of chart.hotspots) {
         if (!chart.isSeen(hs.x, hs.z)) continue;
@@ -370,6 +357,29 @@ export class MapView {
       if (isDest) { g.strokeStyle = OCHRE; g.lineWidth = 1.6; g.beginPath(); g.moveTo(lx, ly + 3); g.lineTo(lx + tw, ly + 2); g.stroke(); }
     }
 
+    // soundings last, clipped to the seen area and kept out of every label, glyph and piece of furniture
+    if (art) {
+      const a = (this.s * dpr) / art.k;
+      const ox = (W / 2) - (this.cx - b.minX) * this.s * dpr, oy = (H / 2) - (this.cz - b.minZ) * this.s * dpr;
+      const spacing = 38 * this.s; // css px between soundings; thinned when zoomed out so the sea stays calm
+      const keep = spacing >= 46 ? 1 : spacing >= 30 ? 0.5 : spacing >= 18 ? 0.22 : 0;
+      if (keep > 0) {
+        g.save();
+        g.setTransform(a, 0, 0, a, ox, oy); g.clip(chart.fogPath()!, 'evenodd'); g.setTransform(1, 0, 0, 1, 0, 0);
+        g.font = `italic 600 ${Math.round(10.5 * dpr * ts)}px ${F_DISPLAY}`;
+        g.fillStyle = 'rgba(85,98,96,.72)'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        const fish = chart.hotspots.map((h) => this.css(h.x, h.z, cw, ch));
+        for (const q of art.soundings) {
+          if (keep < 1 && hash2(q.x | 0, q.y | 0) > keep) continue;
+          const X = q.x * a + ox, Y = q.y * a + oy;
+          if (X < -20 || Y < -20 || X > W + 20 || Y > H + 20) continue;
+          const r: Rect = { x0: X / dpr - 9, y0: Y / dpr - 7, x1: X / dpr + 9, y1: Y / dpr + 7 };
+          if (r.x0 < 9 || r.y0 < 9 || r.x1 > cw - 9 || r.y1 > ch - 9 || placed.some((p) => hit(p, r)) || fish.some(([fx, fy]) => Math.abs(fx - X / dpr) < 16 && Math.abs(fy - Y / dpr) < 10)) continue;
+          g.fillText(String(q.v), X, Y);
+        }
+        g.restore();
+      }
+    }
     this.drawBoat(g, bx, bz, cw, ch, dpr);
     this.lastDrawMs = performance.now() - t0;
   }
@@ -543,7 +553,7 @@ export const mapView = new MapView();
 /** window.__debug.ui.map — used by scripts/map_shots.mjs */
 export const chartDebug = {
   info: () => ({
-    bounds: chart.bounds, buildMs: chart.buildMs, drawMs: mapView.lastDrawMs,
+    bounds: chart.bounds, buildMs: chart.buildMs, mainMs: chart.mainMs, stages: chart.art?.t, ready: !!chart.art, drawMs: mapView.lastDrawMs,
     view: { x: mapView.cx, z: mapView.cz, s: mapView.s },
     items: mapItems(true).map((i) => ({ key: i.key, name: i.name, glyph: i.glyph, x: Math.round(i.x), z: Math.round(i.z), merged: i.keys.length, ...(i.lx !== undefined ? { lx: Math.round(i.lx), lz: Math.round(i.lz!) } : {}) })),
     rocks: chart.art?.rocks.length ?? 0, soundings: chart.art?.soundings.length ?? 0,

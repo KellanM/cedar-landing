@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { ctx } from './ctx';
 import { log, saveLog, loadMask, saveMask } from './prefs';
 import type { LoadedWorld } from '../world/types';
-import { buildChartArt, fogPath, type ChartArt } from './chartart';
+import { computeChart, paintChartArt, fogPath, type ChartArt, type ChartData } from './chartart';
 
 const MASK = 128;
 const FIELD_MAX = 1024; // px, longest side of the top-down land render (vector coast is extracted from it)
@@ -30,8 +30,15 @@ class Chart {
   art: ChartArt | null = null;
   private fog: Path2D | null = null;
   private fogFor = -1;
-  /** ms spent building the chart art last time (perf note in docs/map_study.md) */
+  /** ms from build start to art ready, and main-thread ms of that (perf notes in docs/map_study.md) */
   buildMs = 0;
+  mainMs = 0;
+  private building = 0;
+  private buildSeq = 0;
+  private prebuild = 0;
+  private worker: Worker | null = null;
+  /** chart art became ready (the Map redraws, Pages re-render their crops) */
+  onArt: (() => void) | null = null;
   private maskVersion = 0;
   private lastPath = { x: 1e9, z: 1e9 };
   /** first visit to a named place (HUD shows a title card / chart toast) */
@@ -58,7 +65,13 @@ class Chart {
       }
       this.maskVersion++;
     }
-    this.texture = null; this.art = null;
+    this.texture = null; this.art = null; this.building = 0;
+    // build the chart in the background shortly after load, so the first Map open is instant
+    clearTimeout(this.prebuild);
+    this.prebuild = window.setTimeout(() => {
+      const ric = (window as Window & { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      if (ric) ric(() => this.ensureArt(), { timeout: 3000 }); else this.ensureArt();
+    }, 2500);
     this.places = buildPlaces(w);
     this.hotspots = g.hotspots.map((h) => ({ x: h.pos[0], z: h.pos[2] }));
   }
@@ -143,8 +156,9 @@ class Chart {
     return this.ensureArt()?.base ?? null;
   }
 
+  /** The chart art, or null while it is being built (the build starts on first call). */
   ensureArt(): ChartArt | null {
-    if (this.art) return this.art;
+    if (this.art || this.building) return this.art;
     const src = ctx.chart, w = ctx.world;
     if (!src || !w) return null;
     const t0 = performance.now();
@@ -178,10 +192,29 @@ class Chart {
       for (const [o, v] of restore) o.visible = v;
       rt.dispose();
     }
-    this.art = buildChartArt(px, W, H, ww, ART_MAX);
-    this.texture = this.art.base;
-    this.fogFor = -1;
-    this.buildMs = performance.now() - t0;
+    const id = (this.building = ++this.buildSeq);
+    let main = performance.now() - t0;
+    const done = (d: ChartData) => {
+      if (this.building !== id) return; // world changed meanwhile
+      const t1 = performance.now();
+      this.art = paintChartArt(d, ART_MAX);
+      this.texture = this.art.base;
+      this.fogFor = -1;
+      this.building = 0;
+      main += performance.now() - t1;
+      this.mainMs = main;
+      this.buildMs = performance.now() - t0;
+      this.onArt?.();
+    };
+    try {
+      this.worker ??= new Worker(new URL('./chartworker.ts', import.meta.url), { type: 'module' });
+      this.worker.onmessage = (e: MessageEvent<{ id: number; d: ChartData }>) => { if (e.data.id === id) done(e.data.d); };
+      this.worker.onerror = () => { this.worker = null; if (this.building === id) { const t = performance.now(); const d = computeChart(px, W, H, ww); main += performance.now() - t; done(d); } };
+      const copy = px.slice(); // keep px for the in-thread fallback
+      this.worker.postMessage({ px: copy, fw: W, fh: H, worldW: ww, id }, [copy.buffer]);
+    } catch {
+      const t = performance.now(); const d = computeChart(px, W, H, ww); main += performance.now() - t; done(d);
+    }
     return this.art;
   }
 
@@ -212,7 +245,7 @@ class Chart {
   /** A torn-paper crop of the chart around a point (for found pages). */
   cropAround(x: number, z: number, metres = 160, px = 220): string | null {
     const tex = this.ensureTexture();
-    if (!tex) return null;
+    if (!tex || !this.art) return null;
     const c = document.createElement('canvas');
     c.width = px; c.height = px;
     const cc = c.getContext('2d')!;

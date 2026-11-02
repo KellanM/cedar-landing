@@ -20,6 +20,7 @@ for (const [name, vp, mob] of [['phone', { width: 390, height: 844 }, true], ['d
   await page.goto(BASE + '?debug'); await page.evaluate(() => localStorage.clear()); await page.reload();
   await page.waitForFunction(() => window.__debug && window.__debug.state.chunks > 0, null, { timeout: 120000 });
   await page.evaluate(() => window.__debug.markRevealSeen?.()); await sleep(1500);
+  await page.waitForFunction(() => !window.__debug.ui.map || window.__debug.ui.map.info().ready, null, { timeout: 60000 });
   const shot = async (state) => { await sleep(900); await page.screenshot({ path: `${OUT}/${TAG}_${name}_${state}.png` }); };
   const open = () => page.evaluate(() => { window.__debug.ui.closeLog(); window.__debug.ui.openLog('map'); });
   await open(); await shot('fresh');

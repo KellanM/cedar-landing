@@ -19,6 +19,8 @@ export interface ChartArt {
   rocks: [number, number][];
   soundings: { x: number; y: number; v: number }[];
   isLand(x: number, y: number): boolean;
+  /** build timings (ms) per stage */
+  t: Record<string, number>;
   /** the most inland point of the biggest island within r (raster px) of (x,y) — where its name goes */
   islandAnchor(x: number, y: number, r: number): [number, number] | null;
 }
@@ -87,55 +89,51 @@ function edt(on: Uint8Array, w: number, h: number): Float32Array {
  * Returns flat [x0,y0,x1,y1,…] arrays in field pixel-centre coordinates.
  */
 export function contours(f: Float32Array, w: number, h: number, iso: number): Float32Array[] {
-  const val = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? iso - 1 : f[y * w + x]);
   const P = w + 2;
-  const hid = (x: number, y: number) => ((y + 1) * P + (x + 1)) * 2; // (x,y)→(x+1,y)
-  const vid = (x: number, y: number) => ((y + 1) * P + (x + 1)) * 2 + 1; // (x,y)→(x,y+1)
-  const nb = new Map<number, number[]>();
-  const pos = new Map<number, [number, number]>();
+  const E = P * (h + 2) * 2;
+  // typed adjacency (each edge point joins at most two segments); far cheaper than Maps on phones
+  const nA = new Int32Array(E).fill(-1), nB = new Int32Array(E).fill(-1);
+  const ex = new Float32Array(E), ey = new Float32Array(E);
+  const used: number[] = [];
+  const val = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? iso - 1 : f[y * w + x]);
   const link = (a: number, b: number) => {
-    let la = nb.get(a); if (!la) nb.set(a, (la = [])); la.push(b);
-    let lb = nb.get(b); if (!lb) nb.set(b, (lb = [])); lb.push(a);
+    if (nA[a] < 0) { nA[a] = b; used.push(a); } else nB[a] = b;
+    if (nA[b] < 0) { nA[b] = a; used.push(b); } else nB[b] = a;
   };
   const lerp = (a: number, b: number) => { const t = (iso - a) / (b - a); return t < 0 ? 0 : t > 1 ? 1 : t; };
   for (let y = -1; y < h; y++) {
+    const rowT = (y + 1) * P, rowB = (y + 2) * P;
     for (let x = -1; x < w; x++) {
       const tl = val(x, y), tr = val(x + 1, y), br = val(x + 1, y + 1), bl = val(x, y + 1);
       const c = (tl >= iso ? 8 : 0) | (tr >= iso ? 4 : 0) | (br >= iso ? 2 : 0) | (bl >= iso ? 1 : 0);
       if (c === 0 || c === 15) continue;
-      const T = hid(x, y), R = vid(x + 1, y), B = hid(x, y + 1), L = vid(x, y);
-      const need = (id: number, px: number, py: number) => { if (!pos.has(id)) pos.set(id, [px, py]); };
-      // edge points (only computed when used)
-      const pT = () => need(T, x + lerp(tl, tr), y);
-      const pR = () => need(R, x + 1, y + lerp(tr, br));
-      const pB = () => need(B, x + lerp(bl, br), y + 1);
-      const pL = () => need(L, x, y + lerp(tl, bl));
-      const seg = (a: number, b: number) => link(a, b);
-      const centre = (tl + tr + br + bl) / 4 >= iso;
+      const T = (rowT + x + 1) * 2, B = (rowB + x + 1) * 2, L = (rowT + x + 1) * 2 + 1, R = (rowT + x + 2) * 2 + 1;
+      ex[T] = x + lerp(tl, tr); ey[T] = y;
+      ex[B] = x + lerp(bl, br); ey[B] = y + 1;
+      ex[L] = x; ey[L] = y + lerp(tl, bl);
+      ex[R] = x + 1; ey[R] = y + lerp(tr, br);
       switch (c) {
-        case 1: case 14: pL(); pB(); seg(L, B); break;
-        case 2: case 13: pB(); pR(); seg(B, R); break;
-        case 3: case 12: pL(); pR(); seg(L, R); break;
-        case 4: case 11: pT(); pR(); seg(T, R); break;
-        case 6: case 9: pT(); pB(); seg(T, B); break;
-        case 7: case 8: pL(); pT(); seg(L, T); break;
-        case 5: pT(); pR(); pB(); pL(); if (centre) { seg(L, T); seg(B, R); } else { seg(T, R); seg(L, B); } break;
-        case 10: pT(); pR(); pB(); pL(); if (centre) { seg(T, R); seg(L, B); } else { seg(L, T); seg(B, R); } break;
+        case 1: case 14: link(L, B); break;
+        case 2: case 13: link(B, R); break;
+        case 3: case 12: link(L, R); break;
+        case 4: case 11: link(T, R); break;
+        case 6: case 9: link(T, B); break;
+        case 7: case 8: link(L, T); break;
+        case 5: if ((tl + tr + br + bl) / 4 >= iso) { link(L, T); link(B, R); } else { link(T, R); link(L, B); } break;
+        case 10: if ((tl + tr + br + bl) / 4 >= iso) { link(T, R); link(L, B); } else { link(L, T); link(B, R); } break;
       }
     }
   }
-  const seen = new Set<number>();
+  const seen = new Uint8Array(E);
   const loops: Float32Array[] = [];
-  for (const start of nb.keys()) {
-    if (seen.has(start)) continue;
+  for (const start of used) {
+    if (seen[start]) continue;
     const pts: number[] = [];
     let prev = -1, cur = start;
-    for (let guard = 0; guard < 1e6; guard++) {
-      seen.add(cur);
-      const p = pos.get(cur)!; pts.push(p[0], p[1]);
-      const n = nb.get(cur)!;
-      const next = n[0] === prev ? n[1] : n[0];
-      if (next === undefined || seen.has(next)) break;
+    for (;;) {
+      seen[cur] = 1; pts.push(ex[cur], ey[cur]);
+      const next = nA[cur] === prev ? nB[cur] : nA[cur];
+      if (next < 0 || seen[next]) break;
       prev = cur; cur = next;
     }
     if (pts.length >= 6) loops.push(new Float32Array(pts));
@@ -199,8 +197,10 @@ export function vnoise(x: number, y: number) {
  * @param worldW metres across the field (x)
  * @param artMax longest side of the cached raster
  */
-export function buildChartArt(px: Uint8Array, fw: number, fh: number, worldW: number, artMax = 2048): ChartArt {
+export function computeChart(px: Uint8Array, fw: number, fh: number, worldW: number): ChartData {
   const N = fw * fh;
+  const T: Record<string, number> = {}; let tl = performance.now();
+  const lap = (k: string) => { const n = performance.now(); T[k] = Math.round(n - tl); tl = n; };
   const land = new Uint8Array(N), forest = new Uint8Array(N);
   for (let y = 0; y < fh; y++) {
     const sy = fh - 1 - y; // canvas row 0 = minZ (north)
@@ -243,11 +243,31 @@ export function buildChartArt(px: Uint8Array, fw: number, fh: number, worldW: nu
     }
   }
 
+  lap('comp');
   // distance fields (px): water→land and land→water
-  const water = new Uint8Array(N);
-  for (let i = 0; i < N; i++) water[i] = land[i] ? 0 : 1;
-  const dOut = edt(land, fw, fh);
-  const dIn = edt(water, fw, fh);
+  // half-resolution distance fields (4× cheaper; ripples are smoothed anyway), bilinearly upsampled for washes
+  const hw = Math.ceil(fw / 2), hh = Math.ceil(fh / 2);
+  const hLand = new Uint8Array(hw * hh), hWater = new Uint8Array(hw * hh);
+  for (let y = 0; y < hh; y++) for (let x = 0; x < hw; x++) {
+    let c = 0;
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) { const X = Math.min(fw - 1, 2 * x + dx), Y = Math.min(fh - 1, 2 * y + dy); c += land[Y * fw + X]; }
+    hLand[y * hw + x] = c >= 2 ? 1 : 0; hWater[y * hw + x] = c >= 2 ? 0 : 1;
+  }
+  const hOut = edt(hLand, hw, hh), hIn = edt(hWater, hw, hh);
+  const up = (h: Float32Array) => {
+    const o = new Float32Array(N);
+    for (let y = 0; y < fh; y++) {
+      const sy = Math.min(hh - 1, Math.max(0, (y - 0.5) / 2)), y0 = Math.floor(sy), y1 = Math.min(hh - 1, y0 + 1), ty = sy - y0;
+      for (let x = 0; x < fw; x++) {
+        const sx = Math.min(hw - 1, Math.max(0, (x - 0.5) / 2)), x0 = Math.floor(sx), x1 = Math.min(hw - 1, x0 + 1), tx = sx - x0;
+        const a = h[y0 * hw + x0], b = h[y0 * hw + x1], c = h[y1 * hw + x0], d = h[y1 * hw + x1];
+        o[y * fw + x] = 2 * ((a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty);
+      }
+    }
+    return o;
+  };
+  const dOut = up(hOut), dIn = up(hIn);
+  lap('edt');
   // per island: area and its most inland pixel (label anchor, like engraved names set across the land)
   const isl = new Map<number, { area: number; best: number; d: number }>();
   for (let i = 0; i < N; i++) {
@@ -259,16 +279,19 @@ export function buildChartArt(px: Uint8Array, fw: number, fh: number, worldW: nu
     if (dIn[i] > e.d) { e.d = dIn[i]; e.best = i; }
   }
 
+  lap('isl');
   // coastline: blurred mask iso 0.5
   const lf = new Float32Array(N);
   for (let i = 0; i < N; i++) lf[i] = land[i];
   const smooth = boxBlur(lf, fw, fh, 1);
   const coastLoops = contours(smooth, fw, fh, 0.5).map((l) => smoothLoop(l, 2, 0.5)).filter((l) => loopArea(l) > 1.5);
 
+  lap('coast');
   // ripple lines at fixed sea distances (metres) — real chart offsets merge between near islands
   const RIP_M = [3.2, 7, 12];
-  const ripples = RIP_M.map((m) => contours(dOut, fw, fh, m * fk).map((l) => smoothLoop(l, 2, 0.8)).filter((l) => loopArea(l) > 4));
+  const ripples = RIP_M.map((m) => contours(hOut, hw, hh, (m * fk) / 2).map((l) => smoothLoop(l, 2, 0.5)).filter((l) => loopArea(l) > 1));
 
+  lap('ripples');
   // soundings: jittered grid in open water, value grows with distance from land (fathoms-ish, invented)
   const soundings: { x: number; y: number; v: number }[] = [];
   const sp = 38 * fk;
@@ -282,53 +305,28 @@ export function buildChartArt(px: Uint8Array, fw: number, fh: number, worldW: nu
     soundings.push({ x: jx, y: jy, v });
   }
 
-  // ---------------------------------------------------------------- raster (soft layers only)
-  const s = artMax / Math.max(fw, fh);
-  const W = Math.round(fw * s), H = Math.round(fh * s);
-  const k = W / worldW;
-  // field-res washes drawn into an ImageData, then scaled up smoothly
-  const wash = document.createElement('canvas');
-  wash.width = fw; wash.height = fh;
-  const wc = wash.getContext('2d')!;
-  const img = wc.createImageData(fw, fh);
-  const d = img.data;
+  lap('sound');
+  // washes at field resolution (land parchment + green coastal band; pale shoal tint), scaled up on paint
+  const wash = new Uint8ClampedArray(N * 4);
   const shoal = 12 * fk, band = 9 * fk;
   for (let i = 0; i < N; i++) {
-    let r = 0xF4, g = 0xEF, b = 0xE3, a = 255;
+    let r = 0xF4, g = 0xEF, b = 0xE3;
     if (land[i]) {
-      // land: warm parchment, green watercolour band inside the coast fading inland
       const t = Math.min(1, dIn[i] / band);
       const gA = 0.62 * (1 - t) * (1 - t) + (forest[i] ? 0.18 : 0);
       r = 0xEA; g = 0xDF; b = 0xBF;
       r += (0x9C - r) * gA; g += (0xB2 - g) * gA; b += (0x78 - b) * gA;
     } else {
-      // shoal tint hugging the shore (pale teal), gone by the outer ripple
       const t = Math.min(1, dOut[i] / shoal);
       const wA = 0.30 * (1 - t) * (1 - t);
       r += (0x8F - r) * wA; g += (0xB8 - g) * wA; b += (0xB5 - b) * wA;
     }
-    d[i * 4] = r; d[i * 4 + 1] = g; d[i * 4 + 2] = b; d[i * 4 + 3] = a;
+    wash[i * 4] = r; wash[i * 4 + 1] = g; wash[i * 4 + 2] = b; wash[i * 4 + 3] = 255;
   }
-  wc.putImageData(img, 0, 0);
-
-  const base = document.createElement('canvas');
-  base.width = W; base.height = H;
-  const bc = base.getContext('2d')!;
-  bc.fillStyle = PAPER; bc.fillRect(0, 0, W, H);
-  bc.imageSmoothingEnabled = true; bc.imageSmoothingQuality = 'high';
-  bc.drawImage(wash, 0, 0, W, H);
-
-  // survey grid every 100 m (very faint; the sea shouldn't look like graph paper)
-  bc.strokeStyle = 'rgba(46,94,99,.10)'; bc.lineWidth = Math.max(1, s * 0.5);
-  bc.beginPath();
-  for (let x = 0; x < W; x += 100 * k) { bc.moveTo(x, 0); bc.lineTo(x, H); }
-  for (let y = 0; y < H; y += 100 * k) { bc.moveTo(0, y); bc.lineTo(W, y); }
-  bc.stroke();
-
-  // shoal stipple: dots inside the first ripple, sparser outward (Coast Survey sand/shoal convention)
-  bc.fillStyle = 'rgba(46,94,99,.55)';
-  const step = 2.2 * fk; // ~1 dot per 2.2 m cell
-  const dotR = Math.max(0.7, 0.32 * k);
+  lap('wash');
+  // shoal stipple dots inside the first ripple, sparser outward (Coast Survey sand/shoal convention)
+  const dots: number[] = [];
+  const step = 2.2 * fk;
   for (let gy = 0; gy < fh; gy += step) for (let gx = 0; gx < fw; gx += step) {
     const jx = gx + hash2(gx * 7 | 0, gy * 3 | 0) * step, jy = gy + hash2(gy * 5 | 0, gx * 11 | 0) * step;
     const xi = jx | 0, yi = jy | 0;
@@ -338,50 +336,115 @@ export function buildChartArt(px: Uint8Array, fw: number, fh: number, worldW: nu
     const dm = dOut[i] / fk;
     if (dm > RIP_M[0] + 0.5) continue;
     if (hash2(xi * 13, yi * 17) > 0.85 - dm * 0.15) continue;
-    bc.beginPath(); bc.arc(jx * s, jy * s, dotR, 0, Math.PI * 2); bc.fill();
+    dots.push(jx, jy);
   }
-
-  // conifer marks on forest (Admiralty 2689 tree signs): a stem and two short arms
+  // conifer marks on forest (Admiralty 2689 tree signs): x, y, height scale
+  const trees: number[] = [];
   const tstep = 5.5 * fk;
-  bc.strokeStyle = 'rgba(54,80,52,.78)'; bc.lineWidth = Math.max(1, 0.38 * k); bc.lineCap = 'round';
-  const th = 2.6 * k; // tree height px
-  bc.beginPath();
   for (let gy = 0; gy < fh; gy += tstep) for (let gx = 0; gx < fw; gx += tstep) {
     const jx = gx + (hash2(gx | 0, gy * 3 | 0) - 0.5) * tstep * 0.8, jy = gy + (hash2(gy * 7 | 0, gx | 0) - 0.5) * tstep * 0.8;
     const xi = Math.round(jx), yi = Math.round(jy);
     if (xi < 0 || yi < 0 || xi >= fw || yi >= fh) continue;
     const i = yi * fw + xi;
     if (!forest[i] || dIn[i] < 1.6 * fk) continue;
-    const X = jx * s, Y = jy * s, hh = th * (0.8 + hash2(xi, yi) * 0.4);
+    trees.push(jx, jy, 0.8 + hash2(xi, yi) * 0.4);
+  }
+  lap('marks');
+  // island table for label anchors: island index per land pixel → its most inland pixel
+  const islId = new Int32Array(N).fill(-1);
+  const islBest: number[] = [];
+  const idOf = new Map<number, number>();
+  for (const [c, e] of isl) { idOf.set(c, islBest.length); islBest.push(e.best); }
+  for (let i = 0; i < N; i++) if (land[i]) islId[i] = idOf.get(comp[i]) ?? -1;
+  lap('table');
+  return {
+    fw, fh, worldW, wash, islId, islBest: new Int32Array(islBest), coastLoops, ripples, t: T,
+    rocks: new Float32Array(rocks.flat()), soundings: new Float32Array(soundings.flatMap((q) => [q.x, q.y, q.v])),
+    dots: new Float32Array(dots), trees: new Float32Array(trees),
+  };
+}
+
+/** Plain, transferable result of computeChart (runs in a worker when it can). Coordinates in field px. */
+export interface ChartData {
+  fw: number; fh: number; worldW: number;
+  wash: Uint8ClampedArray; islId: Int32Array; islBest: Int32Array;
+  coastLoops: Float32Array[]; ripples: Float32Array[][];
+  rocks: Float32Array; soundings: Float32Array; dots: Float32Array; trees: Float32Array;
+  t: Record<string, number>;
+}
+
+/** buffers to transfer from the worker */
+export function chartTransfer(d: ChartData): ArrayBuffer[] {
+  return [d.wash, d.islId, d.islBest, d.rocks, d.soundings, d.dots, d.trees, ...d.coastLoops, ...d.ripples.flat()].map((a) => a.buffer as ArrayBuffer);
+}
+
+/** Main thread: paint the cached raster and build Path2Ds from computed chart data. */
+export function paintChartArt(D: ChartData, artMax = 2048): ChartArt {
+  const t0 = performance.now();
+  const { fw, fh, worldW } = D;
+  const s = artMax / Math.max(fw, fh);
+  const W = Math.round(fw * s), H = Math.round(fh * s);
+  const k = W / worldW;
+  const wash = document.createElement('canvas');
+  wash.width = fw; wash.height = fh;
+  const img = wash.getContext('2d')!.createImageData(fw, fh);
+  img.data.set(D.wash);
+  wash.getContext('2d')!.putImageData(img, 0, 0);
+  const base = document.createElement('canvas');
+  base.width = W; base.height = H;
+  const bc = base.getContext('2d')!;
+  bc.fillStyle = PAPER; bc.fillRect(0, 0, W, H);
+  bc.imageSmoothingEnabled = true; bc.imageSmoothingQuality = 'high';
+  bc.drawImage(wash, 0, 0, W, H);
+  // survey grid every 100 m (very faint; the sea shouldn't look like graph paper)
+  bc.strokeStyle = 'rgba(46,94,99,.10)'; bc.lineWidth = Math.max(1, s * 0.5);
+  bc.beginPath();
+  for (let x = 0; x < W; x += 100 * k) { bc.moveTo(x, 0); bc.lineTo(x, H); }
+  for (let y = 0; y < H; y += 100 * k) { bc.moveTo(0, y); bc.lineTo(W, y); }
+  bc.stroke();
+  // stipple: one path of tiny circles (a single fill instead of thousands)
+  bc.fillStyle = 'rgba(46,94,99,.55)';
+  const dr = Math.max(0.7, 0.32 * k);
+  bc.beginPath();
+  for (let i = 0; i < D.dots.length; i += 2) { const X = D.dots[i] * s, Y = D.dots[i + 1] * s; bc.moveTo(X + dr, Y); bc.arc(X, Y, dr, 0, Math.PI * 2); }
+  bc.fill();
+  bc.strokeStyle = 'rgba(54,80,52,.78)'; bc.lineWidth = Math.max(1, 0.38 * k); bc.lineCap = 'round';
+  const th = 2.6 * k;
+  bc.beginPath();
+  for (let i = 0; i < D.trees.length; i += 3) {
+    const X = D.trees[i] * s, Y = D.trees[i + 1] * s, hh = th * D.trees[i + 2];
     bc.moveTo(X, Y); bc.lineTo(X, Y - hh);
     bc.moveTo(X - hh * 0.38, Y - hh * 0.32); bc.lineTo(X, Y - hh); bc.lineTo(X + hh * 0.38, Y - hh * 0.32);
   }
   bc.stroke();
-
-  const coast = toPath(coastLoops, s);
-  const rip = ripples.map((ls) => toPath(ls, s));
+  const coast = toPath(D.coastLoops, s);
+  const rip = D.ripples.map((ls) => toPath(ls, s * 2, 0.5));
+  const rocks: [number, number][] = [];
+  for (let i = 0; i < D.rocks.length; i += 2) rocks.push([(D.rocks[i] + 0.5) * s, (D.rocks[i + 1] + 0.5) * s]);
+  const soundings: { x: number; y: number; v: number }[] = [];
+  for (let i = 0; i < D.soundings.length; i += 3) soundings.push({ x: (D.soundings[i] + 0.5) * s, y: (D.soundings[i + 1] + 0.5) * s, v: D.soundings[i + 2] });
+  const { islId, islBest } = D;
   return {
-    W, H, k, base, coast, ripples: rip,
-    rocks: rocks.map(([x, y]) => [(x + 0.5) * s, (y + 0.5) * s]),
-    soundings: soundings.map((q) => ({ x: (q.x + 0.5) * s, y: (q.y + 0.5) * s, v: q.v })),
+    W, H, k, base, coast, ripples: rip, t: { ...D.t, paint: Math.round(performance.now() - t0) },
+    rocks, soundings,
     islandAnchor: (x: number, y: number, r: number) => {
       const fx = x / s, fy = y / s, fr = r / s;
       // the island under (or nearest to) the point — not the biggest one nearby, which may be a neighbour
-      let best: { area: number; best: number } | null = null, bd = Infinity;
+      let best = -1, bd = Infinity;
       const st = Math.max(1, fr / 32);
       for (let dy = -fr; dy <= fr; dy += st) for (let dx = -fr; dx <= fr; dx += st) {
         const dd = dx * dx + dy * dy;
         if (dd > fr * fr || dd >= bd) continue;
         const xi = Math.round(fx + dx), yi = Math.round(fy + dy);
-        if (xi < 0 || yi < 0 || xi >= fw || yi >= fh || !land[yi * fw + xi]) continue;
-        const e = isl.get(comp[yi * fw + xi]);
-        if (e) { best = e; bd = dd; }
+        if (xi < 0 || yi < 0 || xi >= fw || yi >= fh) continue;
+        const id = islId[yi * fw + xi];
+        if (id >= 0) { best = islBest[id]; bd = dd; }
       }
-      return best ? [((best.best % fw) + 0.5) * s, (((best.best / fw) | 0) + 0.5) * s] : null;
+      return best >= 0 ? [((best % fw) + 0.5) * s, (((best / fw) | 0) + 0.5) * s] : null;
     },
     isLand: (x: number, y: number) => {
       const xi = Math.floor(x / s), yi = Math.floor(y / s);
-      return xi >= 0 && yi >= 0 && xi < fw && yi < fh && !!land[yi * fw + xi];
+      return xi >= 0 && yi >= 0 && xi < fw && yi < fh && islId[yi * fw + xi] >= 0;
     },
   };
 }
