@@ -16,7 +16,7 @@ const KINDS: Record<SmokeKind, KindSpec> = {
   // wigwam burner: a tall dense column that only bends with height
   burner: { rate: 7, size: 1.4, rise: 2.4, life: 10, color: 0x7f8384, spread: 0.35, drift: 0.55 },
   steam: { rate: 2.2, size: 0.5, rise: 1.4, life: 2.6, color: 0xf3f5f4, spread: 0.12, drift: 1.2 },
-  boat: { rate: 0.7, size: 0.32, rise: 1.1, life: 3.2, color: 0xb7bbba, spread: 0.06, drift: 1.4 },
+  boat: { rate: 0.7, size: 0.18, rise: 1.3, life: 2.6, color: 0xc4c7c6, spread: 0.05, drift: 1.4 },
 };
 function kindOf(k?: string): SmokeKind {
   const s = (k ?? '').toLowerCase();
@@ -122,7 +122,7 @@ export class SmokeFX {
       b.x = boatStack.x; b.y = boatStack.y; b.z = boatStack.z;
       const rate = 0.7 + throttle * 3.5;
       b.acc += dt * rate;
-      while (b.acc >= 1) { b.acc -= 1; this.emit(b, 1 + throttle); colors = true; }
+      while (b.acc >= 1) { b.acc -= 1; this.emit(b, 1 + throttle * 0.4); colors = true; }
     }
     for (let i = 0; i < this.cap; i++) {
       if (!this.alive[i]) continue;

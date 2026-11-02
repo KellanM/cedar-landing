@@ -9,7 +9,8 @@ const LOW_RATE_STEP = 0.25; // s
 const HIDE_DIST = 700; // m: groups beyond this freeze and hide
 const FLUSH_DIST = 6; // m: birds on the water / perched take off when the boat is this close
 const PERCH_FLUSH_DIST = 7;
-const RING_LIFT = 3.5; // m: frenzy rises this much while the boat is inside the ring
+const RING_LIFT = 1.2; // m: frenzy rises this much while the boat is inside the ring (kept small: stays in frame)
+const FRENZY_H0 = 2.5, FRENZY_H1 = 7; // m: frenzy circling band (3/4 camera sees ~5-7 m up over the ring)
 const EXCITE_TIME = 12; // s: how long a catch keeps the frenzy excited
 const TAU = Math.PI * 2;
 
@@ -99,7 +100,7 @@ export class BirdField {
     const floaters = (tier?: string) => (low ? 1 : tier === 'common' ? 2 : 3);
     // count 0 / missing = "designer didn't say": use tier defaults (4–5 common, 6–7 good, 8–9 rare)
     const tierCount = (tier?: string) =>
-      tier === 'rare' ? 8 + Math.round(Math.random()) : tier === 'good' || tier === 'uncommon' ? 6 + Math.round(Math.random()) : 4 + Math.round(Math.random());
+      tier === 'rare' ? 10 + Math.round(Math.random()) : tier === 'good' || tier === 'uncommon' ? 8 + Math.round(Math.random()) : 6 + Math.round(Math.random());
     // Export altitude band: `center` y is the middle of the old baked birds' bounds, `height` the top.
     const band = (b: BirdSpawn, def: number, min: number): [number, number] => {
       const top = b.height ?? def, mid = b.center?.[1] ?? top * 0.7;
@@ -114,10 +115,18 @@ export class BirdField {
         if (!c) continue;
         const hs = nearestHotspot(c[0], c[2]);
         const radius = b.radius ?? 8;
-        const [h0, h1] = band(b, 12, 5);
+        // Frenzies stay low (2.5–7 m): the 3/4 chase camera's top edge is only ~5–7 m up over the ring,
+        // so the export's old baked heights (8–15 m) put every gull out of frame.
         const g = mkGroup('frenzy', [c[0], 0, c[2]], radius, hs);
         plans.push({ g, species: speciesKey(b.species), n: lowN(b.count || tierCount(hs?.tier), 3), floaters: floaters(hs?.tier),
-          r0: Math.max(4, radius * 0.8), r1: radius * 1.6 + 3, h0, h1: Math.min(20, h1) });
+          r0: Math.max(4, radius * 0.8), r1: radius * 1.4 + 2, h0: FRENZY_H0, h1: FRENZY_H1 });
+      }
+      // Hotspots the export gave no birds still get a small gull frenzy.
+      for (const hs of hotspots) {
+        if (frenzies.some((b) => { const c = b.pos ?? b.center; return c && Math.hypot(c[0] - hs.pos[0], c[2] - hs.pos[2]) < 15; })) continue;
+        const tier = hs.tier ?? 'common';
+        const g = mkGroup('frenzy', hs.pos, 9, hs);
+        plans.push({ g, species: 'gull', n: lowN(tierCount(tier), 3), floaters: floaters(tier), r0: 5, r1: 13, h0: FRENZY_H0, h1: FRENZY_H1 });
       }
     } else {
       // Fallback (export without `birds`): a gull frenzy over every fishing hotspot.
@@ -126,7 +135,7 @@ export class BirdField {
         const n = tierCount(tier);
         const radius = tier === 'common' ? 9 : 11;
         const g = mkGroup('frenzy', hs.pos, radius, hs);
-        plans.push({ g, species: 'gull', n: lowN(n, 3), floaters: floaters(tier), r0: 5, r1: radius + 4, h0: 5.5, h1: 15 });
+        plans.push({ g, species: 'gull', n: lowN(n, 3), floaters: floaters(tier), r0: 5, r1: radius + 4, h0: FRENZY_H0, h1: FRENZY_H1 });
       }
     }
     for (const b of spawns ?? []) {
