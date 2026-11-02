@@ -1,16 +1,18 @@
 /**
- * The Log's chart (ui_design §4.6 Map): a pre-drawn chart texture made once from a top-down render
- * of the world (land = anything above the waterline), revealed by the canoe's sight radius through
- * a 128×128 bitmask stored in localStorage and drawn as a soft ink wash. Named places get Caveat
- * labels when *visited*; the canoe is a glyph with a dashed recent path. Tap a place → compass.
+ * The Log's chart (ui_design §4.6 Map; redesign notes in docs/map_study.md): chart art is made once from a
+ * top-down render of the world (land = anything above the waterline) — vector coastline + offset ripple
+ * lines + a cached raster (chartart.ts) — and revealed by the canoe's sight radius through a 128×128 bitmask
+ * stored in localStorage, drawn as a pencilled survey limit. Drawing lives in mapview.ts. Tap a place → compass.
  */
 import * as THREE from 'three';
 import { ctx } from './ctx';
 import { log, saveLog, loadMask, saveMask } from './prefs';
 import type { LoadedWorld } from '../world/types';
+import { computeChart, paintChartArt, fogPath, type ChartArt, type ChartData } from './chartart';
 
 const MASK = 128;
-const CHART_MAX = 640; // px, longest side of the chart texture
+const FIELD_MAX = 1024; // px, longest side of the top-down land render (vector coast is extracted from it)
+const ART_MAX = 2048; // px, longest side of the cached chart raster
 
 export interface Place { key: string; name: string; x: number; z: number; kind: 'town' | 'island' | 'poi' | 'stone'; r: number }
 
@@ -25,8 +27,18 @@ class Chart {
   private dirty = false;
   private lastSave = 0;
   private texture: HTMLCanvasElement | null = null;
-  private revealed: HTMLCanvasElement | null = null;
-  private revealedFor = -1;
+  art: ChartArt | null = null;
+  private fog: Path2D | null = null;
+  private fogFor = -1;
+  /** ms from build start to art ready, and main-thread ms of that (perf notes in docs/map_study.md) */
+  buildMs = 0;
+  mainMs = 0;
+  private building = 0;
+  private buildSeq = 0;
+  private prebuild = 0;
+  private worker: Worker | null = null;
+  /** chart art became ready (the Map redraws, Pages re-render their crops) */
+  onArt: (() => void) | null = null;
   private maskVersion = 0;
   private lastPath = { x: 1e9, z: 1e9 };
   /** first visit to a named place (HUD shows a title card / chart toast) */
@@ -53,7 +65,13 @@ class Chart {
       }
       this.maskVersion++;
     }
-    this.texture = null;
+    this.texture = null; this.art = null; this.building = 0;
+    // build the chart in the background shortly after load, so the first Map open is instant
+    clearTimeout(this.prebuild);
+    this.prebuild = window.setTimeout(() => {
+      const ric = (window as Window & { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      if (ric) ric(() => this.ensureArt(), { timeout: 3000 }); else this.ensureArt();
+    }, 2500);
     this.places = buildPlaces(w);
     this.hotspots = g.hotspots.map((h) => ({ x: h.pos[0], z: h.pos[2] }));
   }
@@ -133,14 +151,20 @@ class Chart {
   clearDestination() { this.setDestination(null); }
 
   // ---------------------------------------------------------------- chart texture
-  /** Render the world top-down once and ink it into a chart. Cheap enough to do when the Map opens. */
+  /** Render the world top-down once and ink it into a chart (vector coast + cached raster). */
   ensureTexture(): HTMLCanvasElement | null {
-    if (this.texture) return this.texture;
+    return this.ensureArt()?.base ?? null;
+  }
+
+  /** The chart art, or null while it is being built (the build starts on first call). */
+  ensureArt(): ChartArt | null {
+    if (this.art || this.building) return this.art;
     const src = ctx.chart, w = ctx.world;
     if (!src || !w) return null;
+    const t0 = performance.now();
     const b = this.bounds;
     const ww = b.maxX - b.minX, hh = b.maxZ - b.minZ;
-    const s = CHART_MAX / Math.max(ww, hh);
+    const s = FIELD_MAX / Math.max(ww, hh);
     const W = Math.max(64, Math.round(ww * s)), H = Math.max(64, Math.round(hh * s));
     const r = src.renderer;
     const rt = new THREE.WebGLRenderTarget(W, H);
@@ -152,6 +176,7 @@ class Chart {
     const restore: [THREE.Object3D, boolean][] = [];
     for (const o of src.hide) { restore.push([o, o.visible]); o.visible = false; }
     for (const c of w.chunks) { restore.push([c.object, c.object.visible]); c.object.visible = true; }
+    for (const o of src.show?.() ?? []) { restore.push([o, o.visible]); o.visible = true; }
     const prevRT = r.getRenderTarget();
     const prevColor = r.getClearColor(new THREE.Color()), prevAlpha = r.getClearAlpha();
     const px = new Uint8Array(W * H * 4);
@@ -167,36 +192,47 @@ class Chart {
       for (const [o, v] of restore) o.visible = v;
       rt.dispose();
     }
-    this.texture = inkChart(px, W, H);
-    this.revealedFor = -1;
-    return this.texture;
+    const id = (this.building = ++this.buildSeq);
+    let main = performance.now() - t0;
+    const done = (d: ChartData) => {
+      if (this.building !== id) return; // world changed meanwhile
+      const t1 = performance.now();
+      this.art = paintChartArt(d, ART_MAX);
+      this.texture = this.art.base;
+      this.fogFor = -1;
+      this.building = 0;
+      main += performance.now() - t1;
+      this.mainMs = main;
+      this.buildMs = performance.now() - t0;
+      this.onArt?.();
+    };
+    try {
+      this.worker ??= new Worker(new URL('./chartworker.ts', import.meta.url), { type: 'module' });
+      this.worker.onmessage = (e: MessageEvent<{ id: number; d: ChartData }>) => { if (e.data.id === id) done(e.data.d); };
+      this.worker.onerror = () => { this.worker = null; if (this.building === id) { const t = performance.now(); const d = computeChart(px, W, H, ww); main += performance.now() - t; done(d); } };
+      const copy = px.slice(); // keep px for the in-thread fallback
+      this.worker.postMessage({ px: copy, fw: W, fh: H, worldW: ww, id }, [copy.buffer]);
+    } catch {
+      const t = performance.now(); const d = computeChart(px, W, H, ww); main += performance.now() - t; done(d);
+    }
+    return this.art;
   }
 
-  /** Chart texture masked by what has been seen (soft ink-wash edge). */
-  revealedTexture(): HTMLCanvasElement | null {
-    const tex = this.ensureTexture();
-    if (!tex) return null;
-    if (this.revealed && this.revealedFor === this.maskVersion) return this.revealed;
-    const m = document.createElement('canvas');
-    m.width = MASK; m.height = MASK;
-    const mc = m.getContext('2d')!;
-    const img = mc.createImageData(MASK, MASK);
-    for (let i = 0; i < this.mask.length; i++) img.data[i * 4 + 3] = this.mask[i] ? 255 : 0;
-    mc.putImageData(img, 0, 0);
-    const out = this.revealed ?? document.createElement('canvas');
-    out.width = tex.width; out.height = tex.height;
-    const oc = out.getContext('2d')!;
-    oc.clearRect(0, 0, out.width, out.height);
-    oc.drawImage(tex, 0, 0);
-    oc.globalCompositeOperation = 'destination-in';
-    oc.imageSmoothingEnabled = true;
-    oc.filter = 'blur(3px)';
-    oc.drawImage(m, 0, 0, out.width, out.height);
-    oc.filter = 'none';
-    oc.globalCompositeOperation = 'source-over';
-    this.revealed = out;
-    this.revealedFor = this.maskVersion;
-    return out;
+  /** The seen area as a ragged closed path in chart-raster px (rebuilt only when the mask changes). */
+  fogPath(): Path2D | null {
+    const art = this.ensureArt();
+    if (!art) return null;
+    if (this.fog && this.fogFor === this.maskVersion) return this.fog;
+    this.fog = fogPath(this.mask, MASK, art.W, art.H);
+    this.fogFor = this.maskVersion;
+    return this.fog;
+  }
+
+  /** debug/captures: reveal only a set of circles (metres) */
+  revealOnly(spots: [number, number, number][]) {
+    this.mask.fill(0);
+    for (const [x, z, r] of spots) this.reveal(x, z, r);
+    this.maskVersion++; this.dirty = true; this.persist();
   }
 
   /** world → chart-texture pixel */
@@ -209,7 +245,7 @@ class Chart {
   /** A torn-paper crop of the chart around a point (for found pages). */
   cropAround(x: number, z: number, metres = 160, px = 220): string | null {
     const tex = this.ensureTexture();
-    if (!tex) return null;
+    if (!tex || !this.art) return null;
     const c = document.createElement('canvas');
     c.width = px; c.height = px;
     const cc = c.getContext('2d')!;
@@ -217,6 +253,13 @@ class Chart {
     const k = tex.width / (this.bounds.maxX - this.bounds.minX);
     const half = (metres / 2) * k;
     cc.drawImage(tex, tx - half, tz - half, half * 2, half * 2, 0, 0, px, px);
+    const art = this.art!;
+    const sc = px / (half * 2);
+    cc.save(); cc.setTransform(sc, 0, 0, sc, -(tx - half) * sc, -(tz - half) * sc);
+    cc.lineJoin = 'round';
+    cc.strokeStyle = 'rgba(43,38,34,.35)'; cc.lineWidth = 1 / sc; cc.stroke(art.ripples[0]);
+    cc.strokeStyle = '#2B2622'; cc.lineWidth = 1.8 / sc; cc.stroke(art.coast);
+    cc.restore();
     // mark the stone
     cc.strokeStyle = '#9E3B2A'; cc.lineWidth = 3;
     cc.beginPath(); cc.moveTo(px / 2 - 9, px / 2 - 9); cc.lineTo(px / 2 + 9, px / 2 + 9); cc.moveTo(px / 2 + 9, px / 2 - 9); cc.lineTo(px / 2 - 9, px / 2 + 9); cc.stroke();
@@ -239,63 +282,6 @@ function buildPlaces(w: LoadedWorld): Place[] {
     }
   }
   return [...out.values()];
-}
-
-/** Turn the raw top-down render into a sepia logbook chart. */
-function inkChart(px: Uint8Array, W: number, H: number): HTMLCanvasElement {
-  // readRenderTargetPixels rows are bottom-up; the camera's up is -Z so row 0 is +Z (south).
-  const land = new Uint8Array(W * H);
-  const forest = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) {
-    const sy = H - 1 - y; // flip so canvas row 0 = minZ (north)
-    for (let x = 0; x < W; x++) {
-      const i = (sy * W + x) * 4;
-      if (px[i + 3] > 20) {
-        land[y * W + x] = 1;
-        const r = px[i], g = px[i + 1], b = px[i + 2];
-        if (g > r * 1.02 && g > b * 1.05 && r + g + b < 420) forest[y * W + x] = 1;
-      }
-    }
-  }
-  // distance-to-coast in water (for the shallow wash + contour rule), up to 12 px
-  const dist = new Uint8Array(W * H).fill(255);
-  let frontier: number[] = [];
-  for (let i = 0; i < land.length; i++) if (land[i]) { dist[i] = 0; frontier.push(i); }
-  for (let d = 1; d <= 12 && frontier.length; d++) {
-    const next: number[] = [];
-    for (const i of frontier) {
-      const x = i % W, y = (i / W) | 0;
-      const nb = [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1];
-      for (const n of nb) if (n >= 0 && dist[n] === 255) { dist[n] = d; next.push(n); }
-    }
-    frontier = next;
-  }
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const cx = c.getContext('2d')!;
-  const img = cx.createImageData(W, H);
-  const d = img.data;
-  const set = (i: number, r: number, g: number, b: number, a = 255) => { d[i * 4] = r; d[i * 4 + 1] = g; d[i * 4 + 2] = b; d[i * 4 + 3] = a; };
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = y * W + x;
-    if (land[i]) {
-      const coast = (x > 0 && !land[i - 1]) || (x < W - 1 && !land[i + 1]) || (y > 0 && !land[i - W]) || (y < H - 1 && !land[i + W]);
-      if (coast) set(i, 0x2b, 0x26, 0x22);
-      else if (forest[i]) {
-        const stip = ((x * 7 + y * 13) % 9 === 0) || ((x * 3 + y * 5) % 11 === 0);
-        if (stip) set(i, 0x4f, 0x6b, 0x4a); else set(i, 0xc9, 0xc6, 0xa4);
-      } else set(i, 0xe2, 0xd2, 0xae);
-    } else {
-      const dd = dist[i];
-      if (dd <= 12) {
-        // shallow-water wash fading out, with one fine contour rule at 7 px
-        const a = dd === 7 ? 150 : Math.max(0, 110 - dd * 9);
-        set(i, 0x2e, 0x5e, 0x63, a);
-      } else set(i, 0, 0, 0, 0);
-    }
-  }
-  cx.putImageData(img, 0, 0);
-  return c;
 }
 
 export const chart = new Chart();

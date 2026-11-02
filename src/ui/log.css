@@ -43,8 +43,14 @@
 .lay-portrait .logbook.detail-open .page-r { display: block; position: absolute; inset: 0; z-index: 2; overflow: auto; background: var(--paper); animation: flip var(--t-page) var(--ease-ink); }
 .lay-portrait .logbook.detail-open .back-btn { display: inline-flex; }
 .lay-portrait .logbook[data-tab="map"] .spread { display: flex; flex-direction: column; overflow: hidden; }
-.lay-portrait .logbook[data-tab="map"] .page-l { flex: 1; min-height: 0; padding: 8px; display: flex; }
-.lay-portrait .logbook[data-tab="map"] .page-r { flex: none; max-height: 30%; overflow: auto; border-top: 2px solid var(--ink); }
+.lay-portrait .logbook[data-tab="map"] .page-l { flex: 1; min-height: 0; padding: 6px 6px 70px; display: flex; }
+/* Places: a pull-up drawer over the chart's lower edge (the chart keeps its size, so it never re-fits) */
+.lay-portrait .logbook[data-tab="map"] .page-r {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; max-height: 64px; overflow: hidden; padding: 0 10px 10px;
+  background: var(--paper); border-top: 2px solid var(--ink); box-shadow: 0 -6px 14px -8px rgba(43, 38, 34, .45);
+  transition: max-height var(--t-page) var(--ease-out);
+}
+.lay-portrait .logbook.places-open[data-tab="map"] .page-r { max-height: 62%; overflow: auto; }
 
 /* ribbons: P bottom (thumb reach) · L/D right edge like book tabs */
 .ribbons { flex: none; display: flex; gap: 4px; padding: 0 6px; border-top: 2px solid var(--ink); background: var(--paper-2); }
@@ -136,14 +142,40 @@
 .chart-wrap { position: relative; width: 100%; height: 100%; min-height: 220px; border: 2px solid var(--ink); border-radius: 4px; overflow: hidden; touch-action: none; }
 .lay-landscape .logbook[data-tab="map"] .page-l, .lay-desktop .logbook[data-tab="map"] .page-l { overflow: hidden; padding: 8px; }
 .chart-wrap canvas { position: absolute; inset: 0; display: block; touch-action: none; cursor: grab; }
-.map-ctl { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
+.map-ctl { position: absolute; right: 14px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
 .map-ctl button { width: 48px; height: 48px; border: 2px solid var(--ink); border-radius: var(--r-m); background: var(--paper); box-shadow: 0 3px 0 rgba(43, 38, 34, .4); font: 900 24px var(--f-ui); display: grid; place-items: center; padding: 8px; }
 .map-ctl button svg { width: 28px; height: 28px; }
-.map-note { position: absolute; left: 10px; bottom: 6px; margin: 0; pointer-events: none; color: var(--ochre-red); text-shadow: 0 0 3px var(--paper), 0 0 3px var(--paper); }
+.map-note { position: absolute; left: 12px; bottom: 34px; margin: 0; pointer-events: none; color: var(--ochre-red); text-shadow: 0 0 3px var(--paper), 0 0 3px var(--paper); }
+.lay-desktop .logbook[data-tab="map"] .spread, .lay-landscape .logbook[data-tab="map"] .spread { grid-template-columns: 1.65fr 1fr; }
+.places-head .drawer-tab { display: none; }
+.lay-portrait .places-head .page-title, .lay-portrait .places-head .page-title + .hand { display: none; }
+.lay-portrait .places-head { position: sticky; top: 0; z-index: 1; background: var(--paper); }
+.drawer-tab { width: 100%; min-height: 62px; display: flex; align-items: center; gap: 10px; padding: 12px 2px 6px; border: 0; background: none; text-align: left; position: relative; }
+.lay-portrait .drawer-tab { display: flex; }
+.drawer-tab .grip { position: absolute; left: 50%; top: 5px; width: 40px; height: 4px; margin-left: -20px; border-radius: 2px; background: var(--pencil); opacity: .7; }
+.drawer-tab .pt { flex: none; font: 650 var(--fs-18) var(--f-display); display: flex; align-items: center; gap: 6px; }
+.drawer-tab .pt::after { content: ''; width: 9px; height: 9px; margin-left: 2px; border: solid var(--ink); border-width: 2.5px 0 0 2.5px; transform: translateY(2px) rotate(45deg); transition: transform var(--t-quick); }
+.drawer-tab[aria-expanded="true"] .pt::after { transform: translateY(-3px) rotate(225deg); }
+.cnt { display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--paper-2); border: 1.5px solid var(--pencil); font: 900 12px var(--f-ui); color: var(--ink-soft); }
+.dest-chip { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 4px; font: 700 calc(20px * var(--ui-scale)) var(--f-hand); color: var(--ochre-red); }
+.dest-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dest-chip svg { width: 22px; height: 22px; flex: none; }
+.dest-chip .hint { color: var(--ink-soft); font-size: calc(18px * var(--ui-scale)); }
+.pl-h { margin: 10px 0 0 !important; font: 850 var(--fs-14) var(--f-ui) !important; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
 .places { list-style: none; margin: 0; padding: 0; }
-.places button { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-bottom: 1.5px dashed rgba(133, 126, 114, .5); background: none; font: 700 calc(22px * var(--ui-scale)) var(--f-hand); text-align: left; }
+.places button { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 6px; border: 0; border-bottom: 1.5px dashed rgba(133, 126, 114, .5); background: none; font: 700 calc(22px * var(--ui-scale)) var(--f-hand); text-align: left; }
+.places .gl { flex: none; width: 26px; height: 26px; display: grid; place-items: center; }
+.places .gl svg, .pots summary .gl svg { width: 24px; height: 24px; }
+.places .nm { flex: 1; min-width: 0; }
 .places button.on { color: var(--ochre-red); }
-.places button.on::after { content: 'compass set'; margin-left: auto; font: 800 var(--fs-14) var(--f-ui); }
+.places button.on::after { content: 'compass set'; margin-left: auto; flex: none; font: 800 var(--fs-14) var(--f-ui); }
+.pots { margin-top: 10px; }
+.pots summary { min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 6px; cursor: pointer; list-style: none; font: 850 var(--fs-14) var(--f-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); border-bottom: 1.5px dashed rgba(133, 126, 114, .5); }
+.pots summary::-webkit-details-marker { display: none; }
+.pots summary::after { content: '▸'; margin-left: auto; font-size: 16px; }
+.pots[open] summary::after { content: '▾'; }
+.pots .gl { width: 26px; height: 26px; display: grid; place-items: center; }
+.pots .places button { padding-left: 22px; font-size: calc(20px * var(--ui-scale)); }
 
 /* pages */
 .page-list { list-style: none; margin: 0; padding: 0; }

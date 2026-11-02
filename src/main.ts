@@ -222,7 +222,7 @@ function installWorld(w: LoadedWorld) {
   applyTOD();
 
   fishing.cancel();
-  hud.setWorld(w, { renderer, root: worldRoot, hide: [...w.backdrops, ...w.clouds] }, w.source === 'export' ? `export ${worldVersion.slice(0, 24)}` : 'placeholder');
+  hud.setWorld(w, { renderer, root: worldRoot, hide: [...w.backdrops, ...w.clouds], show: () => instances?.group.children ?? [] }, w.source === 'export' ? `export ${worldVersion.slice(0, 24)}` : 'placeholder');
   const badge = $('world-badge');
   badge.textContent = 'placeholder world — waiting for export';
   badge.classList.toggle('hidden', w.source !== 'placeholder');

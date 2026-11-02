@@ -9,7 +9,9 @@ import { fx, canVibrate } from './fx';
 import { ICONS, hydrateIcons } from './icons';
 import { fishSketch, fishSilhouette, starsSvg } from './fishart';
 import { prefs, savePrefs, log, saveLog, resetUIProgress, debugMode, type Units } from './prefs';
-import { chart, type Place } from './chart';
+import { chart } from './chart';
+import { mapView, mapItems, chartDebug, type MapItem } from './mapview';
+import { glyphSvg, type Glyph } from './mapglyphs';
 import { ERRANDS, stamps } from './errands';
 import { pinChip } from './chip';
 import { SPECIES, type Species } from '../game/fishdata';
@@ -74,12 +76,14 @@ export function openLog(t?: Tab, opts: { species?: string; filter?: Filter } = {
   if (opts.species && ctx.layout === 'portrait') root.classList.add('detail-open');
 }
 
+chart.onArt = () => refreshLog();
+
 export function closeLog() {
   if (root.classList.contains('hidden')) return;
   fx('close');
   chart.persist();
   root.classList.add('hidden');
-  map?.stop();
+  map.stop();
   if (ctx.modal === 'log') setModal(null);
 }
 
@@ -95,7 +99,7 @@ function show(t: Tab, keepScroll = false) {
   const L = $('log-l'), R = $('log-r-body');
   const sl = keepScroll ? L.scrollTop : 0;
   if (prevTab !== t) root.classList.remove('detail-open');
-  if (t !== 'map') map?.stop();
+  if (t !== 'map') { map.stop(); root.classList.remove('places-open'); }
   head();
   switch (t) {
     case 'errands': errandsTab(L, R); break;
@@ -214,192 +218,51 @@ function fishTab(L: HTMLElement, R: HTMLElement) {
 }
 
 // ------------------------------------------------------------------ Map
-let map: MapView | null = null;
+// Chart drawing lives in mapview.ts (docs/map_study.md). Portrait: the chart fills the page and Places is a
+// pull-up drawer; landscape/desktop: Places is a grouped legend on the right page.
+const map = mapView;
+let placesOpen = false;
+const GROUPS: [string, (g: Glyph) => boolean][] = [
+  ['Towns', (g) => g === 'town'],
+  ['Islands', (g) => g === 'island'],
+  ['Stones & cairns', (g) => g === 'stone' || g === 'cairn'],
+  ['Landmarks', (g) => !['town', 'island', 'stone', 'cairn', 'pots'].includes(g)],
+];
 function mapTab(L: HTMLElement, R: HTMLElement) {
   L.innerHTML = `<div class="chart-wrap"><canvas id="chart-canvas" aria-label="Chart of the islands"></canvas>
     <div class="map-ctl"><button data-z="1.4" aria-label="Zoom in">+</button><button data-z="0.7" aria-label="Zoom out">−</button><button data-c aria-label="Centre on the canoe">${ICONS.boat}</button></div>
     <p class="map-note hand" id="map-note"></p></div>`;
-  const visited = chart.places.filter((p) => log.places.includes(p.key));
-  R.innerHTML = `<h3 class="page-title">Places</h3>
-    <p class="hand small">Tap a place to set the compass.</p>
-    <ul class="places">${visited.map((p) => `<li><button data-place="${p.key}" class="${log.dest === p.key ? 'on' : ''}"><span class="ico">${ICONS[p.kind === 'stone' ? 'stone' : p.kind === 'island' ? 'land' : 'compass']}</span>${esc(p.name)}</button></li>`).join('') || '<li class="hand">Nowhere yet. Paddle out and look about.</li>'}</ul>`;
+  const items = mapItems();
+  const destItem = items.find((i) => i.keys.includes(log.dest ?? ''));
+  const row = (it: MapItem, label = it.name) => `<li><button data-place="${it.key}" class="${it === destItem ? 'on' : ''}"><span class="gl">${glyphSvg(it.glyph)}</span><span class="nm">${esc(label)}</span></button></li>`;
+  const pots = items.filter((i) => i.glyph === 'pots');
+  const sections = GROUPS.map(([title, f]) => {
+    const list = items.filter((i) => f(i.glyph));
+    return list.length ? `<h4 class="pl-h">${title}</h4><ul class="places">${list.map((it) => row(it)).join('')}</ul>` : '';
+  }).join('') + (pots.length ? `<details class="pots"${pots.includes(destItem!) ? ' open' : ''}><summary><span class="gl">${glyphSvg('pots')}</span>Crab pots <span class="cnt num">${pots.length}</span></summary><ul class="places">${pots.map((it) => row(it, it.name.replace(/^crab pots?\s*/i, '') || it.name)).join('')}</ul></details>` : '');
+  R.innerHTML = `<div class="places-head"><button class="drawer-tab" id="places-tab" aria-expanded="${placesOpen}">
+      <span class="grip" aria-hidden="true"></span><span class="pt">Places <span class="cnt num">${items.length}</span></span>
+      <span class="dest-chip">${destItem ? `${glyphSvg(destItem.glyph)}<span>${esc(destItem.name)}</span>` : '<span class="hint">Tap a place to set the compass</span>'}</span></button>
+      <h3 class="page-title">Places</h3><p class="hand small">Tap a place to set the compass.</p></div>
+    <div class="places-body">${sections || '<p class="hand">Nowhere yet. Paddle out and look about.</p>'}</div>`;
+  root.classList.toggle('places-open', placesOpen);
+  $('places-tab').onclick = () => { placesOpen = !placesOpen; root.classList.toggle('places-open', placesOpen); $('places-tab').setAttribute('aria-expanded', String(placesOpen)); };
   R.querySelectorAll<HTMLButtonElement>('[data-place]').forEach((b) => (b.onclick = () => setDest(b.dataset.place!)));
-  if (!map) map = new MapView();
+  map.onPick = (key) => setDest(key);
   map.attach($('chart-canvas') as HTMLCanvasElement, L.querySelector('.map-ctl')!);
+  if (!chart.ensureArt()) $('map-note').textContent = 'The chart is still being drawn…';
 }
 
 function setDest(key: string) {
   chart.setDestination(log.dest === key ? null : key);
   fx('reveal');
   const p = chart.places.find((q) => q.key === key);
+  if (ctx.layout === 'portrait') placesOpen = false;
   show('map', true); // re-renders the page, so write the note after
   $('map-note') && ($('map-note').textContent = log.dest && p ? `Compass set for ${p.name}` : 'Compass cleared');
 }
 
-class MapView {
-  private cv!: HTMLCanvasElement;
-  private g!: CanvasRenderingContext2D;
-  private s = 1.2; // px per metre
-  private cx = 0; private cz = 0;
-  private pts = new Map<number, { x: number; y: number }>();
-  private moved = 0;
-  private raf = 0;
-  private washT = 1;
-  private centred = false;
-
-  attach(cv: HTMLCanvasElement, ctl: HTMLElement) {
-    this.cv = cv;
-    this.g = cv.getContext('2d')!;
-    if (!this.centred) { this.cx = ctx.boat.x; this.cz = ctx.boat.z; this.centred = true; }
-    const fit = () => {
-      const r = cv.parentElement!.getBoundingClientRect();
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      cv.width = Math.max(10, r.width * dpr); cv.height = Math.max(10, r.height * dpr);
-      cv.style.width = `${r.width}px`; cv.style.height = `${r.height}px`;
-      if (!this.sized) { this.s = Math.min(r.width, r.height) / 380; this.sized = true; }
-    };
-    fit();
-    cv.onpointerdown = (e) => { cv.setPointerCapture(e.pointerId); this.pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); this.moved = 0; };
-    cv.onpointermove = (e) => {
-      const p = this.pts.get(e.pointerId);
-      if (!p) return;
-      if (this.pts.size === 1) {
-        this.cx -= (e.clientX - p.x) / this.s; this.cz -= (e.clientY - p.y) / this.s;
-        this.moved += Math.abs(e.clientX - p.x) + Math.abs(e.clientY - p.y);
-      } else {
-        const [a, b] = [...this.pts.entries()];
-        const other = a[0] === e.pointerId ? b[1] : a[1];
-        const d0 = Math.hypot(p.x - other.x, p.y - other.y), d1 = Math.hypot(e.clientX - other.x, e.clientY - other.y);
-        if (d0 > 10) this.zoom(d1 / d0);
-        this.moved += 99;
-      }
-      this.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      this.draw();
-    };
-    cv.onpointerup = (e) => {
-      this.pts.delete(e.pointerId);
-      if (this.moved < 6) this.tap(e.clientX, e.clientY);
-    };
-    cv.onpointercancel = (e) => this.pts.delete(e.pointerId);
-    cv.onwheel = (e) => { e.preventDefault(); this.zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15); this.draw(); };
-    ctl.querySelectorAll<HTMLButtonElement>('[data-z]').forEach((b) => (b.onclick = () => { this.zoom(Number(b.dataset.z)); this.draw(); }));
-    ctl.querySelector<HTMLButtonElement>('[data-c]')!.onclick = () => { this.cx = ctx.boat.x; this.cz = ctx.boat.z; this.draw(); };
-    // opening ink-wash (radial reveal from the canoe)
-    this.washT = reduceMotion() ? 1 : 0;
-    const t0 = performance.now();
-    const step = () => {
-      this.washT = Math.min(1, (performance.now() - t0) / 600);
-      this.draw();
-      if (this.washT < 1) this.raf = requestAnimationFrame(step);
-    };
-    cancelAnimationFrame(this.raf);
-    this.raf = requestAnimationFrame(step);
-    if (!chart.ensureTexture()) $('map-note').textContent = 'The chart is still being drawn…';
-  }
-  private sized = false;
-  stop() { cancelAnimationFrame(this.raf); }
-
-  private zoom(k: number) { this.s = Math.min(8, Math.max(0.25, this.s * k)); }
-
-  private toScreen(x: number, z: number): [number, number] {
-    const dpr = this.cv.width / this.cv.getBoundingClientRect().width || 1;
-    return [((x - this.cx) * this.s + this.cv.width / dpr / 2) * dpr, ((z - this.cz) * this.s + this.cv.height / dpr / 2) * dpr];
-  }
-
-  private tap(clx: number, cly: number) {
-    const r = this.cv.getBoundingClientRect();
-    const x = clx - r.left, y = cly - r.top;
-    let best: Place | null = null, bd = 34;
-    for (const p of chart.places) {
-      if (!log.places.includes(p.key)) continue;
-      const [sx, sy] = this.toScreen(p.x, p.z).map((v) => v / (this.cv.width / r.width)) as [number, number];
-      const d = Math.hypot(sx - x, sy - y);
-      if (d < bd) { bd = d; best = p; }
-    }
-    if (best) setDest(best.key);
-  }
-
-  draw() {
-    const g = this.g, W = this.cv.width, H = this.cv.height;
-    const dpr = W / (this.cv.getBoundingClientRect().width || W);
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.fillStyle = '#F4EFE3'; g.fillRect(0, 0, W, H);
-    // faint survey grid every 50 m
-    g.strokeStyle = 'rgba(133,126,114,.22)'; g.lineWidth = 1;
-    const step = 50;
-    const [ox, oz] = this.toScreen(Math.floor(this.cx / step) * step, Math.floor(this.cz / step) * step);
-    const sp = step * this.s * dpr;
-    g.beginPath();
-    for (let x = ox % sp; x < W; x += sp) { g.moveTo(x, 0); g.lineTo(x, H); }
-    for (let y = oz % sp; y < H; y += sp) { g.moveTo(0, y); g.lineTo(W, y); }
-    g.stroke();
-    // revealed chart, with the opening ink-wash
-    const tex = chart.revealedTexture();
-    const b = chart.bounds;
-    const [bx0, bz0] = this.toScreen(b.minX, b.minZ);
-    const [bx1, bz1] = this.toScreen(b.maxX, b.maxZ);
-    const [px, pz] = this.toScreen(ctx.boat.x, ctx.boat.z);
-    if (tex) {
-      g.save();
-      if (this.washT < 1) {
-        const e = this.washT < 0.5 ? 4 * this.washT ** 3 : 1 - (-2 * this.washT + 2) ** 3 / 2;
-        g.beginPath(); g.arc(px, pz, Math.hypot(W, H) * e, 0, Math.PI * 2); g.clip();
-      }
-      g.imageSmoothingEnabled = true;
-      g.drawImage(tex, bx0, bz0, bx1 - bx0, bz1 - bz0);
-      g.restore();
-    }
-    // fishing marks seen
-    g.strokeStyle = '#2E5E63'; g.lineWidth = 1.5 * dpr;
-    for (const hs of chart.hotspots) {
-      if (!chart.isSeen(hs.x, hs.z)) continue;
-      const [x, y] = this.toScreen(hs.x, hs.z);
-      for (const rr of [4, 8]) { g.beginPath(); g.arc(x, y, rr * dpr, 0, Math.PI * 2); g.stroke(); }
-    }
-    // recent path (dashed)
-    if (log.path.length >= 4) {
-      g.strokeStyle = 'rgba(158,59,42,.75)'; g.lineWidth = 2 * dpr; g.setLineDash([5 * dpr, 5 * dpr]);
-      g.beginPath();
-      for (let i = 0; i < log.path.length; i += 2) {
-        const [x, y] = this.toScreen(log.path[i], log.path[i + 1]);
-        if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
-      }
-      g.lineTo(px, pz);
-      g.stroke(); g.setLineDash([]);
-    }
-    // visited place labels (Caveat), destination ring
-    g.textAlign = 'center'; g.textBaseline = 'bottom';
-    for (const p of chart.places) {
-      if (!log.places.includes(p.key)) continue;
-      const [x, y] = this.toScreen(p.x, p.z);
-      if (x < -200 || y < -50 || x > W + 200 || y > H + 50) continue;
-      const dest = log.dest === p.key;
-      // zoomed out: towns, islands and stones only (POIs label once you zoom in)
-      const showLabel = dest || p.kind !== 'poi' || this.s >= 1.6;
-      g.fillStyle = dest ? '#9E3B2A' : '#2B2622';
-      g.beginPath(); g.arc(x, y, (dest ? 6 : 3.5) * dpr, 0, Math.PI * 2); g.fill();
-      if (dest) { g.strokeStyle = '#9E3B2A'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(x, y, 12 * dpr, 0, Math.PI * 2); g.stroke(); }
-      g.font = `${p.kind === 'town' ? 700 : 600} ${(p.kind === 'town' ? 22 : 18) * dpr * prefs.textScale}px "Caveat Hand", cursive`;
-      if (!showLabel) continue;
-      g.lineWidth = 4 * dpr; g.strokeStyle = 'rgba(244,239,227,.9)';
-      g.strokeText(p.name, x, y - 6 * dpr);
-      g.fillText(p.name, x, y - 6 * dpr);
-    }
-    // canoe glyph
-    g.save();
-    g.translate(px, pz); g.rotate(-ctx.boat.yaw); g.scale(dpr, dpr);
-    g.fillStyle = '#B5643C'; g.strokeStyle = '#2B2622'; g.lineWidth = 2;
-    g.beginPath(); g.moveTo(0, -11); g.quadraticCurveTo(6, -2, 0, 11); g.quadraticCurveTo(-6, -2, 0, -11); g.fill(); g.stroke();
-    g.restore();
-    // compass rose ornament (abstract trigons; TEMP_COMMISSION)
-    g.save(); g.translate(W - 34 * dpr, 40 * dpr); g.scale(dpr, dpr);
-    g.fillStyle = '#9E3B2A'; g.strokeStyle = '#2B2622'; g.lineWidth = 1.5;
-    g.beginPath(); g.moveTo(0, -18); g.lineTo(6, 0); g.lineTo(-6, 0); g.closePath(); g.fill(); g.stroke();
-    g.fillStyle = '#F4EFE3'; g.beginPath(); g.moveTo(0, 18); g.lineTo(6, 0); g.lineTo(-6, 0); g.closePath(); g.fill(); g.stroke();
-    g.fillStyle = '#2B2622'; g.font = '700 13px "Nunito UI", sans-serif'; g.textAlign = 'center'; g.fillText('N', 0, -20);
-    g.restore();
-  }
-}
+export { chartDebug };
 
 // ------------------------------------------------------------------ Pages
 const PAGE_TEXT: Record<number, { title: string; body: string }> = {
