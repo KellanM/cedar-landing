@@ -290,6 +290,22 @@ function applyTOD() {
   todBlend.sea = mixHex(A.sea, B.sea, f); todBlend.haze = mixHex(A.haze, B.haze, f);
   todBlend.shallow = A.shallow || B.shallow ? mixHex(A.shallow ?? A.sea, B.shallow ?? B.sea, f) : undefined;
   todBlend.tint = [0, 1, 2].map((i) => A.tint[i] + (B.tint[i] - A.tint[i]) * f) as [number, number, number];
+  // sea mist (game/clock.ts mistAt): always some, varying through the day and from day to day.
+  // Heavy mist should feel like the dawn fog rolling in: the fog distance closes right down and, by
+  // daylight, the sky / haze / sea take on the fog look's pale colours (nights stay dark).
+  const w = (k: string) => (look.a === k ? 1 - f : 0) + (look.b === k ? f : 0);
+  const lookFog = /fog/i.test(look.a) || /fog/i.test(look.b) ? w(/fog/i.test(look.a) ? look.a : look.b) : 0;
+  mistNow = mistOverride ?? mistAt(clockHour, save.day ?? 0);
+  const ss = (a: number, b: number, x: number) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+  const mistK = 0.12 + 0.88 * ss(0.2, 0.88, mistNow); // 0.22 → light haze, 0.5 → ~half, 0.85+ → dawn-fog thick
+  const fogW = Math.max(lookFog, mistK);
+  const F = world.gameplay.time_of_day.fog;
+  const dayF = Math.max(0, 1 - w('night') - 0.7 * w('dusk'));
+  const tintK = F ? ss(0.5, 0.95, mistNow) * dayF * (1 - lookFog) * 0.9 : 0;
+  if (tintK > 0 && F) {
+    todBlend.zenith = mixHex(todBlend.zenith, F.zenith, tintK); todBlend.horizon = mixHex(todBlend.horizon, F.horizon, tintK);
+    todBlend.haze = mixHex(todBlend.haze, F.haze, tintK); todBlend.sea = mixHex(todBlend.sea, F.sea, tintK * 0.6);
+  }
   const t = { ...(f < 0.5 ? A : B), ...todBlend } as typeof A;
   sky.apply(t);
   sea.apply(t, key);
@@ -297,16 +313,10 @@ function applyTOD() {
   renderer.setClearColor(t.haze);
   setTint(t.tint);
   setLightingBlend(look.a, A as Parameters<typeof setLightingBlend>[1], look.b, B as Parameters<typeof setLightingBlend>[1], f);
-  // fog weight blends with the clock (misty dawn thins into the grey morning)
-  const w = (k: string) => (look.a === k ? 1 - f : 0) + (look.b === k ? f : 0);
-  const lookFog = /fog/i.test(look.a) || /fog/i.test(look.b) ? w(/fog/i.test(look.a) ? look.a : look.b) : 0;
-  // always some sea mist, varying through the day and from day to day (game/clock.ts mistAt)
-  mistNow = mistOverride ?? mistAt(clockHour, save.day ?? 0);
-  const fogW = Math.max(lookFog, mistNow);
   (scene.fog as THREE.Fog).near = THREE.MathUtils.lerp(quality.fogNear, 12, fogW);
-  (scene.fog as THREE.Fog).far = THREE.MathUtils.lerp(quality.fogFar, 210, Math.pow(fogW, 1.15));
+  (scene.fog as THREE.Fog).far = THREE.MathUtils.lerp(quality.fogFar, 210, fogW);
   // low fog banks drift in with the mist (full in the fog look)
-  fogBanks?.set(Math.max(lookFog, Math.min(1, mistNow * 1.1)), t.haze);
+  fogBanks?.set(Math.max(lookFog, Math.min(1, mistK * 1.05)), t.haze);
   wake.setSea(t.sea);
   backdropHaze.value = THREE.MathUtils.lerp(quality.haze, 0.92, fogW);
   hud.setTOD(key, clockText(clockHour), lookWords(key));

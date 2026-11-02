@@ -12,7 +12,7 @@ await p.goto(BASE + '?debug'); await p.evaluate(() => localStorage.clear()); awa
 await p.waitForFunction(() => window.__debug && window.__debug.state.chunks > 0, null, { timeout: 120000 });
 await p.evaluate(() => { window.__debug.markRevealSeen(); window.__debug.camTune({ distance: 34, pitchDeg: 14, sideDeg: 160, frameAhead: 30 }); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-for (const h of [10.67, 13.33, 19.83]) for (const m of [0.22, 0.5, 0.85]) {
+for (const h of [6.67, 13.33, 22.5]) for (const m of [0.22, 0.5, 0.9]) {
   console.log(h, m, JSON.stringify(await p.evaluate(([h, m]) => { window.__debug.setClock(h); return window.__debug.mist(m); }, [h, m])));
   await sleep(1800);
   await p.screenshot({ path: `screenshots/mist_${h}_${m}.png` });
