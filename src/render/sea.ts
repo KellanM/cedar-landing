@@ -351,7 +351,7 @@ export class Sea {
   private mat: THREE.ShaderMaterial;
   private farMat: THREE.ShaderMaterial;
   private classic: THREE.MeshBasicMaterial[] = [];
-  private uniforms: Record<string, THREE.IUniform>;
+  readonly uniforms: Record<string, THREE.IUniform>;
   private glintAmt = 0;
   private glintInit = false;
   private low = false;
