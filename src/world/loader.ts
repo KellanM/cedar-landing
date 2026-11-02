@@ -155,6 +155,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
         if (o.name === 'BOAT_T0') {
           const mesh = new THREE.Mesh(geom);
           mesh.name = 'BOAT_T0';
+          mesh.userData.bow_axis = o.userData?.bow_axis ?? '+X';
           applyWorldMaterial(mesh);
           boat = mesh;
         } else protos.set(o.name, geom);
@@ -166,7 +167,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
         if (!o) continue;
         const geom = bakeNode(o);
         if (!geom) continue;
-        if (key === 'BOAT_T0') { const m = new THREE.Mesh(geom); applyWorldMaterial(m); boat = m; } else protos.set(key, geom);
+        if (key === 'BOAT_T0') { const m = new THREE.Mesh(geom); m.name = 'BOAT_T0'; m.userData.bow_axis = o.userData?.bow_axis ?? '+X'; applyWorldMaterial(m); boat = m; } else protos.set(key, geom);
       }
       const missing = [...wanted].filter((k) => k !== 'BOAT_T0' && !protos.has(k));
       if (missing.length) console.warn('[world] protos missing from protos.glb:', missing);
@@ -174,5 +175,29 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
     tick('protos');
   }
 
-  return { source: 'export', chunks, backdrops, clouds, protos, instances, boat, gameplay };
+  const dynamic = await loadDynamic(manifest.dynamic ?? 'dynamic.glb', version);
+  return { source: 'export', chunks, backdrops, clouds, protos, instances, boat, gameplay, dynamic };
+}
+
+/**
+ * world/dynamic.glb (optional): separate nodes for buoys, moored boats, flotsam, kelp heads that
+ * bob in the game. Each top-level node keeps its transform; extras.anim ("bob"|"buoy"|"kelp")
+ * arrive in userData. Missing file → [] (Vite's SPA fallback serves HTML, which is rejected).
+ */
+async function loadDynamic(file: string, version: string): Promise<THREE.Object3D[]> {
+  try {
+    const r = await fetch(`${WORLD}${file}?v=${encodeURIComponent(version)}`, { cache: 'no-store' });
+    if (!r.ok || (r.headers.get('content-type') ?? '').includes('text/html')) return [];
+    const buf = await r.arrayBuffer();
+    if (buf.byteLength < 12 || new TextDecoder().decode(new Uint8Array(buf, 0, 4)) !== 'glTF') return [];
+    const g = await loader().parseAsync(buf, WORLD);
+    applyWorldMaterial(g.scene, 'chunk');
+    // top-level content nodes (unwrap a single root wrapper if the exporter added one)
+    let nodes = g.scene.children;
+    if (nodes.length === 1 && !(nodes[0] as THREE.Mesh).isMesh && !nodes[0].userData.anim && nodes[0].children.length > 1) nodes = nodes[0].children;
+    return [...nodes];
+  } catch (e) {
+    console.warn('[world] dynamic.glb failed', e);
+    return [];
+  }
 }

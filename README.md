@@ -68,7 +68,8 @@ Blender (`lighthouse_island.blend`) is the level editor, and its export script w
 | `world/manifest.json` | Lists the chunk glbs (with bounds), the backdrops, the clouds and the protos. |
 | `world/chunks/*.glb` | Draco-compressed static scenery. Colour comes from `COLOR_0`, rendered with `MeshBasicMaterial({vertexColors:true})`. |
 | `world/protos.glb` + `instances.json` | One InstancedMesh per proto per 120 m cell. Entries are `[x,y,z, qx,qy,qz,qw, s]`. `BOAT_T0` is the canoe. |
-| `world/gameplay.json` | The spawn (`dir`), interacts, hotspots, the `landgrid` collision, cameras and `time_of_day`. |
+| `world/gameplay.json` | The spawn (`dir`), interacts, hotspots, the `landgrid` collision, cameras and `time_of_day`; optional `birds` (live birds) and `smoke` (emitters). Without `birds`, gull frenzies are spawned over every hotspot. |
+| `world/dynamic.glb` (optional) | Bobbing objects (buoys, moored boats, flotsam, kelp) with extras `anim`. |
 
 **Runtime behaviour:**
 - **Startup:** if `READY` is missing, the game builds a small **placeholder world**. This is a few islands plus a Cedar Landing pier and market, using the same data shapes, and a red badge says so.
@@ -94,13 +95,24 @@ src/game/camera.ts        chase camera, drag orbit, scripted shot (Shot_VillageR
 src/game/fishing.ts       cast → wait/nibble → bite → reel (tension, slip, perfect)
 src/game/fishdata.ts      species table, rarity weights, prices
 src/game/hotspots.ts      ripple rings + circling fish shadows
+src/game/wildlife.ts      wildlife facade (birds + sea life + splashes), onCatch excitement, squawk hook
+src/game/birds.ts         gull frenzies / flocks / perched birds: per-bird state machines, InstancedMesh per species
+src/game/sealife.ts       jumping fish at hotspots, seals + otters near rocks/kelp, Dall's porpoise pod on the route
+src/game/splash.ts        pooled splash shards + expanding rings (dives, jumps, bow spray)
+src/game/floaters.ts      bob/rock world/dynamic.glb nodes by extras.anim (bob | buoy | kelp)
+src/render/creatures.ts   procedural low-poly creature meshes + animated vertex shader (wing flap/fold, head, tail)
+src/render/wake.ts        speed-dependent foam wake (bow V arms + churned stern trail)
+src/render/smoke.ts       pooled faceted smoke puffs from gameplay.smoke emitters + the troller's funnel; shared WIND
+src/render/fogbanks.ts    low fog banks around a clearing (fog preset; light wisps on overcast)
+src/ui/tune.ts            ?tune overlay: live sliders for BOAT_TUNING
 src/game/save.ts          localStorage save
 src/ui/hud.ts             DOM HUD: toasts, cooler, catch card, sell panel
 scripts/smoke.mjs         Playwright smoke test
+scripts/birds_capture.mjs Playwright capture of a hotspot frenzy (screenshots/birds_*.png)
 ```
 
 **Tuning knobs:**
-- `BOAT_T0` in `boat.ts`
+- `BOAT_T0` / `BOAT_TUNING` in `boat.ts` (add `?tune` to the URL for on-device sliders; values persist in localStorage)
 - `T` in `fishing.ts`
 - `QUALITY` and the ranges at the top of `main.ts`
 

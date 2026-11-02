@@ -7,13 +7,19 @@ import { checkReady, loadExportWorld } from './world/loader';
 import type { Hotspot, Interact, LoadedWorld } from './world/types';
 import { Input } from './game/input';
 import { LandCollision } from './game/collision';
-import { Boat } from './game/boat';
+import { Boat, BOAT_TUNING } from './game/boat';
 import { ChaseCamera } from './game/camera';
 import { Fishing } from './game/fishing';
 import { HotspotFX } from './game/hotspots';
+import { Wildlife } from './game/wildlife';
+import { Floaters } from './game/floaters';
+import { BoatWake } from './render/wake';
+import { SmokeFX } from './render/smoke';
+import { FogBanks } from './render/fogbanks';
 import { lookupSpecies, type CaughtFish } from './game/fishdata';
 import { clearSave, loadSave, writeSave, type SaveData } from './game/save';
 import * as hud from './ui/hud';
+import { initTuneOverlay } from './ui/tune';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -79,6 +85,14 @@ scene.add(worldRoot);
 let land: LandCollision;
 let instances: InstanceField | null = null;
 let hotspotFX: HotspotFX | null = null;
+let wildlife: Wildlife | null = null;
+let smoke: SmokeFX | null = null;
+let fogBanks: FogBanks | null = null;
+let floaters: Floaters | null = null;
+const wake = new BoatWake(BOAT_TUNING);
+scene.add(wake.mesh);
+const stackPos = new THREE.Vector3();
+let squawks = 0;
 let boat: Boat;
 let landing: Interact | null = null; // Cedar Landing fish market (compass + reveal)
 let todKeys: string[] = [];
@@ -88,6 +102,9 @@ let modalOpen = false;
 
 // ---------------------------------------------------------------- world
 function disposeWorld() {
+  wildlife?.dispose();
+  wildlife = null;
+  floaters = null;
   instances?.dispose();
   instances = null;
   worldRoot.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
@@ -105,6 +122,9 @@ function installWorld(w: LoadedWorld) {
   land = new LandCollision(w.gameplay);
   hotspotFX = new HotspotFX(w.gameplay.hotspots);
   worldRoot.add(hotspotFX.group);
+  buildWildlife();
+  floaters = w.dynamic?.length ? new Floaters(w.dynamic) : null;
+  if (floaters) worldRoot.add(floaters.group);
 
   const model = w.boat ?? placeholderBoat();
   if (!boat) { boat = new Boat(model); scene.add(boat.root); } else boat.setModel(model);
@@ -145,6 +165,19 @@ function buildInstances() {
   worldRoot.add(instances.group);
 }
 
+function buildWildlife() {
+  if (!world || !land) return;
+  wildlife?.dispose();
+  wildlife = new Wildlife(world.gameplay, land, save.settings.quality === 'low');
+  wildlife.onSquawk = () => { squawks++; }; // audio hook: no sound assets yet
+  worldRoot.add(wildlife.group);
+  // smoke + fog banks are quality-dependent pools too
+  for (const fx of [smoke?.mesh, fogBanks?.mesh]) if (fx) { fx.removeFromParent(); fx.geometry.dispose(); }
+  smoke = new SmokeFX(world.gameplay.smoke, save.settings.quality === 'low');
+  fogBanks = new FogBanks(save.settings.quality === 'low');
+  scene.add(smoke.mesh, fogBanks.mesh);
+}
+
 function applyTOD() {
   if (!world) return;
   const key = todKeys[todIndex];
@@ -155,8 +188,11 @@ function applyTOD() {
   renderer.setClearColor(t.haze);
   setTint(t.tint);
   const foggy = /fog/i.test(key);
-  (scene.fog as THREE.Fog).near = foggy ? 20 : quality.fogNear;
-  (scene.fog as THREE.Fog).far = foggy ? 260 : quality.fogFar;
+  (scene.fog as THREE.Fog).near = foggy ? 12 : quality.fogNear;
+  (scene.fog as THREE.Fog).far = foggy ? 210 : quality.fogFar;
+  // low fog banks: full in the fog preset, light morning wisps on overcast
+  fogBanks?.set(foggy ? 1 : key === 'overcast' ? 0.25 : 0, t.haze);
+  wake.setSea(t.sea);
   backdropHaze.value = foggy ? 0.92 : quality.haze;
   $('set-tod').textContent = key;
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.haze);
@@ -262,6 +298,8 @@ $('sell-close').onclick = () => { hud.hideSell(); modalOpen = false; };
 
 function onLanded(fish: CaughtFish, sp: ReturnType<typeof lookupSpecies>, perfect: boolean) {
   pendingCatch = fish;
+  const hs = fishing.hotspot;
+  if (hs) wildlife?.onCatch(hs.pos[0], hs.pos[2]);
   modalOpen = true;
   const rec = save.records[fish.speciesId];
   const stamp = !rec ? 'NEW!' : fish.size > rec.size ? 'RECORD!' : null;
@@ -313,6 +351,7 @@ $('set-quality').onclick = () => {
   quality = QUALITY[save.settings.quality];
   resize();
   buildInstances();
+  buildWildlife();
   applyTOD();
   writeSave(save);
   refreshSettingsUI();
@@ -335,6 +374,7 @@ fsBtn.onclick = () => {
 };
 if (new URLSearchParams(location.search).has('debug')) { save.settings.showFps = true; }
 refreshSettingsUI();
+initTuneOverlay();
 window.addEventListener('keydown', (e) => {
   if (e.key === 't' || e.key === 'T') cycleTOD();
   if (e.key === 'f' || e.key === 'F') { save.settings.showFps = !save.settings.showFps; refreshSettingsUI(); }
@@ -478,11 +518,17 @@ function frame(now: number) {
 
     boat.update(dt, throttle, steer, land);
     fishing.update(dt, input.actionHeld, rodTip(), boat.pos);
-    chase.update(dt, boat, input.takeOrbit(), input.lastOrbitTime);
+    chase.focus = fishing.active && fishing.phase !== 'landed' ? fishing.bobber.position : null;
+    chase.update(dt, boat, input.takeOrbit(), input.lastOrbitTime, land);
     maybeReveal();
     sky.follow(camera.position);
     sea.update(dt, boat.pos);
     hotspotFX?.update(dt, camera.position, fishing.active ? fishing.hotspot : null);
+    wildlife?.update(dt, camera.position, boat.pos);
+    if (wildlife) wake.update(dt, boat, wildlife.splash);
+    smoke?.update(dt, camera.position, boat.stackWorld(stackPos), Math.max(Math.abs(throttle), Math.abs(boat.speed) / BOAT_TUNING.maxSpeed));
+    fogBanks?.update(dt, camera.position);
+    floaters?.update(dt, camera.position);
     cull();
     updateUI(dt);
   }
@@ -523,6 +569,8 @@ window.__debug = {
       phase: fishing.phase, tension: fishing.tension, distance: fishing.distance, species: fishing.species?.name,
       shells: save.shells, cooler: save.cooler.map((f) => `${f.name} ${f.size}cm ${f.stars}★ ${f.price}`), fps: Math.round(fps),
       tod: todKeys[todIndex], nearestHotspot: nearestHotspot()?.hs.name, nearestHotspotDist: nearestHotspot()?.d,
+      wildlife: wildlife ? { ...wildlife.birds.stats(), ms: +wildlife.cost.toFixed(3), squawks } : null,
+      fx: { smokeEmitters: smoke?.emitterCount ?? 0, floaters: floaters?.count ?? 0, fogBanks: fogBanks?.mesh.visible ? fogBanks.mesh.count : 0 },
       interact: currentInteract?.name, inShot: chase.inShot, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
     };
   },
@@ -549,6 +597,28 @@ window.__debug = {
   markRevealSeen: () => { save.seenReveal = true; },
   resetSave: () => { clearSave(); Object.assign(save, loadSave()); hud.setShells(0); hud.renderCooler([], save.coolerCap); },
   hotspots: () => world?.gameplay.hotspots.map((h) => h.name),
+  /** Hold a scripted camera (pos → target) for `dur` s; used by the wildlife capture. */
+  shot: (pos: [number, number, number], target: [number, number, number], fov = 45, dur = 600) => chase.playShot({ name: 'debug', pos, target, fov }, dur),
+  hotspotPos: (name: string) => world?.gameplay.hotspots.find((x) => x.name === name || x.name.includes(name))?.pos,
+  forceDives: () => wildlife?.birds.forceDives(boat.pos.x, boat.pos.z) ?? 0,
+  addSmoke: (x: number, y: number, z: number, kind = 'chimney', size = 1) => smoke?.addEmitter([x, y, z], size, kind),
+  seaLife: () => wildlife?.sea.stats(),
+  exciteBirds: () => wildlife?.onCatch(boat.pos.x, boat.pos.z),
+  /** Park the boat `dist` m from a hotspot, facing it (for bird captures). */
+  viewHotspot: (name: string, dist = 24, side = 0) => {
+    const h = world?.gameplay.hotspots.find((x) => x.name === name || x.name.includes(name));
+    if (!h) return false;
+    for (let k = 0; k < 16; k++) {
+      const a = side + (k * Math.PI) / 8;
+      const x = h.pos[0] + Math.cos(a) * dist, z = h.pos[2] + Math.sin(a) * dist;
+      if (land.hitsCircle(x, z, 1.5)) continue;
+      boat.place(x, z, Math.atan2(-(h.pos[0] - x), -(h.pos[2] - z)));
+      boat.speed = 0;
+      chase.snap(boat);
+      return true;
+    }
+    return false;
+  },
   protoStats: () => {
     const out: Record<string, { tris: number; n: number; total: number; h: number }> = {};
     for (const [k, g] of world?.protos ?? []) {

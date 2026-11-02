@@ -20,6 +20,21 @@ export interface Hotspot {
   tier?: string;
 }
 
+/**
+ * gameplay.json.birds (export v2): live, animated birds instead of birds baked into chunks.
+ * `hotspot` = feeding frenzy over a fishing spot, `flock` = circling group, `perched` = idle on a spot.
+ */
+export interface BirdSpawn {
+  name?: string;
+  species?: string;
+  kind: 'hotspot' | 'flock' | 'perched';
+  pos?: Vec3;
+  center?: Vec3;
+  radius?: number;
+  height?: number;
+  count?: number;
+}
+
 export interface Buoy { name: string; pos: Vec3; side?: string }
 export interface CameraShot { name: string; pos: Vec3; target: Vec3; fov?: number }
 export interface Npc { name?: string; npc_name?: string; pos: Vec3; rotY?: number; role?: string; props?: Record<string, unknown> }
@@ -53,6 +68,9 @@ export interface Gameplay {
   spawn: Spawn;
   interacts: Interact[];
   hotspots: Hotspot[];
+  birds?: BirdSpawn[];
+  /** smoke emitters (chimneys, stacks, smoke holes, the burner, steam) */
+  smoke?: { pos: Vec3; size?: number; kind?: string }[];
   buoys?: Buoy[];
   dive_sites?: { name: string; site: string; pos: Vec3 }[];
   npcs?: Npc[];
@@ -68,6 +86,8 @@ export interface Manifest {
   backdrops: string[];
   clouds?: string;
   protos?: string;
+  /** optional bobbing objects; defaults to dynamic.glb if present */
+  dynamic?: string;
 }
 
 /** instances.json: [x,y,z, qx,qy,qz,qw, s] per instance (older rotY form [x,y,z,rotY,s] also accepted). */
@@ -85,4 +105,6 @@ export interface LoadedWorld {
   instances: Instances;
   boat: THREE.Object3D | null;
   gameplay: Gameplay;
+  /** world/dynamic.glb nodes (buoys, moored boats, flotsam, kelp) animated by game/floaters.ts */
+  dynamic?: THREE.Object3D[];
 }

@@ -1,3 +1,4 @@
+import { BOAT_TUNING } from './boat';
 /**
  * Unified input: keyboard (WASD/arrows + E interact + Space cast/reel) and touch
  * (left-thumb floating joystick, right-side buttons, right-half drag = camera orbit).
@@ -107,11 +108,13 @@ export class Input {
     if (k.has('d') || k.has('arrowright')) s += 1;
     if (this.joyId !== null) {
       // Joystick: up = forward, sideways = steer. Dead zone keeps small wobbles still.
-      const dz = (v: number) => (Math.abs(v) < 0.15 ? 0 : (v - Math.sign(v) * 0.15) / 0.85);
+      // Small deadzone, then a slightly exponential curve for fine control near the centre.
+      const D = BOAT_TUNING.deadzone, E = BOAT_TUNING.expo;
+      const dz = (v: number) => (Math.abs(v) < D ? 0 : Math.sign(v) * Math.pow(Math.min(1, (Math.abs(v) - D) / (1 - D)), E));
       t = -dz(this.joyVec.y);
       s = dz(this.joyVec.x);
       // Pushing mostly sideways should still move a little so you can turn on the spot-ish.
-      if (Math.abs(s) > 0.5 && t === 0) t = 0.25 * Math.abs(s);
+      if (Math.abs(s) > 0.5 && t === 0) t = 0.12 * Math.abs(s);
     }
     this.throttle = Math.max(-1, Math.min(1, t));
     this.steer = Math.max(-1, Math.min(1, s));

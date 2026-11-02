@@ -10,7 +10,7 @@ const tint = new THREE.Color(1, 1, 1);
 
 export const backdropHaze = { value: 0.3 };
 
-function register(m: THREE.MeshBasicMaterial) {
+export function register(m: THREE.MeshBasicMaterial) {
   tinted.add(m);
   m.color.copy(tint);
   return m;
