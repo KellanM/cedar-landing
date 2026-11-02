@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { Sky, Sea } from './render/environment';
+import { buildShoreField } from './render/shorefield';
+import type { SeaVariant } from './render/sea';
 import { backdropHaze, setTint } from './render/materials';
 import { InstanceField } from './render/instances';
 import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingBlend, updateLighting } from './render/lighting';
@@ -65,12 +67,13 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xc7ced1, 90, 1100);
 const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 20000);
 const sky = new Sky();
-const sea = new Sea();
+const sea = new Sea((new URLSearchParams(location.search).get('sea') ?? 'full') as SeaVariant);
 scene.add(sky.mesh, sea.group);
 
 const save: SaveData = loadSave();
 let quality = QUALITY[save.settings.quality];
 gameAudio.setVolumes(save.settings.music, save.settings.sound);
+sea.setQuality(save.settings.quality);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -190,6 +193,7 @@ function installWorld(w: LoadedWorld) {
   land = new LandCollision(w.gameplay);
   const removed = hideBakedHotspotMarkers(w.chunks.map((c) => c.object), w.gameplay.hotspots);
   if (removed) console.info(`[hotspots] collapsed ${removed} baked marker triangles (procedural marker replaces them)`);
+  buildSeaField(w);
   hotspotFX = new HotspotFX(w.gameplay.hotspots);
   worldRoot.add(hotspotFX.group);
   buildWildlife();
@@ -235,6 +239,14 @@ function installWorld(w: LoadedWorld) {
   badge.classList.toggle('hidden', w.source !== 'placeholder');
 }
 
+/** Sea shore field (distance to shore + depth) from the chunks, once per world / quality change. */
+let seaFieldInfo: { ms: number; res: [number, number] } | null = null;
+function buildSeaField(w: LoadedWorld) {
+  const f = buildShoreField(renderer, w.chunks, land, save.settings.quality === 'low' ? 512 : 1024, w.dynamic ?? []);
+  sea.setShoreField(f);
+  seaFieldInfo = f && { ms: +f.ms.toFixed(1), res: f.res };
+}
+
 function buildInstances() {
   if (!world) return;
   instances?.dispose();
@@ -275,18 +287,20 @@ function applyTOD() {
   todBlend.tint = [0, 1, 2].map((i) => A.tint[i] + (B.tint[i] - A.tint[i]) * f) as [number, number, number];
   const t = { ...(f < 0.5 ? A : B), ...todBlend } as typeof A;
   sky.apply(t);
-  sea.apply(t);
+  sea.apply(t, key);
   (scene.fog as THREE.Fog).color.set(t.haze);
   renderer.setClearColor(t.haze);
   setTint(t.tint);
   setLightingBlend(look.a, A as Parameters<typeof setLightingBlend>[1], look.b, B as Parameters<typeof setLightingBlend>[1], f);
-  const foggy = /fog/i.test(key);
-  (scene.fog as THREE.Fog).near = foggy ? 12 : quality.fogNear;
-  (scene.fog as THREE.Fog).far = foggy ? 210 : quality.fogFar;
-  // low fog banks: full in the fog preset, light morning wisps on overcast
-  fogBanks?.set(foggy ? 1 : key === 'overcast' ? 0.25 : 0, t.haze);
+  // fog weight blends with the clock (misty dawn thins into the grey morning)
+  const w = (k: string) => (look.a === k ? 1 - f : 0) + (look.b === k ? f : 0);
+  const fogW = /fog/i.test(look.a) || /fog/i.test(look.b) ? w(/fog/i.test(look.a) ? look.a : look.b) : 0;
+  (scene.fog as THREE.Fog).near = THREE.MathUtils.lerp(quality.fogNear, 12, fogW);
+  (scene.fog as THREE.Fog).far = THREE.MathUtils.lerp(quality.fogFar, 210, fogW);
+  // low fog banks: full in the fog look, light morning wisps on overcast
+  fogBanks?.set(fogW + w('overcast') * 0.25, t.haze);
   wake.setSea(t.sea);
-  backdropHaze.value = foggy ? 0.92 : quality.haze;
+  backdropHaze.value = THREE.MathUtils.lerp(quality.haze, 0.92, fogW);
   hud.setTOD(key, clockText(clockHour), lookWords(key));
   setLineContext(key, clockHour);
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.haze);
@@ -538,6 +552,8 @@ hud.init({
       quality = QUALITY[save.settings.quality];
       resize();
       buildInstances();
+      sea.setQuality(save.settings.quality);
+      if (world) buildSeaField(world);
       applyTOD();
       writeSave(save);
     },
@@ -692,7 +708,8 @@ function frame(now: number) {
     }
     maybeReveal();
     sky.follow(camera.position);
-    sea.update(dt, boat.pos);
+    sea.reduceMotion = reduceMotion();
+    sea.update(dt, boat.pos, camera);
     hotspotFX?.update(dt, camera.position, fishing.active ? fishing.hotspot : null, fishing.active && fishing.phase !== 'reeling' && fishing.phase !== 'landed' ? fishing.bobber.position : null);
     wildlife?.update(dt, camera.position, boat.pos);
     if (wildlife) wake.update(dt, boat, wildlife.splash);
@@ -762,7 +779,7 @@ window.__debug = {
       tod: look.key, clock: clockText(clockHour), nearestHotspot: nearestHotspot()?.hs.name, nearestHotspotDist: nearestHotspot()?.d,
       wildlife: wildlife ? { ...wildlife.birds.stats(), mammals: wildlife.mammals.count, blows: wildlife.mammals.blows.count, ms: +wildlife.cost.toFixed(3), squawks } : null,
       fx: { smokeEmitters: smoke?.emitterCount ?? 0, floaters: floaters?.count ?? 0, fogBanks: fogBanks?.mesh.visible ? fogBanks.mesh.count : 0 },
-      interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, npcAnim: crowd ? { ...crowd.stats, ms: +crowd.stats.ms.toFixed(3) } : null, inShot: chase.inShot, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
+      interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, npcAnim: crowd ? { ...crowd.stats, ms: +crowd.stats.ms.toFixed(3) } : null, inShot: chase.inShot, seaField: seaFieldInfo, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
     };
   },
   key: (k: string, down: boolean) => input.setKey(k, down),
@@ -818,6 +835,19 @@ window.__debug = {
     for (const [k, o] of Object.entries(parts)) { if (!o) continue; const v = o.visible; o.visible = false; out[k] = all - count(); o.visible = v; }
     return out;
   },
+  /** GPU bench (water study): ms per synchronous render of the current view, with and without the sea. */
+  benchFrame: (n = 60) => {
+    const gl = renderer.getContext(), px = new Uint8Array(4);
+    const time = () => { gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); const t = performance.now(); for (let i = 0; i < n; i++) renderer.render(scene, camera); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return (performance.now() - t) / n; };
+    time();
+    const full = time();
+    sea.group.visible = false;
+    const noSea = time();
+    sea.group.visible = true;
+    return { full: +full.toFixed(3), noSea: +noSea.toFixed(3), sea: +(full - noSea).toFixed(3) };
+  },
+  seaFieldImage: () => sea.fieldImage(),
+  seaObj: () => sea,
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,
