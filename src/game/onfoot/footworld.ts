@@ -11,9 +11,10 @@ export const MAX_DROP = 1.1;
 /** Ground below this is water / wet shoreline: not walkable. */
 export const WATER_Y = 0.3;
 
-interface Entry { chunk: LoadedChunk; bvh: MeshBVH | null; box: THREE.Box3 }
+interface Entry { chunk: LoadedChunk; bvh: MeshBVH | null; box: THREE.Box3; col?: Uint8Array | null }
 
 export interface GroundHit { y: number; ny: number }
+export interface Surface { c: [number, number, number]; hollow: boolean; y: number }
 
 const _ray = new THREE.Ray();
 const _down = new THREE.Vector3(0, -1, 0);
@@ -27,7 +28,7 @@ const _d = new THREE.Vector3();
 /** Bake every mesh in a chunk into one world-space, position-only geometry (for the BVH). */
 function bakeChunk(root: THREE.Object3D): THREE.BufferGeometry | null {
   root.updateWorldMatrix(true, true);
-  const parts: { pos: THREE.BufferAttribute | THREE.InterleavedBufferAttribute; idx: THREE.BufferAttribute | null; m: THREE.Matrix4 }[] = [];
+  const parts: { pos: THREE.BufferAttribute | THREE.InterleavedBufferAttribute; idx: THREE.BufferAttribute | null; m: THREE.Matrix4; col: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined }[] = [];
   let nv = 0, ni = 0;
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
@@ -35,12 +36,14 @@ function bakeChunk(root: THREE.Object3D): THREE.BufferGeometry | null {
     const pos = mesh.geometry.getAttribute('position');
     if (!pos) return;
     const idx = mesh.geometry.index;
-    parts.push({ pos, idx, m: mesh.matrixWorld });
+    parts.push({ pos, idx, m: mesh.matrixWorld, col: mesh.geometry.getAttribute('color') });
     nv += pos.count;
     ni += idx ? idx.count : pos.count;
   });
   if (!nv) return null;
   const P = new Float32Array(nv * 3);
+  // vertex colours ride along (8-bit) so footsteps can tell planks from grass / sand (audio)
+  const C = new Uint8Array(nv * 3);
   const I = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
   const v = new THREE.Vector3();
   let vo = 0, io = 0;
@@ -48,6 +51,7 @@ function bakeChunk(root: THREE.Object3D): THREE.BufferGeometry | null {
     for (let i = 0; i < p.pos.count; i++) {
       v.fromBufferAttribute(p.pos, i).applyMatrix4(p.m);
       P[(vo + i) * 3] = v.x; P[(vo + i) * 3 + 1] = v.y; P[(vo + i) * 3 + 2] = v.z;
+      if (p.col) { C[(vo + i) * 3] = p.col.getX(i) * 255; C[(vo + i) * 3 + 1] = p.col.getY(i) * 255; C[(vo + i) * 3 + 2] = p.col.getZ(i) * 255; }
     }
     if (p.idx) for (let i = 0; i < p.idx.count; i++) I[io++] = vo + p.idx.getX(i);
     else for (let i = 0; i < p.pos.count; i++) I[io++] = vo + i;
@@ -56,6 +60,7 @@ function bakeChunk(root: THREE.Object3D): THREE.BufferGeometry | null {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(P, 3));
   g.setIndex(new THREE.BufferAttribute(I, 1));
+  g.userData.col = C;
   return g;
 }
 
@@ -80,6 +85,7 @@ export class FootWorld {
     const t0 = performance.now();
     const g = bakeChunk(e.chunk.object);
     e.bvh = g ? new MeshBVH(g, { targetLeafSize: 12 }) : new MeshBVH(new THREE.BoxGeometry(0, 0, 0));
+    e.col = g ? (g.userData.col as Uint8Array) : null;
     this.buildMs += performance.now() - t0;
     this.built++;
   }
@@ -179,6 +185,35 @@ export class FootWorld {
     const px = _seg.start.x - sx, pz = _seg.start.z - sz;
     feet.x += px; feet.z += pz;
     return Math.hypot(px, pz);
+  }
+
+  /**
+   * Vertex colour (0..255 rgb, as stored: linear) of the walkable surface under (x,z) near feetY,
+   * and whether it is `hollow` (more geometry below it: a deck / pier / boardwalk), or null.
+   * Used only for footstep sounds (wood / grass / sand / gravel).
+   */
+  surfaceColor(x: number, z: number, feetY: number): Surface | null {
+    _ray.origin.set(x, feetY + 0.5, z);
+    _ray.direction.copy(_down);
+    let best: { y: number; c: [number, number, number] } | null = null;
+    for (const e of this.entries) {
+      const b = e.box;
+      if (!e.bvh || !e.col || x < b.min.x - 1 || x > b.max.x + 1 || z < b.min.z - 1 || z > b.max.z + 1) continue;
+      const h = e.bvh.raycastFirst(_ray, THREE.DoubleSide, 0, 1.5);
+      if (!h || !h.face || (best && h.point.y < best.y)) continue;
+      const a = h.face.a * 3, col = e.col;
+      best = { y: h.point.y, c: [col[a], col[a + 1], col[a + 2]] };
+    }
+    if (!best) return null;
+    // hollow test: anything 0.25–5 m under the surface (seabed, ground under a deck)?
+    _ray.origin.set(x, best.y - 0.25, z);
+    let hollow = false;
+    for (const e of this.entries) {
+      const b = e.box;
+      if (!e.bvh || x < b.min.x - 1 || x > b.max.x + 1 || z < b.min.z - 1 || z > b.max.z + 1) continue;
+      if (e.bvh.raycastFirst(_ray, THREE.DoubleSide, 0, 5)) { hollow = true; break; }
+    }
+    return { c: best.c, hollow, y: best.y };
   }
 
   /** Distance along a ray to the first hit (any side), or `far` if clear. */

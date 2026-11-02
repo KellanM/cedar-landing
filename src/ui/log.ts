@@ -66,6 +66,7 @@ export function openLog(t?: Tab, opts: { species?: string; filter?: Filter } = {
   if (ctx.modal && ctx.modal !== 'log') return;
   if (opts.filter) filter = opts.filter;
   if (opts.species) selFish = opts.species;
+  if (root.classList.contains('hidden')) fx('open');
   root.classList.remove('hidden', 'closing', 'detail-open');
   if (!reduceMotion()) { root.classList.remove('rise'); void root.offsetWidth; root.classList.add('rise'); }
   setModal('log');
@@ -75,6 +76,7 @@ export function openLog(t?: Tab, opts: { species?: string; filter?: Filter } = {
 
 export function closeLog() {
   if (root.classList.contains('hidden')) return;
+  fx('close');
   chart.persist();
   root.classList.add('hidden');
   map?.stop();
@@ -449,13 +451,18 @@ function seg(id: string, opts: [string, string][], cur: string, label: string) {
   return `<div class="set-row"><span>${label}</span><div class="seg" id="${id}" role="radiogroup">${opts.map(([v, l]) => `<button data-v="${v}" class="${v === cur ? 'on' : ''}" role="radio" aria-checked="${v === cur}">${l}</button>`).join('')}</div></div>`;
 }
 
+const VOL: [string, string][] = [['0', 'Off'], ['0.35', 'Low'], ['0.7', 'Mid'], ['1', 'High']];
+/** nearest volume step for a saved level */
+const volKey = (v: number) => VOL.reduce((b, x) => (Math.abs(Number(x[0]) - v) < Math.abs(Number(b[0]) - v) ? x : b))[0];
+
 function settingsTab(L: HTMLElement, R: HTMLElement) {
   const s = ctx.save!.settings;
   L.innerHTML = `<h3 class="page-title">Settings</h3>
   <div class="settings">
     ${seg('set-text', [['1', '100%'], ['1.15', '115%'], ['1.3', '130%']], String(prefs.textScale), 'Text size')}
     ${toggle('set-motion', prefs.reduceMotion, 'Reduce motion')}
-    ${toggle('set-sound', prefs.sound, 'Sound')}
+    ${seg('set-music', VOL, volKey(s.music), 'Music')}
+    ${seg('set-sound', VOL, volKey(s.sound), 'Sound')}
     ${canVibrate ? toggle('set-vibe', prefs.vibration, 'Vibration') : ''}
     ${seg('set-tension', [['def', 'Default'], ['hc', 'High contrast']], prefs.tensionHC ? 'hc' : 'def', 'Tension colours')}
     ${toggle('set-autoreel', s.autoReel, 'Auto-reel')}
@@ -477,7 +484,8 @@ function settingsTab(L: HTMLElement, R: HTMLElement) {
   const sg = (id: string, f: (v: string) => void) => document.getElementById(id)?.querySelectorAll<HTMLButtonElement>('button').forEach((b) => (b.onclick = () => { f(b.dataset.v!); savePrefs(); applyPrefsCb(); show('settings', true); }));
   sg('set-text', (v) => { prefs.textScale = Number(v) as 1 | 1.15 | 1.3; });
   sw('set-motion', () => { prefs.reduceMotion = !prefs.reduceMotion; });
-  sw('set-sound', () => { prefs.sound = !prefs.sound; });
+  sg('set-music', (v) => ctx.h?.volume('music', Number(v)));
+  sg('set-sound', (v) => ctx.h?.volume('sound', Number(v)));
   sw('set-vibe', () => { prefs.vibration = !prefs.vibration; });
   sg('set-tension', (v) => { prefs.tensionHC = v === 'hc'; });
   sw('set-autoreel', () => ctx.h?.autoReel());

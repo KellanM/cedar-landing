@@ -93,9 +93,9 @@ export function init(opts: { save: NonNullable<typeof ctx.save>; input: InputLik
   initPause();
   window.addEventListener('ui:modal', endTitle);
 
-  $('btn-log').addEventListener('click', () => { fx('page'); openLog(); });
-  $('shells').addEventListener('click', () => { fx('page'); openLog('errands'); });
-  $('cooler-tab').addEventListener('click', () => { fx('page'); openLog('fish', { filter: 'cooler' }); });
+  $('btn-log').addEventListener('click', () => { openLog(); });
+  $('shells').addEventListener('click', () => { openLog('errands'); });
+  $('cooler-tab').addEventListener('click', () => { openLog('fish', { filter: 'cooler' }); });
   // tapping the top strip brings quiet-mode readouts back
   document.querySelector('.hud-top')!.addEventListener('pointerdown', () => peek('shells', 'cooler'));
   window.addEventListener('keydown', (e) => {
@@ -115,7 +115,7 @@ export function init(opts: { save: NonNullable<typeof ctx.save>; input: InputLik
   }, { capture: true });
 
   chart.onVisit = (p) => {
-    fx('reveal');
+    fx('discover');
     if (p.kind === 'town' || p.kind === 'island') {
       titleCard(p.name, p.key === 'cedar_landing' ? 'where Gran kept her boat' : p.key === 'keepers_cove' ? "the keeper's cottage, and Gran's canoe" : 'a new shore for the logbook');
       setTimeout(() => toast(`${p.name} — added to the chart`, 'log'), 3900);
@@ -320,6 +320,7 @@ export function onNibble() {
 export function onSlip() { fx('slip'); }
 /** Action pressed when it can't do anything: shake (the label already says why). */
 export function refuse() {
+  fx('refuse');
   const b = $('btn-action');
   b.classList.remove('nope'); void b.offsetWidth; b.classList.add('nope');
 }
@@ -503,7 +504,7 @@ function checkErrands() {
   for (const e of fresh) {
     if (log.pinned === e.id) { log.pinned = null; saveLog(); pinChip(null); }
     chip(e.text, { done: true });
-    setTimeout(() => fx('stamp'), 500);
+    setTimeout(() => fx('quest'), 500);
   }
   updateBadges();
   refreshLog();
@@ -530,7 +531,7 @@ export async function readSunstone(n: number, poi: string) {
   log.pages.push(n);
   log.pages.sort((a, b) => a - b);
   saveLog();
-  fx('reveal');
+  fx('quest');
   toast(`Gran's page ${n} — added to the logbook`, 'log', 3200);
   refreshLog();
 }

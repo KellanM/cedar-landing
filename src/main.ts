@@ -30,6 +30,7 @@ import { OnFoot, type FootContext } from './game/onfoot/onfoot';
 import { NpcCrowd } from './game/npcs/npcs';
 import { FOOT_CAM } from './game/onfoot/footcamera';
 import { createUpgrades } from './game/progression/upgrades';
+import { gameAudio, renderOffline, composePiece, surfaceFromColor } from './audio';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -67,6 +68,7 @@ scene.add(sky.mesh, sea.group);
 
 const save: SaveData = loadSave();
 let quality = QUALITY[save.settings.quality];
+gameAudio.setVolumes(save.settings.music, save.settings.sound);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -91,16 +93,18 @@ function actorScale(now: number) { return now < actorClock.until ? 0.04 : now < 
 const fv = new THREE.Vector3();
 const fishing = new Fishing({
   toast: (m, k) => hud.toast(m, k),
-  bite: () => { hud.onBite(); chase.shake(0.12); },
-  nibble: () => hud.onNibble(),
-  slip: () => { hud.onSlip(); chase.shake(0.2); },
+  bite: () => { hud.onBite(); chase.shake(0.12); gameAudio.bite(); },
+  nibble: () => { hud.onNibble(); gameAudio.nibble(); },
+  slip: () => { hud.onSlip(); chase.shake(0.2); gameAudio.slip(); },
   landed: (fish, sp, perfect) => onLanded(fish, sp, perfect),
   // hook-set: hit-stop scaled by rarity + a punch toward the float + a little trauma
-  strike: (x, z, r) => { hitStop(55 + 15 * r); chase.punch(fv.set(x, 0, z)); chase.shake(0.22 * r); },
-  thrash: (_x, _z, _pull, r) => { chase.shake(0.1 * r); },
-  leap: (x, z, r) => { chase.punch(fv.set(x, 0.8, z), 0.18, 1.5); if (r >= 1.5) slowMo(240, 0.4); },
-  breach: (_x, _z, r) => { chase.shake(0.08 * r); },
+  strike: (x, z, r) => { hitStop(55 + 15 * r); chase.punch(fv.set(x, 0, z)); chase.shake(0.22 * r); gameAudio.strike(x, z, r); },
+  thrash: (x, z, _pull, r) => { chase.shake(0.1 * r); gameAudio.thrash(x, z, r); },
+  leap: (x, z, r) => { chase.punch(fv.set(x, 0.8, z), 0.18, 1.5); if (r >= 1.5) slowMo(240, 0.4); gameAudio.leap(x, z, r); },
+  breach: (x, z, r) => { chase.shake(0.08 * r); gameAudio.breach(x, z, r); },
 });
+// Audio (src/audio): nothing starts until the first tap / key (mobile autoplay rules).
+gameAudio.attach();
 fishing.autoReel = save.settings.autoReel;
 scene.add(fishing.group);
 // The skipper on deck (rod in hand) — feeds the rod tip and does the hold-up.
@@ -149,6 +153,8 @@ const foot = new OnFoot({
   landNear: (x, z, r) => !!land && land.hitsCircle(x, z, r),
 });
 foot.onTalk = (name) => crowd?.react(name);
+foot.onFootstep = (sp, feet, surf) => gameAudio.step(surfaceFromColor(surf, feet.y), sp);
+foot.onSay = (name, text, role, x, z) => gameAudio.talk(name, text, role, x, z);
 let footCtx: FootContext | null = null;
 let ashoreOnAction: FootContext | null = null;
 
@@ -186,6 +192,7 @@ function installWorld(w: LoadedWorld) {
   // rigged NPCs (world/npcs.glb); older exports bake their NPCs into the chunks and have none
   crowd = w.npcs ? new NpcCrowd(w.npcs, w.gameplay.npcs ?? []) : null;
   if (crowd) scene.add(crowd.group); // not in worldRoot: the capture 'isolate' mode hides worldRoot only
+  gameAudio.setWorld(w.gameplay.interacts, w.gameplay.birds ?? [], (w.gameplay.mammals ?? []) as { species?: string; kind?: string; pos?: number[] }[], (x, z, r) => !!land && land.hitsCircle(x, z, r));
 
   const model = upg.pickModel(w) ?? w.boat ?? placeholderBoat();
   if (!boat) { boat = new Boat(model); scene.add(boat.root); } else boat.setModel(model);
@@ -233,7 +240,8 @@ function buildWildlife() {
   if (!world || !land) return;
   wildlife?.dispose();
   wildlife = new Wildlife(world.gameplay, land, save.settings.quality === 'low', world.chunks);
-  wildlife.onSquawk = () => { squawks++; }; // audio hook: no sound assets yet
+  wildlife.onSquawk = (x, _y, z, k) => { squawks++; gameAudio.squawk(x, z, k); };
+  wildlife.mammals.onSound = (kind, x, z, sp) => gameAudio.mammal(kind, x, z, sp);
   worldRoot.add(wildlife.group);
   // smoke + fog banks are quality-dependent pools too
   for (const fx of [smoke?.mesh, fogBanks?.mesh]) if (fx) { fx.removeFromParent(); fx.geometry.dispose(); }
@@ -374,6 +382,7 @@ function onLanded(fish: CaughtFish, sp: ReturnType<typeof lookupSpecies>, perfec
   pendingPerfect = perfect;
   const rec = save.records[fish.speciesId];
   const stamp = !rec ? 'NEW!' : fish.size > rec.size ? 'RECORD!' : null;
+  gameAudio.landed(!rec || fish.rarity === 'rare' || fish.rarity === 'legendary');
   hud.showCard(fish, sp, stamp, save.cooler.length >= save.coolerCap, perfect);
 }
 let pendingPerfect = false;
@@ -389,10 +398,11 @@ function closeCard(keep: boolean) {
   save.records[f.speciesId] = { size: Math.max(rec.size, f.size), stars: Math.max(rec.stars, f.stars), count: rec.count + 1 };
   hud.logCatch(f, pendingPerfect);
   if (keep && !f.releaseOnly && save.cooler.length < save.coolerCap) {
+    gameAudio.keep();
     save.cooler.push(f);
     hud.renderCooler(save.cooler, save.coolerCap, true); // a full cooler shows on the strip, no toast
     hud.noteKept();
-  } else hud.toast(`Let the ${f.name.toLowerCase()} go`);
+  } else { gameAudio.release(); hud.toast(`Let the ${f.name.toLowerCase()} go`); }
   writeSave(save);
 }
 
@@ -510,6 +520,7 @@ hud.init({
     autoReel: () => { save.settings.autoReel = !save.settings.autoReel; fishing.autoReel = save.settings.autoReel; writeSave(save); },
     tod: () => cycleTOD(),
     fps: () => { save.settings.showFps = !save.settings.showFps; writeSave(save); refreshSettingsUI(); },
+    volume: (which, v) => { save.settings[which] = Math.min(1, Math.max(0, v)); writeSave(save); gameAudio.setVolumes(save.settings.music, save.settings.sound); },
     reset: () => { clearSave(); location.reload(); },
   },
 });
@@ -625,6 +636,7 @@ function frame(now: number) {
     }
 
     let throttle = input.throttle, steer = input.steer;
+    lastThrottle = 0;
     if (modalOpen || chase.inShot || foot.active) { throttle = 0; steer = 0; }
     if (fishing.active) {
       // Paddling away while waiting reels the line in; during the fight the boat holds still.
@@ -636,6 +648,7 @@ function frame(now: number) {
     if (boat.moored && Math.abs(throttle) > 0.3) { boat.moored = false; hud.toast('Cast off!'); }
 
     boat.update(dt, throttle, steer, land);
+    lastThrottle = throttle;
     const adt = dt * actorScale(now);
     fishingCastT = fishing.phase === 'casting' ? fishingCastT + adt : 0;
     fishing.update(adt, input.actionHeld, rodTip(), boat.pos, camera.position);
@@ -664,6 +677,7 @@ function frame(now: number) {
   updateLighting(dt);
   applyDebugCam();
   renderer.render(scene, camera);
+  if (world && boat) audioFrame(dt);
 
   fpsAcc += dt; fpsFrames++;
   if (fpsAcc >= 0.5) {
@@ -675,6 +689,22 @@ function frame(now: number) {
     }
   }
   requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------- audio frame
+let lastThrottle = 0;
+const camDir = new THREE.Vector3();
+function audioFrame(dt: number) {
+  camera.getWorldDirection(camDir);
+  const bp = fishing.bobberPos;
+  gameAudio.frame(dt, {
+    cam: { x: camera.position.x, z: camera.position.z, yaw: Math.atan2(-camDir.x, -camDir.z) },
+    boat: { x: boat.pos.x, z: boat.pos.z, speed: boat.speed, maxSpeed: BOAT_TUNING.maxSpeed, throttle: lastThrottle, moored: boat.moored, heavy: boat.modelObject?.name === 'BOAT_T1' },
+    onFoot: foot.active,
+    feet: foot.active ? { x: foot.feet.x, z: foot.feet.z } : undefined,
+    tod: todKeys[todIndex] ?? 'overcast',
+    fishing: { phase: fishing.phase, tension: fishing.tension, reelHeld: fishing.reelHeld, thrashing: fishing.thrashing, distance: fishing.distance, bobber: { x: bp.x, z: bp.z } },
+  });
 }
 
 // ---------------------------------------------------------------- boot
@@ -766,6 +796,17 @@ window.__debug = {
   closeModals: () => { hud.hideSell(); hud.hideCard(); hud.closeLog(); },
   ui: hud.debug,
   upg: upg.debug,
+  /** Audio (src/audio): live state, forced music, and offline renders (WAV base64 + level stats). */
+  audio: {
+    state: () => gameAudio.state(),
+    forceMusic: (v: 'day' | 'night' | 'dusk' | 'town') => gameAudio.forceMusic(v),
+    setGap: (min: number, max: number) => gameAudio.setGap(min, max),
+    render: (kind: string, secs: number, seed?: number) => renderOffline(kind, secs, seed),
+    compose: (v: 'day' | 'night' | 'dusk' | 'town', seed: number) => { const p = composePiece(v, seed); return { ...p, events: p.events.length }; },
+    volumes: (m: number, s: number) => gameAudio.setVolumes(m, s),
+    /** footstep surface probe: vertex colour under (x,z) and its class */
+    surface: (x: number, z: number, y = 2) => { const c = foot.world.surfaceColor(x, z, y); return { ...c, s: surfaceFromColor(c, y) }; },
+  },
   fishing,
   cycleTOD,
   setAutoReel: (on: boolean) => { fishing.autoReel = on; },
