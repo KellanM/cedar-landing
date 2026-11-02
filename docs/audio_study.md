@@ -87,7 +87,7 @@ Every "how it sounds" claim below is therefore secondhand. Some assumptions in t
 10. **Footstep surfaces.**
     - If there is geometry under the surface (a pier, deck or boardwalk), the step is **wood**.
     - Otherwise the step is classed by vertex colour converted to sRGB: green is grass, pale tan below 2.5 m is sand, grey is gravel, red-brown is wood.
-    - Calibrated on a 30 × 25 probe grid around Cedar Landing: 52 wood and 2 gravel steps on the wharf-to-plaza route.
+    - Calibrated on a 30 × 25 probe grid around Cedar Landing. The wharf-to-plaza route in `audio_verify` now gives 17 wood, 35 gravel (plaza) and 2 sand steps.
 
 ## Evidence (scripts/audio_verify.mjs, offline renders in screenshots/audio/)
 

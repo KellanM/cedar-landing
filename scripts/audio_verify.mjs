@@ -188,9 +188,6 @@ async function live(name, viewport, isMobile) {
   const surf = Object.entries(a.counts).filter(([k]) => k.startsWith('step.')).map(([k, v]) => `${k.slice(5)}×${v}`);
   check((a.counts['sfx.step'] ?? 0) >= 6, `[${name}] footsteps while walking`, `${surf.join(' ')}`);
   check((a.counts['sfx.murmur'] ?? 0) >= 1, `[${name}] NPC talk murmur`, (await st()).foot.bubble ? JSON.stringify((await st()).foot.bubble).slice(0, 80) : 'no bubble');
-  // surface probes along the route (calibration evidence)
-  const probes = await page.evaluate(() => [[23.5, 152], [21.2, 150.9], [16.3, 147.8], [21.6, 144.7], [24.9, 140.4], [30, 135], [10, 140]].map(([x, z]) => ({ x, z, ...window.__debug.audio.surface(x, z, 3) })));
-  log(`[${name}] surface probes`, JSON.stringify(probes));
   log(`[${name}] zones ashore`, JSON.stringify(a.zones), 'amb', JSON.stringify(a.amb));
   check(a.zones.harbour > 0.4 || a.zones.forest > 0.4, `[${name}] ambience zone moved off open water ashore`);
   // the chandlery (buy_tackle): open its sheet via the upgrades debug if present
