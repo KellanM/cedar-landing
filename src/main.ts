@@ -66,7 +66,9 @@ const input = new Input(canvas, $('btn-action'), $('btn-interact'));
 const chase = new ChaseCamera(camera);
 const fishing = new Fishing({
   toast: (m, k) => hud.toast(m, k),
-  bite: () => { $('bite').classList.remove('hidden'); navigator.vibrate?.(90); },
+  bite: () => hud.onBite(),
+  nibble: () => hud.onNibble(),
+  slip: () => hud.onSlip(),
   landed: (fish, sp, perfect) => onLanded(fish, sp, perfect),
 });
 fishing.autoReel = save.settings.autoReel;
@@ -131,7 +133,7 @@ function installWorld(w: LoadedWorld) {
   applyTOD();
 
   fishing.cancel();
-  $('set-world').textContent = w.source === 'export' ? `export ${worldVersion.slice(0, 24)}` : 'placeholder';
+  hud.setWorld(w, { renderer, root: worldRoot, hide: [...w.backdrops, ...w.clouds] }, w.source === 'export' ? `export ${worldVersion.slice(0, 24)}` : 'placeholder');
   const badge = $('world-badge');
   badge.textContent = 'placeholder world — waiting for export';
   badge.classList.toggle('hidden', w.source !== 'placeholder');
@@ -158,7 +160,7 @@ function applyTOD() {
   (scene.fog as THREE.Fog).near = foggy ? 20 : quality.fogNear;
   (scene.fog as THREE.Fog).far = foggy ? 260 : quality.fogFar;
   backdropHaze.value = foggy ? 0.92 : quality.haze;
-  $('set-tod').textContent = key;
+  hud.setTOD(key);
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.haze);
 }
 
@@ -229,17 +231,27 @@ function doInteract(it: Interact) {
         save.boat = { x: boat.pos.x, z: boat.pos.z, yaw: boat.yaw, moored: true };
         save.worldTag = world?.source;
         writeSave(save);
-        hud.toast('Canoe tied up · progress saved', 'good');
+        hud.noteMoored();
+        hud.toast('Tied up snug. Progress saved.', 'good');
       } else hud.toast('Cast off!');
       break;
+    case 'read_sunstone':
+      hud.readSunstone(Number(it.props?.logbook_page), String(it.props?.poi ?? 'sun'));
+      break;
+    case 'read_message_bottle': case 'read_warning': case 'trade_rumours': {
+      const pr = it.props ?? {};
+      const text = (pr.rumour ?? pr.text ?? pr.trades) as string | undefined;
+      if (text) hud.readNote(typeof pr.npc === 'string' ? pr.npc : it.kind === 'read_message_bottle' ? 'A bottle' : 'A sign', text);
+      else hud.toast(`${labelFor(it)} — not open yet`);
+      break;
+    }
     default:
-      hud.toast(`${labelFor(it)} — coming soon`);
+      hud.toast(`${labelFor(it)} — not open yet`);
   }
 }
 
 function openSell() {
-  modalOpen = true;
-  hud.showSell(save.cooler, (i) => sellFish([i]));
+  hud.showSell(save.cooler, (i) => sellFish([i]), currentInteract);
 }
 function sellFish(idx: number[]) {
   let total = 0;
@@ -252,87 +264,82 @@ function sellFish(idx: number[]) {
   if (!total) return;
   save.shells += total;
   writeSave(save);
-  hud.setShells(save.shells);
-  hud.renderCooler(save.cooler, save.coolerCap, true);
-  hud.toast(`+${total} Shells`, 'good');
-  hud.showSell(save.cooler, (i) => sellFish([i]));
+  // money never toasts: the SOLD stamp, flying Shells and the counter roll carry it
+  hud.onSold(idx, total, save.cooler, () => { hud.setShells(save.shells); hud.renderCooler(save.cooler, save.coolerCap, true); });
 }
-$('sell-all').onclick = () => sellFish(save.cooler.map((_, i) => i));
-$('sell-close').onclick = () => { hud.hideSell(); modalOpen = false; };
 
 function onLanded(fish: CaughtFish, sp: ReturnType<typeof lookupSpecies>, perfect: boolean) {
   pendingCatch = fish;
-  modalOpen = true;
+  pendingPerfect = perfect;
   const rec = save.records[fish.speciesId];
   const stamp = !rec ? 'NEW!' : fish.size > rec.size ? 'RECORD!' : null;
   hud.showCard(fish, sp, stamp, save.cooler.length >= save.coolerCap, perfect);
-  navigator.vibrate?.([40, 40, 40]);
 }
+let pendingPerfect = false;
 function closeCard(keep: boolean) {
   const f = pendingCatch;
   pendingCatch = null;
   hud.hideCard();
-  modalOpen = false;
   fishing.finish();
   if (!f) return;
   const rec = save.records[f.speciesId] ?? { size: 0, stars: 0, count: 0 };
   save.records[f.speciesId] = { size: Math.max(rec.size, f.size), stars: Math.max(rec.stars, f.stars), count: rec.count + 1 };
+  hud.logCatch(f, pendingPerfect);
   if (keep && !f.releaseOnly && save.cooler.length < save.coolerCap) {
     save.cooler.push(f);
-    hud.renderCooler(save.cooler, save.coolerCap, true);
-    if (save.cooler.length >= save.coolerCap) hud.toast('Cooler full — sell at the Fish Market in Cedar Landing', 'info', 3500);
-  } else hud.toast(`Released the ${f.name.toLowerCase()}`);
+    hud.renderCooler(save.cooler, save.coolerCap, true); // a full cooler shows on the strip, no toast
+    hud.noteKept();
+  } else hud.toast(`Let the ${f.name.toLowerCase()} go`);
   writeSave(save);
 }
-$('card-keep').onclick = () => closeCard(true);
-$('card-release').onclick = () => closeCard(false);
 
 function onAction() {
   if (modalOpen || chase.inShot) return;
   if (fishing.active) { fishing.press(); return; }
   const near = nearestHotspot();
-  if (!near || near.d > HOTSPOT_RANGE) { hud.toast('Find the ripples to fish'); return; }
-  if (Math.abs(boat.speed) > CAST_MAX_SPEED) { hud.toast('Slow down to cast'); return; }
-  if (save.cooler.length >= save.coolerCap) { hud.toast('Cooler full — sell at the Fish Market first', 'warn'); return; }
+  // the button label already says why (Find ripples / Slow down / Cooler full): just shake it
+  if (!near || near.d > HOTSPOT_RANGE) { hud.refuse(); return; }
+  if (Math.abs(boat.speed) > CAST_MAX_SPEED) { hud.refuse(); return; }
+  if (save.cooler.length >= save.coolerCap) { hud.refuse(); return; }
   boat.speed = 0;
   fishing.cast(near.hs, rodTip(), boat.pos);
 }
 function rodTip() { return boat.root.localToWorld(new THREE.Vector3(0.45, 1.7, -0.6)); }
 
-// ---------------------------------------------------------------- settings
+// ---------------------------------------------------------------- settings (rows live in the Log → Settings tab)
 function refreshSettingsUI() {
-  $('set-quality').textContent = save.settings.quality === 'high' ? 'High' : 'Low';
-  $('set-autoreel').textContent = save.settings.autoReel ? 'On' : 'Off';
-  $('set-fps').textContent = save.settings.showFps ? 'On' : 'Off';
   $('fps').classList.toggle('hidden', !save.settings.showFps);
 }
-$('btn-settings').onclick = () => { refreshSettingsUI(); $('settings').classList.remove('hidden'); modalOpen = true; };
-$('settings-close').onclick = () => { $('settings').classList.add('hidden'); modalOpen = false; };
-$('set-quality').onclick = () => {
-  save.settings.quality = save.settings.quality === 'high' ? 'low' : 'high';
-  quality = QUALITY[save.settings.quality];
-  resize();
-  buildInstances();
-  applyTOD();
-  writeSave(save);
-  refreshSettingsUI();
-};
-$('set-autoreel').onclick = () => { save.settings.autoReel = !save.settings.autoReel; fishing.autoReel = save.settings.autoReel; writeSave(save); refreshSettingsUI(); };
-$('set-fps').onclick = () => { save.settings.showFps = !save.settings.showFps; writeSave(save); refreshSettingsUI(); };
-$('set-tod').onclick = () => cycleTOD();
-$('set-reset').onclick = () => { clearSave(); location.reload(); };
 function cycleTOD() {
   todIndex = (todIndex + 1) % Math.max(1, todKeys.length);
   save.settings.tod = todKeys[todIndex];
   writeSave(save);
   applyTOD();
 }
-const fsBtn = $('btn-fullscreen');
-if (!document.fullscreenEnabled) fsBtn.classList.add('hidden');
-fsBtn.onclick = () => {
-  if (document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
-};
+hud.init({
+  save,
+  input,
+  handlers: {
+    setModal: (open) => { modalOpen = open; },
+    keep: () => closeCard(true),
+    release: () => closeCard(false),
+    sellAll: () => sellFish(save.cooler.map((_, i) => i)),
+    sellOne: (i) => sellFish([i]),
+    closeSell: () => hud.hideSell(),
+    quality: () => {
+      save.settings.quality = save.settings.quality === 'high' ? 'low' : 'high';
+      quality = QUALITY[save.settings.quality];
+      resize();
+      buildInstances();
+      applyTOD();
+      writeSave(save);
+    },
+    autoReel: () => { save.settings.autoReel = !save.settings.autoReel; fishing.autoReel = save.settings.autoReel; writeSave(save); },
+    tod: () => cycleTOD(),
+    fps: () => { save.settings.showFps = !save.settings.showFps; writeSave(save); refreshSettingsUI(); },
+    reset: () => { clearSave(); location.reload(); },
+  },
+});
 if (new URLSearchParams(location.search).has('debug')) { save.settings.showFps = true; }
 refreshSettingsUI();
 window.addEventListener('keydown', (e) => {
@@ -341,81 +348,27 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ---------------------------------------------------------------- per-frame UI
-const tensionEl = $('tension') as unknown as SVGSVGElement;
-const tensionFill = $('tension-fill') as unknown as SVGCircleElement;
-const actionBtn = $('btn-action'), actionLabel = $('action-label');
-const interactBtn = $('btn-interact'), promptEl = $('prompt');
 let currentInteract: Interact | null = null;
-let hintTimer = 0;
-const v3 = new THREE.Vector3();
 
 function updateUI(dt: number) {
-  // action button
   const near = nearestHotspot();
-  const canCast = !!near && near.d <= HOTSPOT_RANGE;
-  let label = 'Cast';
-  let enabled = canCast && Math.abs(boat.speed) <= CAST_MAX_SPEED;
-  switch (fishing.phase) {
-    case 'casting': case 'waiting': case 'missed': label = 'Wait…'; enabled = true; break;
-    case 'bite': label = 'Hook!'; enabled = true; break;
-    case 'reeling': label = fishing.autoReel ? 'Auto' : 'Reel'; enabled = true; break;
-    case 'landed': label = '…'; break;
-  }
-  actionLabel.textContent = label;
-  actionBtn.classList.toggle('disabled', !enabled);
-  actionBtn.classList.toggle('reel', fishing.phase === 'reeling' || fishing.phase === 'bite');
-  if (fishing.phase !== 'bite') $('bite').classList.add('hidden');
-
-  // interact prompt
   currentInteract = fishing.active ? null : nearestInteract();
-  if (currentInteract) {
-    const lbl = boat.moored && currentInteract.kind === 'moor_boat' ? 'Untie' : labelFor(currentInteract);
-    $('interact-label').textContent = lbl.length > 10 ? lbl.split(' ')[0] : lbl;
-    promptEl.textContent = currentInteract.kind === 'sell_fish' ? `${lbl} · ${save.cooler.length} fish in cooler` : lbl;
-    interactBtn.classList.remove('hidden');
-    promptEl.classList.remove('hidden');
-  } else if (!fishing.active && canCast && near) {
-    interactBtn.classList.add('hidden');
-    promptEl.textContent = Math.abs(boat.speed) > CAST_MAX_SPEED ? 'Fish here — slow down' : 'Fish here — tap Cast';
-    promptEl.classList.remove('hidden');
-  } else {
-    interactBtn.classList.add('hidden');
-    promptEl.classList.add('hidden');
+  if (landing && !save.reachedLanding && Math.hypot(landing.pos[0] - boat.pos.x, landing.pos[2] - boat.pos.z) < LANDING_REACHED) {
+    save.reachedLanding = true;
+    writeSave(save);
   }
-
-  // tension ring around the bobber
-  if (fishing.phase === 'reeling') {
-    v3.copy(fishing.bobber.position).project(camera);
-    const x = Math.min(window.innerWidth - 70, Math.max(70, (v3.x * 0.5 + 0.5) * window.innerWidth));
-    const y = Math.min(window.innerHeight - 160, Math.max(110, (-v3.y * 0.5 + 0.5) * window.innerHeight - 40));
-    tensionEl.style.left = `${x}px`;
-    tensionEl.style.top = `${y}px`;
-    tensionEl.classList.remove('hidden');
-    tensionEl.classList.toggle('thrash', fishing.thrashing);
-    tensionFill.style.strokeDashoffset = String(276.5 * (1 - Math.min(1, fishing.tension)));
-    const hot = fishing.tension > 0.75;
-    tensionFill.style.stroke = fishing.thrashing ? '' : hot ? '#e2b04a' : '';
-    $('tension-dist').textContent = `${Math.max(0, fishing.distance).toFixed(1)} m`;
-    $('tension-hint').textContent = fishing.thrashing ? 'let go!' : fishing.reelHeld ? 'reeling' : 'hold';
-  } else tensionEl.classList.add('hidden');
-
-  // compass toward Cedar Landing until reached
-  const comp = $('compass');
-  if (landing && !save.reachedLanding) {
-    const dx = landing.pos[0] - boat.pos.x, dz = landing.pos[2] - boat.pos.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist < LANDING_REACHED) { save.reachedLanding = true; writeSave(save); hud.toast('Welcome to Cedar Landing', 'good'); }
-    camera.getWorldDirection(v3);
-    const fl = Math.hypot(v3.x, v3.z) || 1;
-    const fx = v3.x / fl, fz = v3.z / fl;
-    const rel = Math.atan2(dx * -fz + dz * fx, dx * fx + dz * fz);
-    $('compass-arrow').style.transform = `rotate(${(rel * 180) / Math.PI}deg)`;
-    $('compass-label').textContent = `Cedar Landing · ${Math.round(dist)} m`;
-    comp.classList.remove('hidden');
-  } else comp.classList.add('hidden');
-
-  hintTimer += dt;
-  if (hintTimer > 12 || Math.abs(boat.speed) > 1.5) $('move-hint').style.opacity = '0';
+  hud.frame(dt, {
+    camera,
+    boat,
+    fishing,
+    canCast: !!near && near.d <= HOTSPOT_RANGE,
+    slowEnough: Math.abs(boat.speed) <= CAST_MAX_SPEED,
+    coolerFull: save.cooler.length >= save.coolerCap,
+    interact: currentInteract ? { label: boat.moored && currentInteract.kind === 'moor_boat' ? 'Untie' : labelFor(currentInteract), kind: currentInteract.kind, pos: currentInteract.pos } : null,
+    errand: landing && !save.reachedLanding ? { name: 'Cedar Landing', pos: landing.pos } : null,
+    throttle: input.throttle,
+    inShot: chase.inShot,
+  });
 }
 
 // ---------------------------------------------------------------- reveal shot
@@ -452,7 +405,7 @@ function frame(now: number) {
   last = now;
   input.update();
 
-  if (world) {
+  if (world && !hud.paused()) {
     const tapped = input.consumeTap();
     if (chase.inShot) {
       if (tapped || input.consumeAction()) chase.skipShot();
@@ -506,8 +459,8 @@ async function boot() {
   hud.setShells(save.shells);
   hud.renderCooler(save.cooler, save.coolerCap);
   await loadWorld(true);
-  $('loading').classList.add('done');
   requestAnimationFrame(frame);
+  await hud.loadingDone();
   // Poll for a (new) export; swap in live when READY appears or changes.
   setInterval(() => { if (!fishing.active && !modalOpen) loadWorld(false); }, 5000);
 }
@@ -542,7 +495,9 @@ window.__debug = {
   forceBite: () => fishing.debugForceBite(),
   keep: () => closeCard(true),
   sellAll: () => sellFish(save.cooler.map((_, i) => i)),
-  closeModals: () => { hud.hideSell(); hud.hideCard(); $('settings').classList.add('hidden'); modalOpen = false; },
+  closeModals: () => { hud.hideSell(); hud.hideCard(); hud.closeLog(); },
+  ui: hud.debug,
+  fishing,
   cycleTOD,
   setAutoReel: (on: boolean) => { fishing.autoReel = on; },
   skipShot: () => chase.skipShot(),

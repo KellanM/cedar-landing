@@ -8,113 +8,91 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#C7CED1" />
     <title>Salish Sea</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Cpath d=%22M1 8c3-4 9-4 12 0l2-2v6l-2-2C10 14 4 14 1 8z%22 fill=%22%23A8392E%22/%3E%3C/svg%3E" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Cpath d=%22M1 8c3-4 9-4 12 0l2-2v6l-2-2C10 14 4 14 1 8z%22 fill=%22%239E3B2A%22/%3E%3C/svg%3E" />
+    <link rel="preload" href="/fonts/fraunces-logbook.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/nunito.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <canvas id="c"></canvas>
 
+    <!-- Persistent HUD. Screens (catch card, market, Log) are built by src/ui/*. -->
     <div id="hud">
-      <div class="hud-top-left">
-        <div class="pill" id="shells" title="Shells">
-          <svg viewBox="0 0 24 24" class="ico"><path d="M12 3c-4.6 0-8.5 3.6-8.9 8.2-.1.8.5 1.5 1.3 1.6L12 21l7.6-8.2c.8-.1 1.4-.8 1.3-1.6C20.5 6.6 16.6 3 12 3z" fill="#F0C9A8" stroke="#7A5236" stroke-width="1.4"/><path d="M12 4v16M8 5.2 10.4 20M16 5.2 13.6 20M5 8l6.2 12.5M19 8l-6.2 12.5" stroke="#7A5236" stroke-width=".9" fill="none"/></svg>
-          <span id="shell-count">0</span>
+      <div class="hud-top">
+        <div class="hud-top-left">
+          <button class="tab shells" id="shells" aria-label="Shells — open the Log">
+            <span class="ico" data-icon="shell"></span>
+            <span id="shell-count" class="odo num">0</span>
+          </button>
+          <div class="tab cooler" id="cooler-tab" aria-label="Cooler">
+            <div id="cooler" class="slots"></div>
+            <span class="chip full-chip">Full</span>
+          </div>
         </div>
-        <div class="pill cooler" id="cooler" title="Cooler"></div>
-      </div>
-
-      <div class="hud-top-center">
-        <div id="compass" class="pill compass hidden">
-          <svg viewBox="0 0 24 24" class="arrow" id="compass-arrow"><path d="M12 3 19 20 12 16 5 20z" fill="#A8392E"/></svg>
-          <span id="compass-label">Cedar Landing</span>
+        <div class="hud-top-center">
+          <div id="compass" class="ribbon compass hidden" aria-live="polite">
+            <svg viewBox="0 0 24 24" class="arrow" id="compass-arrow"><path d="M12 2.5 18.5 20 12 16.2 5.5 20z" fill="#B5643C" stroke="#2B2622" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            <span id="compass-label">Cedar Landing</span>
+          </div>
+          <div id="clock" class="tab clock">
+            <span class="ico" id="clock-ico" data-icon="cloud"></span>
+            <span id="clock-time" class="num">10:40</span>
+          </div>
         </div>
-      </div>
-
-      <div class="hud-top-right">
-        <button class="round" id="btn-settings" aria-label="Settings">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
-        <button class="round" id="btn-fullscreen" aria-label="Fullscreen">
-          <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
+        <div class="hud-top-right">
+          <button class="tab log-btn" id="btn-log" aria-label="Open the Log">
+            <span class="ico" data-icon="log"></span><span>Log</span>
+            <b id="log-badge" class="badge num hidden">0</b>
+            <b id="log-stamps" class="stamp-count num hidden" title="Stamps on the cover">0</b>
+          </button>
+        </div>
       </div>
 
       <div id="fps" class="hidden"></div>
       <div id="world-badge" class="hidden"></div>
 
       <div id="joy-base"><div id="joy-knob"></div></div>
-      <div id="move-hint">Drag on the left to paddle · drag right to look</div>
+      <div id="target-marker" class="hidden"><svg viewBox="0 0 24 30"><path d="M12 28 3 14h5V3h8v11h5z" fill="#F4EFE3" stroke="#2B2622" stroke-width="2.2" stroke-linejoin="round"/></svg></div>
+      <div id="strike" class="hidden"><div class="splat"><span>Strike!</span></div><svg class="window" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46"/></svg></div>
 
-      <div class="hud-bottom-right">
-        <div id="prompt" class="prompt hidden"></div>
-        <button id="btn-interact" class="action secondary hidden" aria-label="Interact">
-          <span id="interact-label">Interact</span>
+      <div class="hud-controls">
+        <button id="btn-interact" class="ctx hidden" aria-label="Interact">
+          <span class="ico" id="interact-ico" data-icon="cleat"></span>
+          <span id="interact-label">Tie up</span>
+          <kbd>E</kbd>
         </button>
-        <button id="btn-action" class="action primary" aria-label="Cast">
+        <button id="btn-action" class="reel-btn" aria-label="Cast">
+          <svg class="face" viewBox="0 0 100 100" aria-hidden="true">
+            <circle class="power" cx="50" cy="50" r="47"/>
+            <g class="spin">
+              <circle cx="50" cy="50" r="36" class="hub"/>
+              <path d="M50 16v68M16 50h68M26 26l48 48M74 26 26 74" class="spokes"/>
+              <path d="M50 50 74 22" class="arm"/>
+              <circle cx="74" cy="22" r="8" class="nub"/>
+            </g>
+          </svg>
           <span id="action-label">Cast</span>
+          <kbd>Space</kbd>
         </button>
       </div>
 
-      <svg id="tension" class="hidden" viewBox="0 0 120 120">
-        <circle cx="60" cy="60" r="44" class="track" />
-        <circle cx="60" cy="60" r="44" class="fill" id="tension-fill" />
-        <circle cx="60" cy="60" r="44" class="perfect" />
-        <text x="60" y="58" id="tension-dist">8.0 m</text>
-        <text x="60" y="76" id="tension-hint" class="small">hold</text>
-      </svg>
-      <div id="bite" class="hidden">TAP!</div>
+      <div id="tension" class="tension hidden"></div>
 
       <div id="toasts"></div>
+      <div id="hints"></div>
       <div id="skip-hint" class="hidden">Tap to skip</div>
     </div>
 
-    <div id="card" class="modal hidden">
-      <div class="card">
-        <div class="stamp hidden" id="card-stamp">NEW!</div>
-        <div class="fish-art" id="card-art"></div>
-        <h2 id="card-name">Shiner Perch</h2>
-        <div class="meta"><span id="card-size">12.4 cm</span> · <span id="card-stars">★☆☆</span></div>
-        <p class="flavor" id="card-flavor"></p>
-        <div class="meta small" id="card-value"></div>
-        <div class="buttons">
-          <button id="card-release" class="btn ghost">Release</button>
-          <button id="card-keep" class="btn">Keep</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="sell" class="modal hidden">
-      <div class="card wide">
-        <h2>Cedar Landing Fish Market</h2>
-        <p class="flavor">"Fresh off the water? Let's have a look."</p>
-        <ul id="sell-list" class="list"></ul>
-        <div class="buttons">
-          <button id="sell-close" class="btn ghost">Close</button>
-          <button id="sell-all" class="btn">Sell all</button>
-        </div>
-        <details class="prices">
-          <summary>Today's prices</summary>
-          <table id="price-table"></table>
-        </details>
-      </div>
-    </div>
-
-    <div id="settings" class="modal hidden">
-      <div class="card wide">
-        <h2>Settings</h2>
-        <div class="row"><span>Graphics quality</span><button class="btn small" id="set-quality">High</button></div>
-        <div class="row"><span>Auto-reel assist</span><button class="btn small" id="set-autoreel">Off</button></div>
-        <div class="row"><span>Show FPS</span><button class="btn small" id="set-fps">Off</button></div>
-        <div class="row"><span>Time of day <em class="dbg">debug</em></span><button class="btn small" id="set-tod">overcast</button></div>
-        <div class="row"><span>World data</span><span id="set-world" class="small">placeholder</span></div>
-        <div class="row"><span>Reset progress</span><button class="btn small ghost" id="set-reset">Reset</button></div>
-        <div class="buttons"><button id="settings-close" class="btn">Done</button></div>
-      </div>
-    </div>
-
     <div id="loading">
+      <svg class="sketch" viewBox="0 0 200 110" aria-hidden="true">
+        <path d="M14 70c30-6 140-6 172 0-10 14-36 22-86 22S24 84 14 70z" fill="none" stroke="#2B2622" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M30 72c40 4 100 4 140 0M60 70l-6-16M140 70l6-16" fill="none" stroke="#6B5E52" stroke-width="1.4"/>
+        <path d="M100 66V20l30 40H100" fill="none" stroke="#2B2622" stroke-width="2"/>
+        <path d="M6 100c20-6 30 6 50 0s30-6 50 0 30 6 50 0 30-6 38 0" fill="none" stroke="#2E5E63" stroke-width="1.6" stroke-dasharray="5 4"/>
+      </svg>
       <div class="title">Salish Sea</div>
-      <div class="bar"><div id="load-bar"></div></div>
+      <p class="tip" id="load-tip">Fish bite best where the water wrinkles.</p>
+      <div class="rule"><div id="load-bar"></div></div>
       <div id="load-msg">Loading…</div>
     </div>
 
