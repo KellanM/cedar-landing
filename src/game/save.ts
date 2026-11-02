@@ -1,4 +1,5 @@
 import type { CaughtFish } from './fishdata';
+import type { UpgSave } from './progression/gear';
 
 const KEY = 'salish-sea-save-v1';
 
@@ -16,6 +17,8 @@ export interface SaveData {
   worldTag?: string;
   /** set while the player is on foot (boat tied up); position of the feet */
   onfoot?: { x: number; y: number; z: number; yaw: number } | null;
+  /** gear tiers, boats, paint, flags (game/progression/gear.ts ensureUpg fills defaults) */
+  upg?: UpgSave;
 }
 
 export function defaultSave(): SaveData {

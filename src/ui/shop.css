@@ -1,0 +1,101 @@
+/* ==========================================================================
+   Chandlery + Shipwright (upgrades) — "Grandmother's Logbook" paper skin on the shared Sheet.
+   Ink rules, hand-cut tabs, pencil sketches for what's not yet affordable, price tickets.
+   ========================================================================== */
+.upg-sheet .sheet { background: var(--paper); background-image: repeating-linear-gradient(transparent 0 27px, rgba(46, 94, 99, .09) 27px 28px); }
+.upg-head { padding: 4px 14px 0; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 0 10px; }
+.upg-head .town { grid-column: 1; font: 800 var(--fs-12) var(--f-ui); letter-spacing: .24em; text-transform: uppercase; color: var(--ink-soft); }
+.upg-head h2 { grid-column: 1; margin: 0; font: 750 var(--fs-28) var(--f-display); color: var(--ink); line-height: 1.05; }
+.upg-head .purse { grid-column: 2; grid-row: 1 / span 2; display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 2px solid var(--ink); border-radius: var(--r-tab); background: #F6E3B4; font: 900 var(--fs-18) var(--f-ui); box-shadow: var(--shadow); }
+.upg-head .purse .ico { width: 20px; height: 20px; }
+.upg-head .quote { grid-column: 1 / span 2; margin: 2px 0 6px; font: 700 calc(21px * var(--ui-scale)) var(--f-hand); color: var(--ink); }
+.upg-head .quote span { color: var(--ink-soft); }
+
+/* hand-cut paper tabs */
+.upg-tabs { display: flex; gap: 3px; padding: 0 8px; border-bottom: 2px solid var(--ink); overflow-x: auto; scrollbar-width: none; }
+.upg-tabs::-webkit-scrollbar { display: none; }
+.upg-tab { flex: 1 0 auto; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 7px;
+  border: 2px solid var(--ink); border-bottom: 0; border-radius: var(--r-tab); border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+  background: var(--paper-2); color: var(--ink-soft); font: 850 var(--fs-14) var(--f-ui); position: relative; top: 2px; }
+.upg-tab .ico { width: 20px; height: 20px; }
+.upg-tab[aria-selected="true"] { background: var(--paper); color: var(--ink); z-index: 1; }
+.upg-tab .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ochre-red); margin-left: 2px; }
+
+/* item rows */
+.upg-list { list-style: none; margin: 0; padding: 4px 12px 10px; }
+.upg-item { position: relative; display: grid; grid-template-columns: 52px 1fr auto; gap: 4px 10px; align-items: center; padding: 10px 0; border-bottom: 1.5px dashed rgba(133, 126, 114, .55); }
+.upg-item .sk { grid-row: 1 / span 3; width: 52px; height: 52px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; background: var(--paper-2); }
+.upg-item .sk svg, .upg-item .sk .ico { width: 30px; height: 30px; }
+.upg-item .nm { font: 750 var(--fs-18) var(--f-display); color: var(--ink); line-height: 1.1; }
+.upg-item .nm small { font: 800 var(--fs-12) var(--f-ui); color: var(--ink-soft); letter-spacing: .08em; margin-left: 6px; text-transform: uppercase; }
+.upg-item .nt { grid-column: 2; font: 700 calc(18px * var(--ui-scale)) var(--f-hand); color: var(--ink-soft); line-height: 1.05; }
+.upg-item .ef { grid-column: 2 / span 2; font: 750 var(--fs-14) var(--f-ui); color: var(--ink); }
+.upg-item .act { grid-column: 3; grid-row: 1 / span 2; justify-self: end; }
+.upg-item .reach { grid-column: 2 / span 2; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin-top: 2px; font: 800 var(--fs-12) var(--f-ui); color: var(--ink-soft); letter-spacing: .06em; text-transform: uppercase; }
+.upg-item .reach .f { display: inline-flex; flex-direction: column; align-items: center; width: 54px; text-transform: none; letter-spacing: 0; font: 700 11px var(--f-ui); color: var(--ink); text-align: center; line-height: 1.05; }
+.upg-item .reach .f img { width: 50px; height: 25px; object-fit: contain; }
+.upg-item .reach .f.unk { color: var(--ink-soft); }
+.upg-item .reach .f.unk img { filter: brightness(0) opacity(.55); }
+/* not yet: pencil sketch */
+.upg-item.later { opacity: .62; }
+.upg-item.later .sk { border-style: dashed; border-color: var(--pencil); background: transparent; }
+.upg-item.later .nm { color: var(--ink-soft); }
+.upg-item .lock { font: 700 calc(17px * var(--ui-scale)) var(--f-hand); color: var(--ink-soft); text-align: right; max-width: 110px; line-height: 1; }
+/* owned stamp */
+.upg-stamp { display: inline-block; padding: 2px 8px; border: 2.5px solid var(--kelp); border-radius: 5px; color: var(--kelp); font: 800 var(--fs-14) var(--f-display); letter-spacing: .08em; text-transform: uppercase; transform: rotate(-6deg); white-space: nowrap; }
+.upg-stamp.red { border-color: var(--ochre-red); color: var(--ochre-red); }
+.upg-item.just .upg-stamp, .upg-stamp.pop { animation: stamp-sold var(--t-stamp) var(--ease-pop) both; }
+@keyframes upg-stamp { from { transform: rotate(-12deg) scale(1.7); opacity: 0; } }
+.upg-stamp.pop { animation-name: upg-stamp; }
+.upg-item .ticket[disabled] { background: var(--paper-2); color: var(--ink-soft); box-shadow: none; }
+.upg-item .ticket .need { font: 800 11px var(--f-ui); display: block; }
+.upg-item .use { min-height: 44px; padding: 0 14px; font-size: var(--fs-16); }
+
+/* shipwright: part chips, swatches, flags, boats */
+.sw-parts { display: flex; gap: 6px; padding: 10px 12px 2px; flex-wrap: wrap; }
+.sw-part { min-height: 40px; padding: 0 12px; border: 2px solid var(--ink); border-radius: 20px; background: var(--paper); font: 850 var(--fs-14) var(--f-ui); color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
+.sw-part i { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--ink); display: inline-block; }
+.sw-part[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.sw-part[aria-pressed="true"] i { border-color: var(--paper); }
+.sw-part.pending::after { content: '•'; color: var(--ochre-red); font-size: 20px; line-height: 0; }
+.sw-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 8px; padding: 10px 12px; }
+.sw-sw { aspect-ratio: 1; min-height: 48px; border: 2px solid var(--ink); border-radius: 8px 10px 9px 7px; box-shadow: var(--shadow); position: relative; }
+.sw-sw[aria-pressed="true"] { outline: 3px solid var(--ochre-red); outline-offset: 2px; }
+.sw-sw.asbuilt::after { content: 'as built'; position: absolute; left: 0; right: 0; bottom: -2px; font: 800 9px var(--f-ui); color: var(--ink); background: rgba(244, 239, 227, .85); text-transform: uppercase; letter-spacing: .05em; }
+.sw-name { padding: 0 14px; font: 700 calc(20px * var(--ui-scale)) var(--f-hand); color: var(--ink); min-height: 26px; }
+.sw-flags { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 10px 12px; }
+.sw-flag { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 8px; border: 2px solid var(--ink); border-radius: var(--r-m); background: var(--paper); text-align: left; position: relative; }
+.sw-flag canvas { width: 100%; height: auto; aspect-ratio: 128 / 80; border-left: 4px solid #6E4A33; background: repeating-linear-gradient(45deg, #EDE6D6 0 6px, #E4DCC9 6px 12px); }
+.sw-flag b { font: 750 var(--fs-16) var(--f-display); }
+.sw-flag span { font: 700 calc(16px * var(--ui-scale)) var(--f-hand); color: var(--ink-soft); line-height: 1; }
+.sw-flag.on { outline: 3px solid var(--ochre-red); outline-offset: 2px; }
+.sw-flag .ticket { min-width: 0; min-height: 38px; font-size: var(--fs-16); }
+.sw-flag .upg-stamp { position: absolute; top: 10px; right: 8px; }
+.sw-boat { margin: 10px 12px; padding: 12px; border: 2px solid var(--ink); border-radius: var(--r-m); background: var(--paper); position: relative; }
+.sw-boat.later { border-style: dashed; border-color: var(--pencil); }
+.sw-boat h3 { margin: 0; font: 750 var(--fs-22) var(--f-display); }
+.sw-boat .bplate { display: inline-block; margin: 4px 0; padding: 2px 8px; border: 1.5px solid #8A6A2A; border-radius: 3px; background: #E9D9A0; font: 800 var(--fs-12) var(--f-ui); letter-spacing: .06em; color: #4A3A18; width: auto; }
+.sw-boat p { margin: 4px 0; font: 700 calc(18px * var(--ui-scale)) var(--f-hand); color: var(--ink-soft); line-height: 1.1; }
+.sw-boat ul { margin: 6px 0 8px; padding-left: 18px; font: 750 var(--fs-14) var(--f-ui); }
+.sw-boat .row { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+.sw-boat .upg-stamp { position: absolute; top: 12px; right: 12px; }
+.upg-foot-note { flex: 1; min-width: 0; font: 700 calc(17px * var(--ui-scale)) var(--f-hand); color: var(--ink-soft); line-height: 1.05; }
+.upg-sheet .sheet-foot .btn { min-height: 50px; padding: 0 14px; }
+
+/* shipwright: compact so the boat stays in view above (portrait) / left of (landscape) the sheet */
+.sw-compact.snap-40 .sheet, .sw-compact.snap-70 .sheet { height: 50vh; }
+.lay-landscape .sw-compact .sheet, .lay-desktop .sw-compact .sheet { height: auto; }
+.sw-compact .upg-head .quote { display: none; }
+.lay-portrait .sw-compact .upg-head .town { display: none; }
+.lay-portrait .sw-compact .upg-head h2 { font-size: var(--fs-22); }
+.lay-portrait .sw-compact .upg-head .purse { grid-row: 1; padding: 2px 8px; font-size: var(--fs-16); }
+.lay-portrait .sw-compact .upg-head { padding-bottom: 6px; }
+.sw-compact .sw-parts { padding-top: 8px; gap: 5px; }
+.sw-compact .sw-part { min-height: 36px; padding: 0 9px; }
+.sw-compact .sw-swatches { grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 6px; padding-top: 4px; }
+.sw-compact .sw-sw { min-height: 40px; }
+.sw-compact .sw-name { min-height: 22px; font-size: calc(18px * var(--ui-scale)); }
+.lay-portrait .sw-compact .sheet-foot .upg-foot-note { display: none; }
+
+/* bigger ice box / the Packer's hold: wrap the HUD cooler strip into rows of 6 instead of running off-screen */
+.cooler .slots:has(.slot:nth-child(7)) { display: grid; grid-template-columns: repeat(6, auto); gap: 4px 5px; }

@@ -28,7 +28,8 @@ export const FOOT = {
 
 /** Interacts that only make sense from the boat. */
 /** Interact kinds that actually do something today (everything else toasts "not open yet"). */
-export const OPEN_INTERACTS = new Set(['sell_fish', 'moor_boat', 'read_sunstone', 'read_message_bottle', 'read_warning', 'trade_rumours']);
+export const OPEN_INTERACTS = new Set(['sell_fish', 'moor_boat', 'read_sunstone', 'read_message_bottle', 'read_warning', 'trade_rumours',
+  'buy_tackle', 'buy_bait', 'upgrade_bench', 'buy_boat', 'weigh_fish', 'trophy_wall']); // upgrades: shops
 const FOOT_IGNORED = new Set(['fish_here', 'moor_boat', 'dive_here', 'land_here', 'haul_crab_pots', 'reef_net_event']);
 const ASHORE_HINT_KINDS = new Set(['moor_boat', 'land_here', 'sell_fish']);
 
