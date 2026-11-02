@@ -105,9 +105,9 @@ The paired fins flap on their hinges.
   contact sheets and the hold-up strips.
 
 ## Evidence (screenshots/, not committed)
-- `fishmodels_v3_sheet_1..5.png`: plate | 3D side (same scale) | 3D 3/4 at rest | flop in hand |
+- `fishmodels_final_sheet_1..5.png`: plate | 3D side (same scale) | 3D 3/4 at rest | flop in hand |
   leap pose, for all 37 plates.
-- `fishmodels_h7_hold_phone_strip.png` and `fishmodels_h7_hold_desktop_strip.png`: the perch (12 cm),
+- `fishmodels_final_hold_phone_strip.png` and `fishmodels_final_hold_desktop_strip.png` (individual frames `fishmodels_final_hold_<vp>_<id>_<cm>.png`): the perch (12 cm),
   copper rockfish (45), halibut (150), crab (18), lingcod (100), wolf eel (170) and sixgill (320). Each
   has a clean frame and a `_ui` frame.
 
