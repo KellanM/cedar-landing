@@ -233,8 +233,8 @@ export function makeSfx(e: AudioEngine) {
       const k = 0.6 + 0.4 * speed;
       switch (surface) {
         case 'wood':
-          e.play(e.modalBuf('wood', 43 + Math.floor(e.rand() * 4), 0.3), at, { bus: 'sfx', gain: 0.32 * k, rate: j(e, 0.08), pool: 'sfx' });
-          e.burst(at, 0.03, 'bandpass', 1800, 1200, 0.06 * k, { bus: 'sfx', q: 1.5 });
+          e.play(e.modalBuf('wood', 53 + Math.floor(e.rand() * 4), 0.3), at, { bus: 'sfx', gain: 0.3 * k, rate: j(e, 0.08), pool: 'sfx' });
+          e.burst(at, 0.035, 'bandpass', 2200, 1400, 0.09 * k, { bus: 'sfx', q: 1.5 });
           break;
         case 'gravel':
           for (let i = 0; i < 5; i++) e.burst(at + i * 0.012 + e.rand() * 0.02, 0.025, 'highpass', 2200 + e.rand() * 2000, 2000, 0.08 * k * (1 - i * 0.12), { bus: 'sfx', q: 0.8 });
@@ -244,7 +244,7 @@ export function makeSfx(e: AudioEngine) {
           break;
         default: // grass / earth
           e.burst(at, 0.1, 'bandpass', 2400, 1500, 0.1 * k, { bus: 'sfx', a: 0.02, q: 0.7, kind: 'pink' });
-          e.tone('sine', 110, 70, at, 0.05, 0.12 * k, { bus: 'sfx' });
+          e.tone('sine', 220, 140, at, 0.05, 0.06 * k, { bus: 'sfx' });
       }
       e.log('sfx.step', surface);
       e.eventCount[`step.${surface}`] = (e.eventCount[`step.${surface}`] ?? 0) + 1;

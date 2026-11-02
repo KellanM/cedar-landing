@@ -33,7 +33,7 @@ export class Ambience {
     this.beds = {
       sea: e.bed('pink', 'bandpass', 520, 0.55, 'amb', 'lowpass', 1500),
       wind: e.bed('pink', 'bandpass', 600, 1.4, 'amb'),
-      trees: e.bed('white', 'highpass', 2600, 0.5, 'amb', 'lowpass', 7000),
+      trees: e.bed('pink', 'highpass', 1800, 0.5, 'amb', 'lowpass', 4800),
       wake: e.bed('white', 'bandpass', 2200, 0.7, 'sfx'),
       wash: e.bed('pink', 'lowpass', 520, 0.6, 'sfx'),
     };
@@ -48,7 +48,7 @@ export class Ambience {
     const night = /night/.test(f.tod), dusk = /dusk/.test(f.tod), fog = /fog/.test(f.tod), day = !night && !dusk;
     // slow, irrational-ratio swells so the beds never sound like a loop
     const swell = (a: number, b: number) => 0.5 + 0.3 * Math.sin(t * a) + 0.2 * Math.sin(t * b + 1.3);
-    const sea = (0.22 + 0.55 * Z.open + 0.18 * Z.shore) * (f.onFoot ? 0.55 : 1) * (0.75 + 0.5 * swell(0.21, 0.077));
+    const sea = (0.3 + 0.5 * Z.open + 0.15 * Z.shore) * (f.onFoot ? 0.55 : 1) * (0.75 + 0.5 * swell(0.21, 0.077));
     const gust = swell(0.13, 0.051);
     const wind = (0.1 + 0.3 * Z.open + 0.12 * Z.forest + (fog ? 0.08 : 0) + (night ? -0.03 : 0)) * (0.55 + 0.9 * gust) + 0.35 * f.speed * f.speed;
     const trees = Z.forest * (f.onFoot ? 0.9 : 0.4) * (0.5 + 0.8 * gust) * (night ? 0.6 : 1);
@@ -56,7 +56,7 @@ export class Ambience {
     this.set(this.beds.wind, wind * 0.32);
     this.beds.wind.f.frequency.setTargetAtTime(380 + 500 * gust + 400 * f.speed, e.now, 0.8);
     this.set(this.beds.trees, trees * 0.22);
-    this.beds.trees.f.frequency.setTargetAtTime(2200 + 900 * gust, e.now, 0.8);
+    this.beds.trees.f.frequency.setTargetAtTime(1500 + 700 * gust, e.now, 0.8);
     // wake hiss + bow wash follow speed (on the sfx bus: it's our boat)
     const sp = f.onFoot ? 0 : f.speed;
     this.set(this.beds.wake, T.wake * 0.22 * Math.pow(sp, 1.6), 0.25);

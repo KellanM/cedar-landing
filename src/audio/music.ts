@@ -128,33 +128,45 @@ export function compose(variant: Variant, seed: number): Piece {
       if (![deg, deg + 2, deg + 4].some((d) => (((s - d) % 7) + 7) % 7 === 0)) continue;
       const p = pitchOf(s);
       if (p < lo || p > hi) continue;
-      const d = Math.abs(s - from) + (r() < 0.25 ? r() * 2 : 0);
+      const d = Math.abs(s - from) + r() * 0.6;
       if (d < bd) { bd = d; best = s; }
     }
     return best;
   };
   type MNote = { bar: number; tick: number; step: number; len: number };
-  const phrase = (prog: number[], startStep: number, motif: number[][] | null, home: boolean): { notes: MNote[]; motif: number[][] } => {
+  /**
+   * One 4-bar phrase on an arch contour: rise from the start to a peak around 60 % of the phrase,
+   * fall to the cadence. Strong beats take the chord tone nearest the contour, weak beats pass by
+   * step toward it; a pitch never sounds more than twice in a row. `inverted` = fall then rise (B).
+   */
+  const phrase = (prog: number[], startStep: number, motif: number[][] | null, home: boolean, inverted = false): { notes: MNote[]; motif: number[][] } => {
     const rh = motif ?? [pick(r, RH), pick(r, RH)];
     const notes: MNote[] = [];
-    let step = startStep, dir = r() < 0.5 ? 1 : -1;
+    const span = 3 + Math.floor(r() * 4);
+    const peak = inverted ? startStep - span : startStep + span;
+    const end = home ? (startStep > 5 ? 7 : 0) : startStep + (inverted ? 1 : -1) * Math.floor(r() * 2);
+    const tot = prog.length * ticksPerBar;
+    let step = startStep, prev = NaN, prev2 = NaN;
     for (let b = 0; b < prog.length; b++) {
       const pos = b % 4;
-      const cells = pos === 3 ? (meter === 4 ? [0] : [0]) : rh[pos % 2];
+      const cells = pos === 3 ? (r() < 0.5 || meter !== 4 ? [0] : [0, 4]) : rh[pos % 2];
       for (let i = 0; i < cells.length; i++) {
         const tick = cells[i];
         const next = i + 1 < cells.length ? cells[i + 1] : ticksPerBar;
-        const strong = tick === 0 || tick === ticksPerBar / 2;
-        if (pos === 3) step = nearestChordStep(home && b === prog.length - 1 ? 0 : prog[b], step);
-        else if (strong) step = nearestChordStep(prog[b], step + dir);
-        else {
-          step += r() < 0.8 ? dir : -dir;
-          if (r() < 0.12) step += dir; // occasional skip
-        }
-        if (pitchOf(step) > hi - 1) { dir = -1; step -= 2; }
-        if (pitchOf(step) < lo + 1) { dir = 1; step += 2; }
-        if (r() < 0.22) dir = -dir;
+        const u = (b * ticksPerBar + tick) / tot;
+        const want = u < 0.6 ? startStep + (peak - startStep) * (u / 0.6) : peak + (end - peak) * ((u - 0.6) / 0.4);
+        const strong = tick === 0 || (meter === 4 && tick === 4);
+        const last = b === prog.length - 1 && i === cells.length - 1;
+        if (last && home) step = nearestChordStep(0, Math.round(want));
+        else if (strong || pos === 3) step = nearestChordStep(prog[b], Math.round(want));
+        else if (Number.isNaN(prev)) step = Math.round(want);
+        else if (Math.abs(want - prev) >= 1) step = prev + Math.sign(want - prev); // passing tone toward the line
+        else step = prev + (r() < 0.5 ? 1 : -1); // neighbour tone
+        if (step === prev && step === prev2) step += want >= step ? 1 : -1; // no third repeat
+        while (pitchOf(step) > hi) step--;
+        while (pitchOf(step) < lo) step++;
         notes.push({ bar: b, tick, step, len: next - tick });
+        prev2 = prev; prev = step;
       }
     }
     return { notes, motif: rh };
@@ -220,7 +232,9 @@ export function compose(variant: Variant, seed: number): Piece {
           const tail = phrase(prog, reused.length ? reused[reused.length - 1].step : 2, aMotif, home).notes.filter((x) => x.bar === 3);
           out.push(...reused, ...tail);
         } else {
-          const ph = phrase(prog, out.length ? out[out.length - 1].step : 2 + Math.floor(r() * 3), s.name === 'B' ? null : aMotif, home);
+          const inv = s.name === 'B' && r() < 0.6;
+          const st0 = s.name === 'B' && p === 0 ? (inv ? 6 + Math.floor(r() * 3) : 1 + Math.floor(r() * 2)) : out.length ? out[out.length - 1].step : 1 + Math.floor(r() * 3);
+          const ph = phrase(prog, st0, s.name === 'B' ? null : aMotif, home, inv);
           if (s.name.startsWith('A') && !aMotif) aMotif = ph.motif;
           ph.notes.forEach((x) => (x.bar += p));
           out.push(...ph.notes);

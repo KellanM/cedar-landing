@@ -134,7 +134,7 @@ class GameAudio {
       this.amb!.update(dt, { zones: this.zones, tod: f.tod, speed, onFoot: f.onFoot, moored: f.boat.moored });
       this.boat!.update(dt, f.boat.throttle, speed, !f.onFoot && !f.boat.moored, f.boat.heavy);
       this.fishingFrame(dt, f);
-    }
+    } else { this.stopStrain(); this.lastPhase = f.fishing.phase; }
     const fighting = f.fishing.phase === 'reeling';
     this.music!.update({ tod: f.tod, town: this.zones.harbour, fighting, tension: f.fishing.tension, thrashing: f.fishing.thrashing }, this.vol.music > 0);
   }

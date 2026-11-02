@@ -212,7 +212,7 @@ export function putt(sr: number, r: Rng, heavy = false): Float32Array {
   const out = new Float32Array(n);
   const f0 = heavy ? 52 : 68, f1 = heavy ? 34 : 44;
   let ph = 0, z = 0, z2 = 0;
-  const lp = opc(sr, heavy ? 500 : 750), lp2 = opc(sr, 2400);
+  const lp = opc(sr, heavy ? 700 : 1000), lp2 = opc(sr, 2400);
   const pipe = heavy ? 190 : 260;
   let p1 = 0;
   for (let i = 0; i < n; i++) {
@@ -225,8 +225,8 @@ export function putt(sr: number, r: Rng, heavy = false): Float32Array {
     z2 += lp2 * (w - z2);
     p1 += (2 * Math.PI * pipe) / sr;
     // thump: sine + its 2nd/3rd harmonics so a phone speaker still hears it
-    const thump = Math.sin(ph) + 0.45 * Math.sin(2 * ph) + 0.25 * Math.sin(3 * ph);
-    out[i] = env * (0.75 * thump + 1.2 * z + 0.12 * z2 * Math.exp(-t * 60)) + 0.18 * Math.sin(p1) * Math.exp(-t * 45);
+    const thump = Math.sin(ph) + 0.6 * Math.sin(2 * ph) + 0.45 * Math.sin(3 * ph) + 0.25 * Math.sin(4 * ph);
+    out[i] = env * (0.75 * thump + 1.2 * z + 0.12 * z2 * Math.exp(-t * 60)) + 0.3 * Math.sin(p1) * Math.exp(-t * 40);
   }
   fadeOut(out, sr, 0.02);
   normalize(out, 0.9);

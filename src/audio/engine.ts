@@ -4,7 +4,7 @@
  * (OfflineAudioContext, for the headless level tests).
  *
  *   music ─┐                 ┌─ reverb send (generated impulse) ─┐
- *   sfx   ─┼─► mix ─► hp 35 Hz ─► glue compressor ─► limiter ─► master ─► out
+ *   sfx   ─┼─► mix ─► hp 35 Hz ─► glue compressor ─► makeup ─► limiter ─► soft clip ─► out
  *   amb   ─┤                 └───────────────────────────────────┘
  *   ui    ─┘
  */
@@ -93,11 +93,21 @@ export class AudioEngine {
     this.comp.threshold.value = -20; this.comp.knee.value = 12; this.comp.ratio.value = 2.5;
     this.comp.attack.value = 0.015; this.comp.release.value = 0.3;
     this.limiter = ctx.createDynamicsCompressor();
-    this.limiter.threshold.value = -4; this.limiter.knee.value = 0; this.limiter.ratio.value = 20;
-    this.limiter.attack.value = 0.002; this.limiter.release.value = 0.12;
+    this.limiter.threshold.value = -3; this.limiter.knee.value = 0; this.limiter.ratio.value = 20;
+    this.limiter.attack.value = 0.001; this.limiter.release.value = 0.1;
     this.master = mk();
-    this.master.gain.value = 1.45; // ≈ +3 dB over unity into the limiter: phone speakers want level
-    mix.connect(hp).connect(this.comp).connect(this.limiter).connect(this.master).connect(ctx.destination);
+    this.master.gain.value = 1.45; // makeup ≈ +3 dB into the limiter: phone speakers want level
+    // safety soft clip after the limiter: transparent below ~-2 dBFS, never exceeds -0.2 dBFS
+    const clip = ctx.createWaveShaper();
+    const N = 2048, curve = new Float32Array(N), knee = 0.8, ceil = 0.977;
+    for (let i = 0; i < N; i++) {
+      const x = (i / (N - 1)) * 2 - 1, a = Math.abs(x);
+      const y = a <= knee ? a : knee + (ceil - knee) * Math.tanh((a - knee) / (ceil - knee));
+      curve[i] = Math.sign(x) * Math.min(y, ceil);
+    }
+    clip.curve = curve;
+    clip.oversample = 'none';
+    mix.connect(hp).connect(this.comp).connect(this.master).connect(this.limiter).connect(clip).connect(ctx.destination);
     this.applyLevels(true);
   }
 
