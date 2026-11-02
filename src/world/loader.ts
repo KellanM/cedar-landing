@@ -5,6 +5,11 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { applyWorldMaterial } from '../render/materials';
 import { DEFAULT_TOD } from './placeholder';
 import type { Gameplay, Instances, LoadedChunk, LoadedWorld, Manifest } from './types';
+import { bakeBoat } from '../game/progression/boatpaint';
+
+/** Player boat tiers in protos.glb (BOAT_T0 = Little Troller, BOAT_T1 = the Packer, ...). */
+const BOAT_RE = /^BOAT_T\d+$/;
+const BOAT_NAMES = ['BOAT_T0', 'BOAT_T1'];
 
 const BASE = import.meta.env.BASE_URL;
 const WORLD = `${BASE}world/`;
@@ -153,15 +158,17 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
 
   const protos = new Map<string, THREE.BufferGeometry>();
   let boat: THREE.Object3D | null = null;
+  const boats: Record<string, THREE.Object3D> = {};
   if (manifest.protos) {
     try {
       const g = await loadGLB(manifest.protos, version);
       // A proto is a top-level node (or a mesh) whose name matches an instances key / BOAT_T0.
-      const wanted = new Set([...Object.keys(instances.protos), 'BOAT_T0']);
+      const wanted = new Set([...Object.keys(instances.protos), ...BOAT_NAMES]);
       const seen = new Set<string>();
       g.scene.traverse((o) => {
         if (seen.has(o.name) || !wanted.has(o.name)) return;
         seen.add(o.name);
+        if (BOAT_RE.test(o.name)) { const b = bakeBoat(o); if (b) boats[o.name] = b; return; }
         const geom = bakeNode(o);
         if (!geom) return;
         if (o.name === 'BOAT_T0') {
@@ -177,15 +184,17 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
         if (seen.has(key)) continue;
         const o = g.scene.getObjectByName(key) ?? g.scene.children.find((c) => c.name.startsWith(key));
         if (!o) continue;
+        if (BOAT_RE.test(key)) { const b = bakeBoat(o); if (b) { b.name = key; boats[key] = b; } continue; }
         const geom = bakeNode(o);
         if (!geom) continue;
         if (key === 'BOAT_T0') { const m = new THREE.Mesh(geom); m.name = 'BOAT_T0'; m.userData.bow_axis = o.userData?.bow_axis ?? '+X'; applyWorldMaterial(m); boat = m; } else protos.set(key, geom);
       }
-      const missing = [...wanted].filter((k) => k !== 'BOAT_T0' && !protos.has(k));
+      const missing = [...wanted].filter((k) => !BOAT_RE.test(k) && !protos.has(k));
+      boat = boats.BOAT_T0 ?? null;
       if (missing.length) console.warn('[world] protos missing from protos.glb:', missing);
     } catch (e) { console.warn('[world] protos failed', e); }
     tick('Growing the forests…');
   }
 
-  return { source: 'export', chunks, backdrops, clouds, dynamic, protos, instances, boat, gameplay };
+  return { source: 'export', chunks, backdrops, clouds, dynamic, protos, instances, boat, boats, gameplay };
 }

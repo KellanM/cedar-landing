@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { pickSpecies, priceFor, rollSize, type CaughtFish, type Species } from './fishdata';
+import { priceFor, type CaughtFish, type Species } from './fishdata';
+import { gear, pickSpeciesFor, rollSizeFor } from './progression/gear'; // upgrades: tackle stats
 import type { Hotspot } from '../world/types';
 import { Bobber, LineRibbon } from './tackle';
 import { SplashFX } from './splash';
@@ -158,7 +159,7 @@ export class Fishing {
     this.phase = 'waiting';
     this.t = 0;
     this.held = 0;
-    this.species = pickSpecies(this.hotspot?.fish_pool ?? [], this.hotspot?.tier);
+    this.species = pickSpeciesFor(this.hotspot); // line depth gates, bait biases
     const ang = Math.random() * Math.PI * 2;
     this.shadowFrom.set(this.bobberPos.x + Math.cos(ang) * 6, 0.01, this.bobberPos.z + Math.sin(ang) * 6);
     this.shadowPos.copy(this.shadowFrom);
@@ -328,10 +329,10 @@ export class Fishing {
           this.scheduleThrash();
         }
         if (held) {
-          this.distance -= T.reelSpeed * dt * (this.thrashing ? 0.45 : 1);
-          this.tension += (this.thrashing ? T.thrashBuild : T.tensionBuild) * dt;
+          this.distance -= T.reelSpeed * gear.reelMul * dt * (this.thrashing ? 0.45 : 1);
+          this.tension += (this.thrashing ? T.thrashBuild * gear.thrashMul : T.tensionBuild * gear.tensionMul) * dt;
         } else {
-          this.distance += (this.thrashing ? T.thrashPull : T.basePull) * dt;
+          this.distance += (this.thrashing ? T.thrashPull * gear.pullMul : T.basePull) * dt;
           this.tension -= T.tensionDecay * dt;
         }
         this.distance = Math.min(this.distance, this.startDistance + 6);
@@ -340,7 +341,7 @@ export class Fishing {
         if (this.tension >= 1) {
           // Normal fish never snap: the line slips and the fish gains a little distance.
           this.slips++;
-          this.distance += T.slipGain;
+          this.distance += T.slipGain * gear.slipMul;
           this.tension = 0.55;
           this.ev.toast('Line slipped! Ease off when it pulls', 'warn');
           this.ev.slip?.();
@@ -444,7 +445,7 @@ export class Fishing {
 
   private land() {
     const sp = this.species!;
-    const size = rollSize(sp);
+    const size = rollSizeFor(sp);
     const perfect = this.maxTension <= T.perfectMax && this.slips === 0;
     const big = (size - sp.size[0]) / Math.max(1, sp.size[1] - sp.size[0]) >= 0.7;
     const stars = 1 + (big ? 1 : 0) + (perfect ? 1 : 0);

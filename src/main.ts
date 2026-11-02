@@ -28,6 +28,7 @@ mountVersionStamp();
 import { initTuneOverlay } from './ui/tune';
 import { OnFoot, type FootContext } from './game/onfoot/onfoot';
 import { FOOT_CAM } from './game/onfoot/footcamera';
+import { createUpgrades } from './game/progression/upgrades';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -48,6 +49,8 @@ const KIND_LABEL: Record<string, string> = {
   photograph: 'Photo spot', collect_flotsam: 'Pick up flotsam', forage: 'Forage', rest: 'Rest', talk: 'Talk',
   quest_lost_treasure: 'Treasure map', quest_clue: 'Look closer', haul_crab_pots: 'Haul crab pots', read_sunstone: 'Read sunstone',
 };
+/** upgrades: shop names win over the exported generic prompts ("Upgrade", "Inspect") */
+const UPG_LABEL: Record<string, string> = { buy_tackle: 'Chandlery', upgrade_bench: 'Shipwright', buy_boat: 'Boatyard' };
 const IGNORED_KINDS = new Set(['fish_here']); // handled by the hotspot / Cast button
 
 // ---------------------------------------------------------------- renderer + scene
@@ -176,7 +179,7 @@ function installWorld(w: LoadedWorld) {
   floaters = w.dynamic?.length ? new Floaters(w.dynamic) : null;
   if (floaters) worldRoot.add(floaters.group);
 
-  const model = w.boat ?? placeholderBoat();
+  const model = upg.pickModel(w) ?? w.boat ?? placeholderBoat();
   if (!boat) { boat = new Boat(model); scene.add(boat.root); } else boat.setModel(model);
   skipper.attachTo(boat.modelObject);
 
@@ -302,7 +305,7 @@ function nearestHotspot(): { hs: Hotspot; d: number } | null {
 }
 
 function labelFor(it: Interact) {
-  const p = it.props?.prompt;
+  const p = UPG_LABEL[it.kind] ?? it.props?.prompt;
   if (typeof p === 'string' && p) return p;
   return KIND_LABEL[it.kind] ?? it.kind.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 }
@@ -334,7 +337,7 @@ function doInteract(it: Interact) {
       break;
     }
     default:
-      hud.toast(`${labelFor(it)} — not open yet`);
+      if (!upg.doInteract(it)) hud.toast(`${labelFor(it)} — not open yet`);
   }
 }
 
@@ -394,6 +397,7 @@ function onAction() {
   if (!near || near.d > HOTSPOT_RANGE) { hud.refuse(); return; }
   if (Math.abs(boat.speed) > CAST_MAX_SPEED) { hud.refuse(); return; }
   if (save.cooler.length >= save.coolerCap) { hud.refuse(); return; }
+  if (!upg.canFish(near.hs)) { hud.refuse(); return; } // upgrades: rough water / line depth
   boat.speed = 0;
   fishing.cast(near.hs, rodTip(), boat.pos);
 }
@@ -502,6 +506,14 @@ hud.init({
 });
 if (new URLSearchParams(location.search).has('debug')) { save.settings.showFps = true; }
 refreshSettingsUI();
+// Upgrades: chandlery, shipwright, boat tiers, paint/flags (src/game/progression, src/ui/shop|shipwright)
+const upg = createUpgrades({
+  save, boat: () => boat, world: () => world, land: () => land,
+  playerPos: () => (foot.active ? foot.feet : boat.pos),
+  toast: (m, k) => hud.toast(m, k), setShells: (n) => hud.setShells(n), renderCooler: () => hud.renderCooler(save.cooler, save.coolerCap, true),
+  titleCard: (t, s) => hud.titleCard(t, s), openLog: (t) => hud.openLog(t as Parameters<typeof hud.openLog>[0]),
+  snapCamera: () => { if (!foot.active) chase.snap(boat); },
+});
 initTuneOverlay();
 mountSunShadingSetting();
 mountWindSetting();
@@ -622,6 +634,7 @@ function frame(now: number) {
     floaters?.update(dt, camera.position);
     cull();
     updateUI(dt);
+    upg.tick(dt, camera, window.innerHeight > window.innerWidth);
   }
 
   updateLighting(dt);
@@ -707,6 +720,7 @@ window.__debug = {
   sellAll: () => sellFish(save.cooler.map((_, i) => i)),
   closeModals: () => { hud.hideSell(); hud.hideCard(); hud.closeLog(); },
   ui: hud.debug,
+  upg: upg.debug,
   fishing,
   cycleTOD,
   setAutoReel: (on: boolean) => { fishing.autoReel = on; },

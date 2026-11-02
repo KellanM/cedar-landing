@@ -104,6 +104,8 @@ export interface LoadedWorld {
   protos: Map<string, THREE.BufferGeometry>;
   instances: Instances;
   boat: THREE.Object3D | null;
+  /** all player boat tiers by node name (BOAT_T0, BOAT_T1, ...), paintable (game/progression/boatpaint.ts) */
+  boats?: Record<string, THREE.Object3D>;
   gameplay: Gameplay;
   /** world/dynamic.glb nodes (buoys, moored boats, flotsam, kelp) animated by game/floaters.ts */
   dynamic?: THREE.Object3D[];

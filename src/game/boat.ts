@@ -75,7 +75,7 @@ export class Boat {
 
   setModel(model: THREE.Object3D) {
     this.visual.clear();
-    const axis = typeof model.userData.bow_axis === 'string' ? model.userData.bow_axis.toUpperCase() : model.name === 'BOAT_T0' ? '+X' : '-Z';
+    const axis = typeof model.userData.bow_axis === 'string' ? model.userData.bow_axis.toUpperCase() : /^BOAT_T\d+$/.test(model.name) ? '+X' : '-Z';
     model.rotation.set(0, BOW_YAW[axis] ?? 0, 0);
     model.position.set(0, 0, 0);
     model.updateMatrix(); // world meshes have matrixAutoUpdate off
@@ -92,7 +92,10 @@ export class Boat {
     this.halfBeam = Math.max(0.3, Math.min(size.x / 2, size.z * 0.19));
     this.model = model;
     // Troller funnel: BOAT_T0 local (−1.25, 3.55, 0) (bow +X). Canoe / placeholder: none.
-    this.stackLocal = model.name === 'BOAT_T0' && size.y > 2.5 ? new THREE.Vector3(-1.25, 3.55, 0) : null;
+    // Upgrade tiers carry their stack in node extras (socket_stack_top, three coords, bow +X).
+    const sock = model.userData.socket_stack_top as number[] | undefined;
+    this.stackLocal = Array.isArray(sock) && sock.length === 3 ? new THREE.Vector3(sock[0], sock[1], sock[2])
+      : model.name === 'BOAT_T0' && size.y > 2.5 ? new THREE.Vector3(-1.25, 3.55, 0) : null;
     model.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.geometry.getAttribute('color')) m.material = boatMat; });
     this.visual.add(model);
   }
