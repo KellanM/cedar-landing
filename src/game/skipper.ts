@@ -33,9 +33,14 @@ export class Skipper {
   face: THREE.Vector3 | null = null;
   /** true: turn so the ROD points at `face` (the reel pose holds it out to the right); false: the chest */
   aimRod = false;
+  /** debug: skip the procedural layers / yaw aim */
+  dbgNoProc = false;
+  dbgNoAim = false;
   private tmp = new THREE.Vector3();
   private q = new THREE.Quaternion();
   private ax = new THREE.Vector3();
+  /** each bone's mixer pose before the procedural layers (see update) */
+  private clean = new Map<THREE.Bone, THREE.Quaternion>();
 
   constructor() {
     this.root.position.copy(SOCKET.pos);
@@ -136,7 +141,7 @@ export class Skipper {
       this.tmp.copy(this.face);
       this.root.worldToLocal(this.tmp);
       this.targetYaw = Math.atan2(this.tmp.x, this.tmp.z);
-      if (this.aimRod && this.tip) {
+      if (this.aimRod && this.tip && !this.dbgNoAim) {
         // rod bearing in the turn group's own frame (independent of the current yaw)
         this.tip.updateWorldMatrix(true, false);
         this.tmp.setFromMatrixPosition(this.tip.matrixWorld);
@@ -148,7 +153,17 @@ export class Skipper {
     d = Math.atan2(Math.sin(d), Math.cos(d));
     this.yaw += d * Math.min(1, dt * 6);
     this.turn.rotation.y = this.yaw;
+    // AnimationMixer only rewrites a bone when the blended clip value changes; our clips are single-frame
+    // poses, so once a cross-fade settles it stops writing and the procedural layers below would multiply
+    // onto last frame's result and accumulate (chest folding over, head on its side). Restore the clean
+    // pose first, let the mixer overwrite it if it wants, then remember the clean result.
+    for (const [bone, q] of this.clean) bone.quaternion.copy(q);
     this.mixer.update(dt);
+    for (const bone of Object.values(this.bones)) {
+      const c = this.clean.get(bone);
+      if (c) c.copy(bone.quaternion); else this.clean.set(bone, bone.quaternion.clone());
+    }
+    if (this.dbgNoProc) return;
     // procedural layers after the mixer (bone-local axes are Blender's: x = own left, z = up)
     const b = this.bones;
     const breathe = Math.sin(this.t * 1.6) * 0.02;

@@ -759,6 +759,7 @@ window.__debug = {
   },
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
+  skipperObj: () => skipper,
   skipperState: () => ({ ready: skipper.ready, attached: skipper.attached, pose: skipper.currentPose, landingK: chase.landingK }),
   keep: () => closeCard(true),
   sellAll: () => sellFish(save.cooler.map((_, i) => i)),
