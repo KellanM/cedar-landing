@@ -110,8 +110,8 @@
 .tide svg { width: 22px; height: 22px; }
 
 /* fish grid */
-.filters { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 6px; scrollbar-width: none; }
-.fchip { flex: none; min-height: 48px; padding: 0 12px; border: 2px solid var(--ink); border-radius: var(--r-s); background: var(--paper-2); font: 850 var(--fs-14) var(--f-ui); }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 6px; margin-bottom: 6px; }
+.fchip { flex: none; min-height: 44px; padding: 0 11px; border: 2px solid var(--ink); border-radius: var(--r-s); background: var(--paper-2); font: 850 var(--fs-14) var(--f-ui); }
 .fchip.on { background: var(--ink); color: var(--paper); }
 .fish-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .lay-landscape .fish-grid { grid-template-columns: repeat(4, 1fr); }
@@ -208,3 +208,22 @@
 .seg button:first-child { border-left: 0; }
 .seg button.on { background: var(--ink); color: var(--paper); }
 .lay-portrait .set-row:has(.seg) { flex-wrap: wrap; padding: 6px 0; }
+
+/* ---------- Fish → Cooler: the inventory ---------- */
+.cooler-sum { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; font: 800 15px var(--f-ui); }
+.cooler-sum .ico { width: 18px; height: 18px; display: inline-flex; }
+.cooler-sum b { font-size: 18px; }
+.cooler-sum .hand { font: 700 18px / 1 var(--f-hand); color: var(--ink-soft); margin-left: 6px; }
+.cooler-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.lay-landscape .cooler-grid, .lay-desktop .cooler-grid { grid-template-columns: repeat(3, 1fr); }
+.cslot { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'art art' 'nm nm' 'meta pr'; gap: 2px 6px; align-items: center; text-align: left;
+  min-height: 112px; padding: 6px 8px; background: var(--paper); color: var(--ink); border: 2px solid var(--ink); border-radius: var(--r-s); font: inherit; cursor: pointer; }
+.cslot.empty { background: transparent; border: 2px dashed rgba(43, 38, 34, .35); cursor: default; }
+.cslot .art { grid-area: art; width: 100%; max-height: 54px; display: flex; justify-content: center; }
+.cslot .art > * { max-height: 54px; width: auto; max-width: 100%; }
+.cslot .nm { grid-area: nm; font: 800 13px / 1.1 var(--f-ui); }
+.cslot .meta { grid-area: meta; display: flex; gap: 5px; align-items: center; font: 700 12px var(--f-ui); color: var(--ink-soft); }
+.cslot .pr { grid-area: pr; display: flex; gap: 3px; align-items: center; font: 800 14px var(--f-ui); }
+.cslot .pr .ico { width: 15px; height: 15px; display: inline-flex; }
+.cslot .pr i { font: 700 15px var(--f-hand); color: var(--ink-soft); }
+.fchip .num { opacity: .7; font-weight: 700; }

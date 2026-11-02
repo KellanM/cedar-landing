@@ -181,15 +181,43 @@ function hereNow(sp: Species) {
   return (ctx.world?.gameplay.hotspots ?? []).some((h) => Math.hypot(h.pos[0] - ctx.boat.x, h.pos[2] - ctx.boat.z) < 250 && h.fish_pool.some((p) => p.toLowerCase().includes(sp.name.toLowerCase())));
 }
 
+const FILTERS: [Filter, string][] = [['all', 'All'], ['caught', 'Caught'], ['missing', 'Missing'], ['here', 'Here now'], ['cooler', 'Cooler']];
+function filterChips() {
+  return `<div class="filters" role="radiogroup">${FILTERS.map(([k, l]) => `<button class="fchip${filter === k ? ' on' : ''}" data-f="${k}" role="radio" aria-checked="${filter === k}">${l}${k === 'cooler' ? ` <span class="num">${ctx.save?.cooler.length ?? 0}/${ctx.save?.coolerCap ?? 0}</span>` : ''}</button>`).join('')}</div>`;
+}
+
+/** Fish → Cooler: the inventory (every fish aboard with its size and value; empty slots dashed). */
+function coolerView(L: HTMLElement) {
+  const cooler = ctx.save?.cooler ?? [], cap = ctx.save?.coolerCap ?? 0;
+  const worth = cooler.reduce((a, f) => a + (f.releaseOnly ? 0 : f.price), 0);
+  const slots = Array.from({ length: Math.max(cap, cooler.length) }, (_, i) => {
+    const f = cooler[i];
+    if (!f) return '<div class="cslot empty" aria-label="Empty slot"></div>';
+    return `<button class="cslot" data-sp="${f.speciesId}" aria-label="${esc(f.name)}, ${f.size.toFixed(1)} cm">
+      <span class="art">${fishSketch(f.speciesId, f.color, f.rarity)}</span>
+      <span class="nm">${esc(f.name)}</span>
+      <span class="meta"><span class="num">${f.size.toFixed(1)} cm</span>${starsSvg(f.stars, 3, 13)}</span>
+      <span class="pr">${f.releaseOnly ? '<i>release only</i>' : `<span class="ico">${ICONS.shell}</span><b class="num">${f.price}</b>`}</span>
+    </button>`;
+  }).join('');
+  L.innerHTML = `<div class="page-title row"><h3>Cooler</h3><span class="count num">${cooler.length} / ${cap}</span></div>
+    ${filterChips()}
+    <div class="cooler-sum"><span>Worth</span><span class="ico">${ICONS.shell}</span><b class="num">${worth}</b><span class="hand">${cooler.length >= cap && cap ? 'Full! Sell at the Cedar Landing market.' : cooler.length ? 'Sell at the Cedar Landing market.' : 'Empty. Go catch something.'}</span></div>
+    <div class="cooler-grid">${slots}</div>`;
+  L.querySelectorAll<HTMLButtonElement>('[data-f]').forEach((b) => (b.onclick = () => { filter = b.dataset.f as Filter; show('fish', true); }));
+  L.querySelectorAll<HTMLButtonElement>('[data-sp]').forEach((b) => (b.onclick = () => { selFish = b.dataset.sp!; fx('page'); show('fish', true); openDetail(); }));
+}
+
 function fishTab(L: HTMLElement, R: HTMLElement) {
   const recs = ctx.save?.records ?? {};
   const inCooler = new Set((ctx.save?.cooler ?? []).map((f) => f.speciesId));
   const all = SPECIES;
   const caught = all.filter((s) => recs[s.id]).length;
+  if (filter === 'cooler') { coolerView(L); }
+  else {
   const list = all.filter((s) => filter === 'all' || (filter === 'caught' ? !!recs[s.id] : filter === 'missing' ? !recs[s.id] : filter === 'cooler' ? inCooler.has(s.id) : hereNow(s)));
-  const FL: [Filter, string][] = [['all', 'All'], ['caught', 'Caught'], ['missing', 'Missing'], ['here', 'Here now'], ['cooler', 'In cooler']];
   L.innerHTML = `<div class="page-title row"><h3>Fish</h3><span class="count num">${caught} / ${all.length}</span></div>
-    <div class="filters" role="radiogroup">${FL.map(([k, l]) => `<button class="fchip${filter === k ? ' on' : ''}" data-f="${k}" role="radio" aria-checked="${filter === k}">${l}</button>`).join('')}</div>
+    ${filterChips()}
     <div class="fish-grid">${list.map((s) => {
       const r = recs[s.id];
       return `<button class="entry${r ? ' caught' : ''}${selFish === s.id ? ' sel' : ''}" data-sp="${s.id}" aria-label="${r ? s.name : 'Unknown fish'}">
@@ -200,6 +228,7 @@ function fishTab(L: HTMLElement, R: HTMLElement) {
     }).join('') || '<p class="hand">Nothing here yet.</p>'}</div>`;
   L.querySelectorAll<HTMLButtonElement>('[data-f]').forEach((b) => (b.onclick = () => { filter = b.dataset.f as Filter; show('fish', true); }));
   L.querySelectorAll<HTMLButtonElement>('[data-sp]').forEach((b) => (b.onclick = () => { selFish = b.dataset.sp!; fx('page'); show('fish', true); openDetail(); }));
+  }
   const sp = all.find((s) => s.id === selFish) ?? all.find((s) => recs[s.id]) ?? all[0];
   const r = recs[sp.id];
   const first = log.first[sp.id] ? new Date(log.first[sp.id]).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';

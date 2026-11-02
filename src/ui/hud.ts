@@ -97,7 +97,7 @@ export function init(opts: { save: NonNullable<typeof ctx.save>; input: InputLik
   $('shells').addEventListener('click', () => { openLog('errands'); });
   $('cooler-tab').addEventListener('click', () => { openLog('fish', { filter: 'cooler' }); });
   // tapping the top strip brings quiet-mode readouts back
-  document.querySelector('.hud-top')!.addEventListener('pointerdown', () => peek('shells', 'cooler'));
+  document.querySelector('.hud-top')!.addEventListener('pointerdown', () => peek('shells'));
   window.addEventListener('keydown', (e) => {
     if (e.repeat || ctx.pausedSlip || e.defaultPrevented) return;
     const k = e.key.toLowerCase();
@@ -228,7 +228,10 @@ function updateVisibility(s: FrameState, dt: number) {
   b.toggle('hud-quiet', now - paddleSince > T.quiet);
   const full = !!ctx.save && ctx.save.cooler.length >= ctx.save.coolerCap;
   $('shells').classList.toggle('peek', (peekUntil.shells ?? 0) > now || marketOpen());
-  $('cooler-tab').classList.toggle('peek', (peekUntil.cooler ?? 0) > now || full || marketOpen());
+  // the cooler isn't persistent: it peeks when a fish goes in or out and at the market; the full
+  // inventory lives in the Log (Fish → Cooler). When full, the reel button already says so.
+  $('cooler-tab').classList.toggle('peek', (peekUntil.cooler ?? 0) > now || marketOpen());
+  $('btn-log').classList.toggle('cooler-full', full);
   void dt;
 }
 
@@ -398,7 +401,7 @@ export function frame(dt: number, s: FrameState) {
     const key = `${s.interact.kind}@${ip ? ip.join(',') : s.interact.label}`;
     if (key !== lastInteractKey) {
       lastInteractKey = key;
-      peek('shells', 'cooler');
+      if (s.interact.kind === 'sell_fish') peek('shells', 'cooler'); else peek('shells');
       if (s.interact.kind === 'sell_fish' && ip) bubble('Fresh off the water?', new THREE.Vector3(ip[0], ip[1], ip[2]), { speaker: 'Mae', ms: 3000, cls: 'bark', key: 'bark', lift: 2.6 });
     }
   } else {
