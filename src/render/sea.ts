@@ -184,12 +184,13 @@ void main() {
   float footprint = length(fwidth(wp.xz)); // metres per pixel here
 
   // ---- shore field
-  float sd = 99.0, depth = 30.0;
+  float sd = 99.0, depth = 30.0, under = 0.0; // under: 1 beneath a pier deck
   if (uHasField > 0.5) {
     vec2 fuv = (wp.xz - uFieldRect.xy) * uFieldRect.zw;
     if (all(greaterThan(fuv, vec2(0.0))) && all(lessThan(fuv, vec2(1.0)))) {
       vec2 fs = texture2D(uField, fuv).rg;
-      sd = fs.r; depth = fs.g;
+      sd = fs.r; depth = fs.g < 0.0 ? max(-fs.g - 1.0, 0.0) : fs.g;
+      under = clamp(-fs.g * 2.0, 0.0, 1.0);
     }
   }
   vec4 nz = texture2D(uNoise, wp.xz * 0.0045 + uWind * uTime * 0.0012);
@@ -244,7 +245,8 @@ void main() {
   if (uShore > 0.0 && sd < uSurfReach + 2.0) {
     float sdw = max(fwidth(sd), 0.02);
     float edgeW = (0.3 + nz.g * 0.3) * mix(1.0, 0.55, smoothstep(1.5, 4.0, depth)) + 0.05 * sin(uTime * 1.3 + nz.r * 9.0);
-    float foam = fill(sd - edgeW, sdw);
+    // a band, not a fill: wide "land" from the wire pass (low floats, dock decks) keeps water inside its outline
+    float foam = fill(sd - edgeW, sdw) * fill(-sd - 0.7, sdw);
     float surf = 0.0;
     for (int k = 0; k < 2; k++) {
       float ph = fract(uTime / uSurfPeriod + float(k) * 0.5 + nz.r * 0.35);
@@ -256,9 +258,11 @@ void main() {
       surf = max(surf, band * alive * broken);
     }
     surf *= 1.0 - smoothstep(1.2, 3.0, depth);
-    float shoreFoam = max(foam, surf * 0.75) * uShore * (1.0 - smoothstep(180.0, 320.0, dist));
+    float shoreFoam = max(foam, surf * 0.75) * (1.0 - under) * uShore * (1.0 - smoothstep(180.0, 320.0, dist));
     col = mix(col, uFoam, shoreFoam);
   }
+
+  col *= 1.0 - 0.07 * under; // shade under piers
 
   // ---- sun / moon glints
   if (uGlint > 0.0 && dist < (uLow > 0.5 ? 80.0 : 140.0)) {

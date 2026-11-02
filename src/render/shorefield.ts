@@ -7,14 +7,17 @@ import type { LandCollision } from '../game/collision';
  * land) and the water depth (m). Built once per world load from data already in public/world:
  *
  *  1. Height pass: the chunk meshes are drawn by an orthographic camera looking straight down from
- *     y = +0.4 with the far plane 30 m below, so only geometry under that slab is seen. Land above
+ *     y = +0.15 with the far plane 30 m below, so only geometry under that slab is seen. Land above
  *     the slab is clipped (docks and roofs too, so the water under a pier still counts as water);
  *     the seabed and the beach toe are recorded as heights.
- *  2. Wire pass: the same meshes as lines in a thin slab just above the waterline. Lines rasterise
- *     even when edge-on, so pilings, posts and sea stacks mark themselves as land and get a foam
- *     collar (a filled pass would see their vertical faces as zero-area).
+ *  2. Wire pass: the edges of steep faces (pilings, posts, sea stacks, hull sides) as lines in a thin
+ *     slab just above the waterline. Lines rasterise even edge-on, so these mark themselves as land
+ *     and get a foam collar (a filled pass sees vertical faces as zero-area). Flat decks and floats
+ *     are left out so a low dock does not read as an island.
  *     `extras` (buoys, moored boats from dynamic.glb, at their rest pose) join the wire pass only,
  *     so they get a collar without their hulls tinting the water as shallows.
+ *  2b. Cover pass: geometry 0.15–4 m above the water (decks, boardwalks) seen from above; stored as a
+ *     negative depth so the shader can calm and shade the water under piers.
  *  3. Cleared texels are either land interior (clipped) or open water past the terrain. Each cleared
  *     region is classified by its rim (a shore slope reaching the surface → land) and by the coarse
  *     gameplay land grid.
@@ -32,7 +35,7 @@ export interface ShoreField {
   res: [number, number];
 }
 
-const TOP = 0.4; // m: slab ceiling (camera height)
+const TOP = 0.15; // m: slab ceiling (camera height): low enough that floating docks and decks are clipped
 const FLOOR = 30; // m below the ceiling
 const LAND_H = -0.04; // m: anything higher than this is above the water line
 const DEEP = 30; // m: depth reported for open water past the terrain
@@ -59,31 +62,59 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
     uniforms: { uWire: { value: 0 } },
   });
   const wireMat = heightMat.clone();
-  wireMat.wireframe = true;
   wireMat.uniforms.uWire.value = 1;
   const tmp = new THREE.Scene();
+  // wire pass input: edges of steep faces (|n.y| < 0.4) that cross the waterline slab, in world space.
+  // Pilings, posts, stacks and hull sides; flat decks and floats stay out (they would read as land).
+  const seg: number[] = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  const collect = (m: THREE.Mesh) => {
+    const pos = m.geometry.getAttribute('position');
+    const idx = m.geometry.index;
+    const n = idx ? idx.count : pos.count;
+    for (let t = 0; t + 2 < n; t += 3) {
+      const i0 = idx ? idx.getX(t) : t, i1 = idx ? idx.getX(t + 1) : t + 1, i2 = idx ? idx.getX(t + 2) : t + 2;
+      a.fromBufferAttribute(pos, i0).applyMatrix4(m.matrixWorld);
+      b.fromBufferAttribute(pos, i1).applyMatrix4(m.matrixWorld);
+      c.fromBufferAttribute(pos, i2).applyMatrix4(m.matrixWorld);
+      const lo = Math.min(a.y, b.y, c.y), hi = Math.max(a.y, b.y, c.y);
+      if (hi < LAND_H || lo > -0.02) continue; // must pierce the water surface (dock beams just above it do not)
+      e1.subVectors(b, a); e2.subVectors(c, a); e1.cross(e2);
+      const len = e1.length();
+      if (len < 1e-9 || Math.abs(e1.y) / len > 0.4) continue;
+      seg.push(a.x, a.y, a.z, b.x, b.y, b.z, b.x, b.y, b.z, c.x, c.y, c.z, c.x, c.y, c.z, a.x, a.y, a.z);
+    }
+  };
   for (const c of chunks) {
     c.object.updateMatrixWorld(true);
     c.object.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
-      const a = new THREE.Mesh(m.geometry, heightMat);
-      a.matrixAutoUpdate = false; a.matrix.copy(m.matrixWorld); a.frustumCulled = false;
-      tmp.add(a);
+      const fm = new THREE.Mesh(m.geometry, heightMat);
+      fm.matrixAutoUpdate = false; fm.matrix.copy(m.matrixWorld); fm.frustumCulled = false;
+      tmp.add(fm);
+      collect(m);
     });
   }
-  const wireOnly: THREE.Mesh[] = [];
+  const extraFill: THREE.Mesh[] = [];
   for (const root of extras) {
     if (/kelp/i.test(root.name)) continue;
     root.updateMatrixWorld(true);
     root.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
-      const a = new THREE.Mesh(m.geometry, wireMat);
-      a.matrixAutoUpdate = false; a.matrix.copy(m.matrixWorld); a.frustumCulled = false;
-      wireOnly.push(a);
+      collect(m);
+      const fm = new THREE.Mesh(m.geometry, heightMat);
+      fm.matrixAutoUpdate = false; fm.matrix.copy(m.matrixWorld); fm.frustumCulled = false;
+      extraFill.push(fm);
     });
   }
+  const wireScene = new THREE.Scene();
+  const segGeom = new THREE.BufferGeometry();
+  segGeom.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+  const lines = new THREE.LineSegments(segGeom, wireMat);
+  lines.frustumCulled = false;
+  wireScene.add(lines);
   const cam = new THREE.OrthographicCamera(-sizeX / 2, sizeX / 2, sizeZ / 2, -sizeZ / 2, 0, FLOOR);
   cam.up.set(0, 0, -1); // screen up = world −z
   cam.position.set(minX + sizeX / 2, TOP, minZ + sizeZ / 2);
@@ -91,6 +122,7 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
   cam.updateMatrixWorld();
   const rt = new THREE.WebGLRenderTarget(W, H, { depthBuffer: true });
   const px = new Uint8Array(W * H * 4);
+  const cover = new Uint8Array(W * H * 4);
   const prevRT = renderer.getRenderTarget();
   const prevColor = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
   const prevAuto = renderer.autoClear;
@@ -102,28 +134,35 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
     renderer.clear();
     renderer.render(tmp, cam);
     // wire pass: only the thin slab above the waterline, on top of everything
-    tmp.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = wireMat; });
-    if (wireOnly.length) tmp.add(...wireOnly);
     cam.far = TOP - LAND_H; cam.updateProjectionMatrix();
     renderer.clearDepth();
-    renderer.render(tmp, cam);
+    renderer.render(wireScene, cam);
     renderer.readRenderTargetPixels(rt, 0, 0, W, H, px);
+    // cover pass: anything 0.15..4 m above the water (pier decks, floats, boardwalks) shades the water
+    // under it: no foam there, and a touch darker
+    renderer.clear();
+    cam.position.y = 4; cam.near = 0; cam.far = 4 - TOP; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+    if (extraFill.length) tmp.add(...extraFill); // floating docks and boats shade the water too
+    renderer.render(tmp, cam);
+    renderer.readRenderTargetPixels(rt, 0, 0, W, H, cover);
   } finally {
     renderer.setRenderTarget(prevRT);
     renderer.setClearColor(prevColor, prevAlpha);
     renderer.autoClear = prevAuto;
-    rt.dispose(); heightMat.dispose(); wireMat.dispose();
+    rt.dispose(); heightMat.dispose(); wireMat.dispose(); segGeom.dispose();
     void fog;
   }
 
   // ---- decode into our own layout: row j = z (minZ + (j+0.5)·cell), col i = x. readPixels row 0 = screen bottom = +z.
   const N = W * H;
   const hgt = new Float32Array(N); // world y of the highest surface under the slab
+  const covered = new Uint8Array(N);
   const state = new Uint8Array(N); // 0 cleared, 1 covered water, 2 land
   for (let j = 0; j < H; j++) {
     const src = (H - 1 - j) * W;
     for (let i = 0; i < W; i++) {
       const s = (src + i) * 4, d = j * W + i;
+      covered[d] = cover[s + 2] > 127 ? 1 : 0;
       if (px[s + 3] > 127) { state[d] = 2; hgt[d] = 0.2; continue; }
       if (px[s + 2] < 128) continue;
       const h = (px[s] + px[s + 1] / 255) / 255; // 0..1
@@ -139,12 +178,12 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
   const gb = land?.gridBox;
   for (let s0 = 0; s0 < N; s0++) {
     if (state[s0] !== 0 || comp[s0] !== -1) continue;
-    let sp = 0, n = 0, rim = 0, rimShallow = 0, gridLand = 0, gridIn = 0;
+    let sp = 0, n = 0, rim = 0, rimShallow = 0, gridLand = 0, gridIn = 0, cov = 0;
     const members: number[] = [];
     stack[sp++] = s0; comp[s0] = s0;
     while (sp) {
       const p = stack[--sp];
-      members.push(p); n++;
+      members.push(p); n++; cov += covered[p];
       const i = p % W, j = (p - i) / W;
       if (gb) {
         const x = minX + (i + 0.5) * cell, z = minZ + (j + 0.5) * cell;
@@ -158,7 +197,8 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
       }
     }
     // grid majority wins where the grid covers the region; elsewhere the rim decides (a shore slope all round)
-    const isLand = gridIn > n * 0.3 ? gridLand > gridIn * 0.5 : rim > 0 && rimShallow > rim * 0.6;
+    // mostly under a deck: water hidden by a pier (its seabed mesh is missing or clipped), not land
+    const isLand = cov > n * 0.5 ? false : gridIn > n * 0.3 ? gridLand > gridIn * 0.5 : rim > 0 && rimShallow > rim * 0.6;
     for (const p of members) { state[p] = isLand ? 2 : 1; hgt[p] = isLand ? 0.2 : -DEEP; }
   }
 
@@ -178,7 +218,9 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
     // texel centres: half a texel bias puts the iso-line on the texel boundary
     const d = state[p] === 2 ? -(Math.sqrt(fLand[p]) - 0.5) * cell : (Math.sqrt(fWater[p]) - 0.5) * cell;
     data[p * 2] = toHalf(Math.max(-MAX_D, Math.min(MAX_D, d)));
-    data[p * 2 + 1] = toHalf(depth[p]);
+    // under a deck depth is stored as -(depth + 1): the sign is the cover flag, and the 1 m offset keeps
+    // the flag clear of linear filtering at the edge of a piling
+    data[p * 2 + 1] = toHalf(covered[p] ? -(depth[p] + 1) : depth[p]);
   }
   const texture = new THREE.DataTexture(data, W, H, THREE.RGFormat, THREE.HalfFloatType);
   texture.magFilter = THREE.LinearFilter;
