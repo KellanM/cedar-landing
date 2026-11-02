@@ -1,7 +1,7 @@
 {
   "name": "salish-sea-game",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host --port 5190",

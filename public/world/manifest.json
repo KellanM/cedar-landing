@@ -10,7 +10,7 @@
     26.18,
     134.255
    ],
-   "tris": 82307
+   "tris": 78838
   },
   {
    "file": "chunks/chunk_-1_-1.glb",
@@ -70,7 +70,7 @@
     19.3,
     259.896
    ],
-   "tris": 129023
+   "tris": 123548
   },
   {
    "file": "chunks/chunk_1_0.glb",
@@ -175,5 +175,6 @@
  ],
  "clouds": "clouds.glb",
  "protos": "protos.glb",
+ "npcs": "npcs.glb",
  "dynamic": "dynamic.glb"
 }
