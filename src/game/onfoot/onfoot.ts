@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Interact, LoadedWorld, Npc } from '../../world/types';
 import type { Boat } from '../boat';
 import type { Input } from '../input';
-import { FootWorld, WATER_Y } from './footworld';
+import { FootWorld, WATER_Y, type Surface } from './footworld';
 import { PlayerCharacter } from './character';
 import { FootCamera } from './footcamera';
 import { DustPuffs, SpeechBubble, injectFootCss } from './fx';
@@ -83,6 +83,9 @@ export class OnFoot {
   private returnBlend: { pos: THREE.Vector3; q: THREE.Quaternion; t: number } | null = null;
   lastSpeed = 0;
   steps = 0;
+  /** Audio hooks: a footfall (speed 0..1, feet position, surface colour) and an NPC line spoken. */
+  onFootstep: ((speed: number, feet: THREE.Vector3, surface: Surface | null) => void) | null = null;
+  onSay: ((name: string, text: string, role: string, x: number, z: number) => void) | null = null;
   /** Fires when the player talks to an NPC (gameplay name): the NPC animator turns / nods / waves. */
   onTalk: ((name: string) => void) | null = null;
 
@@ -95,6 +98,7 @@ export class OnFoot {
       this.steps++;
       _v.set(-Math.sin(this.yaw) * 0.1, 0, -Math.cos(this.yaw) * 0.1).add(this.feet);
       this.dust.puff(_v, Math.min(1, sp / FOOT.run));
+      if (this.onFootstep) this.onFootstep(Math.min(1, sp / FOOT.run), this.feet, this.world.surfaceColor(this.feet.x, this.feet.z, this.feet.y));
     };
   }
 
@@ -314,7 +318,9 @@ export class OnFoot {
     this.talkCount.set(key, k + 1);
     if (n.name) this.onTalk?.(n.name);
     const role = String(n.props?.npc_role ?? n.role ?? '');
-    this.bubble.say(npcDisplayName(n), npcLine(n, k), new THREE.Vector3(n.pos[0], n.pos[1] + (role === 'cat' ? 0.6 : 2.05), n.pos[2]));
+    const line = npcLine(n, k);
+    this.bubble.say(npcDisplayName(n), line, new THREE.Vector3(n.pos[0], n.pos[1] + (role === 'cat' ? 0.6 : 2.05), n.pos[2]));
+    this.onSay?.(n.name ?? npcDisplayName(n), line, role, n.pos[0], n.pos[2]);
   }
 
   /** Debug/test: walk toward a world point through the normal controller (null to stop). */

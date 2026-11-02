@@ -1,0 +1,434 @@
+/**
+ * Game-facing audio: created on the first user gesture (mobile autoplay rules), suspended while
+ * the tab is hidden. main.ts calls frame() once per frame with a small state snapshot and a few
+ * event methods (fishing beats, wildlife, footsteps, talk); src/ui/fx.ts routes UI sounds here.
+ * Nothing touches Web Audio before the first gesture.
+ */
+import { AUDIO_TUNING, AudioEngine } from './engine';
+import { Ambience, BoatAudio, type Spot, type Zones } from './ambience';
+import { MusicDirector, compose, type Variant } from './music';
+import { makeSfx, type Place, type Sfx } from './sfx';
+import { measure } from './dsp';
+
+export interface AudioFrame {
+  cam: { x: number; z: number; yaw: number };
+  boat: { x: number; z: number; speed: number; maxSpeed: number; throttle: number; moored: boolean; heavy: boolean };
+  onFoot: boolean;
+  feet?: { x: number; z: number };
+  tod: string;
+  fishing: { phase: string; tension: number; reelHeld: boolean; thrashing: boolean; distance: number; bobber: { x: number; z: number } };
+}
+
+const TOWN_KINDS = new Set(['sell_fish', 'moor_boat', 'buy_tackle', 'buy_bait', 'buy_food', 'buy_boat', 'buy_dive_gear', 'upgrade_bench', 'weigh_fish', 'trophy_wall', 'mailbox', 'request_board']);
+
+const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+class GameAudio {
+  e: AudioEngine | null = null;
+  sfx: Sfx | null = null;
+  music: MusicDirector | null = null;
+  amb: Ambience | null = null;
+  boat: BoatAudio | null = null;
+  private ctx: AudioContext | null = null;
+  private vol = { music: 0.7, sound: 1 };
+  private town: { x: number; z: number }[] = [];
+  private spots: Spot[] = [];
+  private landNear: ((x: number, z: number, r: number) => boolean) | null = null;
+  zones: Zones = { harbour: 0, shore: 0, open: 1, forest: 0 };
+  private zoneT = 0;
+  private lastPhase = 'idle';
+  private clickAcc = 0;
+  private lastDist = 0;
+  private strain: { src: AudioBufferSourceNode; f: BiquadFilterNode; g: GainNode; o: OscillatorNode; og: GainNode } | null = null;
+  private lastFrame: AudioFrame | null = null;
+  private pendingUI: string[] = [];
+  readonly status = { created: false, gesture: false, hiddenSuspends: 0, frames: 0 };
+
+  /** Wire gesture + visibility listeners. Call once at boot. */
+  attach() {
+    const unlock = () => this.unlock();
+    for (const ev of ['pointerdown', 'touchend', 'keydown']) window.addEventListener(ev, unlock, { capture: true, passive: true });
+    document.addEventListener('visibilitychange', () => {
+      if (!this.ctx) return;
+      if (document.hidden) { this.status.hiddenSuspends++; this.ctx.suspend().catch(() => {}); } else this.ctx.resume().catch(() => {});
+    });
+    window.addEventListener('pagehide', () => { this.ctx?.suspend().catch(() => {}); });
+  }
+
+  private unlock() {
+    this.status.gesture = true;
+    if (!this.ctx) {
+      if (this.vol.music <= 0 && this.vol.sound <= 0) return; // fully muted: don't even start
+      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AC) return;
+      try { this.ctx = new AC({ latencyHint: 'interactive' }); } catch { return; }
+      this.e = new AudioEngine(this.ctx);
+      this.e.vol = { ...this.vol };
+      this.e.applyLevels(true);
+      this.sfx = makeSfx(this.e);
+      this.amb = new Ambience(this.e, this.sfx);
+      this.amb.spots = this.spots;
+      this.boat = new BoatAudio(this.e);
+      this.music = new MusicDirector(this.e);
+      this.status.created = true;
+      this.e.log('audio.start', `${this.ctx.sampleRate} Hz`);
+    }
+    if (this.ctx.state !== 'running' && !document.hidden) this.ctx.resume().catch(() => {});
+  }
+
+  get running() { return !!this.ctx && this.ctx.state === 'running'; }
+
+  /** Player volumes 0..1 (Log → Settings). */
+  setVolumes(music: number, sound: number) {
+    this.vol = { music, sound };
+    if (this.e) { this.e.vol = { music, sound }; this.e.applyLevels(); }
+  }
+
+  /** World data: town (harbour) points, bird / haul-out spots, a land test for the shore zone. */
+  setWorld(interacts: { kind: string; pos: number[] }[], birds: { species?: string; kind?: string; pos?: number[]; center?: number[] }[], mammals: { species?: string; kind?: string; pos?: number[] }[], landNear: (x: number, z: number, r: number) => boolean) {
+    this.town = interacts.filter((i) => TOWN_KINDS.has(i.kind)).map((i) => ({ x: i.pos[0], z: i.pos[2] }));
+    const sp: Spot[] = [];
+    for (const b of birds) {
+      const p = b.center ?? b.pos;
+      if (!p || !b.species || b.kind === 'hotspot') continue; // hotspot frenzies speak through onSquawk
+      sp.push({ x: p[0], z: p[2], kind: b.species });
+    }
+    for (const m of mammals) {
+      if (!m.pos || !m.species) continue;
+      if (m.species === 'sea_lion' || (m.species === 'harbor_seal' && m.kind === 'haulout')) sp.push({ x: m.pos[0], z: m.pos[2], kind: m.species });
+    }
+    this.spots.length = 0;
+    this.spots.push(...sp);
+    this.landNear = landNear;
+  }
+
+  private computeZones(f: AudioFrame) {
+    const x = f.onFoot && f.feet ? f.feet.x : f.boat.x, z = f.onFoot && f.feet ? f.feet.z : f.boat.z;
+    let dt = Infinity;
+    for (const p of this.town) dt = Math.min(dt, Math.hypot(p.x - x, p.z - z));
+    const harbour = 1 - smooth(45, 120, dt);
+    let shore = 0;
+    if (f.onFoot) shore = 1;
+    else if (this.landNear) shore = this.landNear(x, z, 14) ? 1 : this.landNear(x, z, 35) ? 0.65 : this.landNear(x, z, 70) ? 0.3 : 0;
+    const forest = Math.max(0, shore - harbour) * (f.onFoot ? 1 : 0.8);
+    const open = Math.max(0, 1 - Math.max(harbour, shore));
+    // ease toward the targets so crossfades take a few seconds
+    const k = 0.35;
+    const Z = this.zones;
+    Z.harbour += (harbour - Z.harbour) * k; Z.shore += (shore - Z.shore) * k; Z.forest += (forest - Z.forest) * k; Z.open += (open - Z.open) * k;
+  }
+
+  frame(dt: number, f: AudioFrame) {
+    this.lastFrame = f;
+    const e = this.e;
+    if (!e || !this.running) return;
+    this.status.frames++;
+    // flush UI sounds that arrived in the same gesture that created the context
+    if (this.pendingUI.length) { const q = this.pendingUI; this.pendingUI = []; for (const n of q) this.ui(n); }
+    e.listener.x = f.cam.x; e.listener.z = f.cam.z; e.listener.yaw = f.cam.yaw;
+    this.zoneT -= dt;
+    if (this.zoneT <= 0) { this.zoneT = 0.25; this.computeZones(f); }
+    const speed = f.onFoot ? 0 : Math.min(1, Math.abs(f.boat.speed) / Math.max(1, f.boat.maxSpeed));
+    const soundOn = this.vol.sound > 0;
+    if (soundOn) {
+      this.amb!.update(dt, { zones: this.zones, tod: f.tod, speed, onFoot: f.onFoot, moored: f.boat.moored });
+      this.boat!.update(dt, f.boat.throttle, speed, !f.onFoot && !f.boat.moored, f.boat.heavy);
+      this.fishingFrame(dt, f);
+    }
+    const fighting = f.fishing.phase === 'reeling';
+    this.music!.update({ tod: f.tod, town: this.zones.harbour, fighting, tension: f.fishing.tension, thrashing: f.fishing.thrashing }, this.vol.music > 0);
+  }
+
+  private bobberPlace(f: AudioFrame): Place {
+    return this.e!.spatial(f.fishing.bobber.x, f.fishing.bobber.z, 18, 120) ?? { gain: 0.5, pan: 0, lp: 8000 };
+  }
+
+  private fishingFrame(dt: number, f: AudioFrame) {
+    const e = this.e!, S = this.sfx!, F = f.fishing, ph = F.phase;
+    if (ph !== this.lastPhase) {
+      const prev = this.lastPhase;
+      this.lastPhase = ph;
+      if (ph === 'casting') S.cast(e.now + 0.01);
+      if (prev === 'casting' && ph === 'waiting') S.plop(e.now + 0.01, this.bobberPlace(f));
+      if (ph === 'reeling') this.startStrain();
+      if (prev === 'reeling') this.stopStrain();
+      this.lastDist = F.distance;
+    }
+    if (ph === 'reeling') {
+      // reel clicks: the ratchet rate follows the crank (held) or the fish taking line (drag)
+      const dd = (F.distance - this.lastDist) / Math.max(1e-3, dt);
+      this.lastDist = F.distance;
+      const drag = !F.reelHeld && dd > 0.05;
+      const rate = F.reelHeld ? 14 + 10 * F.tension : drag ? 8 + 10 * Math.min(1.2, dd) : 0;
+      this.clickAcc += rate * dt;
+      let n = 0;
+      while (this.clickAcc >= 1 && n < 4) { this.clickAcc -= 1; S.click(e.now + 0.01 + n * (1 / Math.max(rate, 1)), drag); n++; }
+      if (this.clickAcc > 1) this.clickAcc = 0;
+      // line strain voice
+      const s = this.strain;
+      if (s) {
+        const ten = Math.max(0, F.tension - 0.25) / 0.75;
+        s.g.gain.setTargetAtTime(0.16 * ten * ten * (F.reelHeld ? 1 : 0.5), e.now, 0.06);
+        s.f.frequency.setTargetAtTime(500 + 1500 * F.tension, e.now, 0.06);
+        s.og.gain.setTargetAtTime(F.tension > 0.7 ? 0.02 * (F.tension - 0.7) / 0.3 : 0, e.now, 0.08);
+        s.o.frequency.setTargetAtTime(900 + 900 * F.tension + (F.thrashing ? 60 * Math.sin(e.now * 40) : 0), e.now, 0.05);
+      }
+    }
+  }
+
+  private startStrain() {
+    const e = this.e!, c = e.ctx;
+    if (this.strain) return;
+    const src = c.createBufferSource();
+    src.buffer = e.noise('white');
+    src.loop = true;
+    const f = c.createBiquadFilter();
+    f.type = 'bandpass'; f.Q.value = 9; f.frequency.value = 700;
+    const g = c.createGain(); g.gain.value = 0;
+    src.connect(f).connect(g).connect(e.buses.sfx);
+    const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = 1000;
+    const og = c.createGain(); og.gain.value = 0;
+    o.connect(og).connect(e.buses.sfx);
+    src.start(); o.start();
+    this.strain = { src, f, g, o, og };
+    e.log('sfx.strainOn');
+  }
+  private stopStrain() {
+    const s = this.strain;
+    if (!s || !this.e) return;
+    const now = this.e.now;
+    s.g.gain.setTargetAtTime(0, now, 0.05); s.og.gain.setTargetAtTime(0, now, 0.05);
+    s.src.stop(now + 0.4); s.o.stop(now + 0.4);
+    this.strain = null;
+    this.e.log('sfx.strainOff');
+  }
+
+  // -------------------------------------------------------------- events from main.ts
+  private at() { return this.e!.now + 0.01; }
+  private ok() { return !!this.e && this.running && this.vol.sound > 0; }
+  private place(x: number, z: number, ref = 18, max = 160): Place | null { return this.e!.spatial(x, z, ref, max); }
+
+  nibble() { if (this.ok() && this.lastFrame) this.sfx!.nibble(this.at(), this.bobberPlace(this.lastFrame)); }
+  bite() { if (this.ok() && this.lastFrame) this.sfx!.bite(this.at(), this.bobberPlace(this.lastFrame)); }
+  strike(x: number, z: number, r: number) { if (this.ok()) this.sfx!.strike(this.at(), r, this.place(x, z) ?? undefined); }
+  thrash(x: number, z: number, r: number) { if (this.ok()) this.sfx!.thrash(this.at(), r, this.place(x, z) ?? undefined); }
+  leap(x: number, z: number, r: number) { if (this.ok()) this.sfx!.leap(this.at(), r, this.place(x, z) ?? undefined); }
+  breach(x: number, z: number, r: number) { if (this.ok()) this.sfx!.breach(this.at(), r, this.place(x, z) ?? undefined); }
+  slip() { if (this.ok()) this.sfx!.slip(this.at()); }
+  /** fish in hand: slap + chime; music resolves. big = rare/legendary or first of its kind */
+  landed(big: boolean) {
+    if (!this.e || !this.running) return;
+    const tonic = this.music?.lastTonic ?? 62;
+    if (this.vol.sound > 0) { this.sfx!.slap(this.at()); this.sfx!.chime(this.at() + 0.05, tonic, big); }
+    if (this.vol.music > 0) this.music?.resolve(big);
+  }
+  keep() { if (this.ok()) this.sfx!.keep(this.at()); }
+  release() { if (this.ok()) this.sfx!.release(this.at()); }
+
+  private lastAt: Record<string, number> = {};
+  /** at most one cue of a kind per `gap` seconds (frenzies squawk in bursts; pods blow in rows) */
+  private limit(kind: string, gap: number) {
+    const now = this.e!.now;
+    if (now - (this.lastAt[kind] ?? -1e9) < gap) return false;
+    this.lastAt[kind] = now;
+    return true;
+  }
+  squawk(x: number, z: number, intensity: number) {
+    if (!this.ok() || !this.limit('gull', 1.4 - 0.6 * Math.min(1, intensity))) return;
+    const p = this.place(x, z, 25, 180);
+    if (p) this.sfx!.gull(this.at() + Math.random() * 0.2, { ...p, gain: Math.min(1, p.gain * (0.6 + intensity)) });
+  }
+  mammal(kind: 'blow' | 'breach' | 'slap' | 'seal', x: number, z: number, sp = '') {
+    if (!this.ok()) return;
+    if (kind === 'blow' && !this.limit(`blow:${sp}`, /humpback/.test(sp) ? 3 : 1.8)) return;
+    const small = /dolphin|porpoise/.test(sp);
+    const big = !small && (kind === 'breach' || /orca|humpback/.test(sp));
+    const p = this.place(x, z, big ? 40 : 22, big ? 360 : 180);
+    if (!p) return;
+    if (kind === 'blow') this.sfx!.blow(this.at(), sp || 'orca', p);
+    else if (kind === 'seal') this.sfx!.splash(this.at(), sp === 'lion' ? 1 : 0.7, p);
+    else if (small) this.sfx!.splash(this.at(), 1.3, p);
+    else this.sfx!.bigSplash(this.at(), kind, p);
+  }
+  step(surface: string, speed: number) { if (this.ok()) this.sfx!.step(this.at(), surface, speed); }
+  /** NPC talk murmur: pitch from the name (stable per NPC), kids higher, cats meow */
+  talk(name: string, text: string, role: string, x?: number, z?: number) {
+    if (!this.ok()) return;
+    if (role === 'cat') { this.meow(); return; }
+    let h = 0;
+    for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const base = /kid|child/i.test(role + name) ? 74 : (h % 2 ? 57 : 64);
+    const pitch = base + (h % 7) - 3;
+    const p = x !== undefined && z !== undefined ? this.place(x, z, 8, 60) ?? undefined : undefined;
+    this.sfx!.murmur(this.at(), text, pitch, p ? { ...p, gain: Math.min(1, p.gain * 1.6) } : undefined, 2.2, 13 + (h % 4));
+  }
+  /** dialogue strip voice (one blip per typed chunk) */
+  voice(who: string, text: string, secs = 1.5) {
+    if (!this.ok()) return;
+    let h = 0;
+    for (const ch of who) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const pitch = /gran/i.test(who) ? 58 : 56 + (h % 10);
+    this.sfx!.murmur(this.at(), text, pitch, undefined, secs, 14);
+  }
+  private meow() {
+    const e = this.e!;
+    const t = this.at();
+    e.tone('sawtooth', 700, 520, t, 0.45, 0.05, { bus: 'sfx', lp: 1800, a: 0.06 })?.osc.frequency.linearRampToValueAtTime(900, t + 0.15);
+    e.log('sfx.meow');
+  }
+
+  /** UI sound (from src/ui/fx.ts). Queued if the gesture that triggers it also creates the context. */
+  ui(name: string) {
+    if (!this.e) { if (this.status.gesture) this.pendingUI.push(name); return; }
+    if (!this.running || this.vol.sound <= 0) { if (this.pendingUI.length < 4) this.pendingUI.push(name); return; }
+    this.sfx!.ui(this.at(), name);
+  }
+
+  // -------------------------------------------------------------- debug / tests
+  state() {
+    const e = this.e;
+    const m = this.music;
+    return {
+      ctx: this.ctx?.state ?? 'none', ...this.status, vol: this.vol,
+      time: e ? +e.now.toFixed(2) : 0,
+      voices: e ? { active: e.active, peak: e.peakActive, dropped: e.dropped, pools: e.poolCounts() } : null,
+      music: m ? { state: m.state, piece: m.piece ? { variant: m.piece.variant, mode: m.piece.mode, bpm: m.piece.bpm, bars: m.piece.bars, form: m.piece.form, lead: m.piece.lead, length: +m.piece.length.toFixed(1) } : null, nextIn: +(m.nextAt - (e?.now ?? 0)).toFixed(1), history: m.history } : null,
+      buses: e ? Object.fromEntries(Object.entries(e.buses).map(([k, g]) => [k, +g.gain.value.toFixed(3)])) : null,
+      zones: Object.fromEntries(Object.entries(this.zones).map(([k, v]) => [k, +v.toFixed(2)])),
+      amb: this.amb?.levels ?? null,
+      engine: this.boat ? { rate: this.boat.rate, level: this.boat.level } : null,
+      spots: this.spots.length,
+      events: e ? e.events.slice(-25) : [],
+      counts: e ? { ...e.eventCount } : {},
+    };
+  }
+  forceMusic(v: Variant) { this.music?.force(v); }
+  setGap(min: number, max: number) { AUDIO_TUNING.gapMin = min; AUDIO_TUNING.gapMax = max; if (this.music && this.e) this.music.nextAt = Math.min(this.music.nextAt, this.e.now + max); }
+}
+
+export const gameAudio = new GameAudio();
+
+// ------------------------------------------------------------------ offline renders (tests)
+/**
+ * Render a representative scene through the real graph into PCM using an OfflineAudioContext.
+ * `update` callbacks run every 0.1 s of render time via suspend(), like the live frame loop.
+ * Returns 16-bit WAV (base64) + level stats.
+ */
+export async function renderOffline(kind: string, secs: number, seed = 7) {
+  const sr = 44100;
+  const ctx = new OfflineAudioContext(2, Math.floor(sr * secs), sr);
+  const e = new AudioEngine(ctx);
+  const S = makeSfx(e);
+  const step = 0.1;
+  const hooks: ((t: number) => void)[] = [];
+  const at = (t: number, f: () => void) => hooks.push((now) => { if (now >= t && now < t + step) f(); });
+  const every = (f: (t: number) => void) => hooks.push(f);
+  const zones: Zones = { harbour: 0, shore: 0, open: 1, forest: 0 };
+  if (kind.startsWith('music:')) {
+    const v = kind.slice(6) as Variant;
+    const m = new MusicDirector(e, 0.2);
+    e.vol.sound = 0;
+    let started = false;
+    every(() => { if (!started) { m.startPiece(v, seed); started = true; } m.update({ tod: v === 'night' ? 'night' : 'overcast', town: v === 'town' ? 1 : 0, fighting: false, tension: 0, thrashing: false }, true); });
+  } else if (kind === 'fight') {
+    // a 3 s explore piece → hooked: 12 s fight with tension waves and thrashes → catch resolves
+    const m = new MusicDirector(e, 0.2);
+    let started = false;
+    every((t) => {
+      if (!started) { m.startPiece('day', seed); started = true; }
+      const fighting = t > 3 && t < 15;
+      const tension = fighting ? 0.35 + 0.35 * Math.sin((t - 3) * 0.9) + (t > 10 ? 0.25 : 0) : 0;
+      m.update({ tod: 'overcast', town: 0, fighting, tension, thrashing: fighting && Math.sin(t * 1.7) > 0.7 }, true);
+    });
+    at(15, () => { m.resolve(true); S.chime(e.now + 0.05, m.lastTonic, true); });
+  } else if (kind === 'fishing') {
+    at(0.2, () => S.cast(e.now));
+    at(1.0, () => S.plop(e.now));
+    at(2.2, () => S.nibble(e.now));
+    at(3.0, () => S.nibble(e.now));
+    at(3.8, () => S.bite(e.now));
+    at(4.2, () => S.strike(e.now, 1.5));
+    let acc = 0;
+    every((t) => { if (t > 4.3 && t < 9) { acc += step * 18; while (acc >= 1) { acc--; S.click(e.now + Math.random() * step, false); } } });
+    at(5.5, () => S.thrash(e.now, 1.2));
+    at(6.6, () => S.leap(e.now, 1.2));
+    at(7.2, () => S.breach(e.now, 1.2));
+    at(9.2, () => S.landSplash(e.now, 1.5));
+    at(9.8, () => { S.slap(e.now); S.chime(e.now + 0.05, 62, false); });
+    at(11.5, () => S.chime(e.now, 62, true));
+    at(14, () => S.release(e.now));
+    at(15.5, () => S.keep(e.now));
+  } else if (kind === 'boat') {
+    const amb = new Ambience(e, S), boat = new BoatAudio(e);
+    every((t) => {
+      const thr = t < 2 ? 0 : t < 9 ? Math.min(1, (t - 2) / 3) : t < 12 ? 0.3 : 0;
+      const sp = t < 2 ? 0 : t < 12 ? Math.min(1, (t - 2) / 5) * (t > 9 ? 0.5 : 1) : Math.max(0, 0.5 - (t - 12) * 0.2);
+      boat.update(step, thr, sp, t > 0.5, false);
+      amb.update(step, { zones, tod: 'overcast', speed: sp, onFoot: false, moored: false });
+    });
+  } else if (kind.startsWith('amb:')) {
+    const place = kind.slice(4);
+    const amb = new Ambience(e, S);
+    const tod = place.includes('night') ? 'night' : place.includes('dusk') ? 'dusk' : place.includes('fog') ? 'fog' : 'overcast';
+    if (place.startsWith('harbour')) Object.assign(zones, { harbour: 1, shore: 0.6, open: 0, forest: 0 });
+    if (place.startsWith('forest')) Object.assign(zones, { harbour: 0, shore: 1, open: 0, forest: 1 });
+    every(() => amb.update(step, { zones, tod, speed: 0, onFoot: place.startsWith('forest'), moored: place.startsWith('harbour') }));
+  } else if (kind === 'ui') {
+    ['tap', 'page', 'open', 'close', 'buy', 'sell', 'stamp', 'upgrade', 'paint', 'discover', 'quest', 'refuse'].forEach((n, i) => at(0.2 + i * 0.9, () => S.ui(e.now, n)));
+  } else if (kind === 'wildlife') {
+    const P = { gain: 0.8, pan: 0.3, lp: 9000 };
+    at(0.2, () => S.blow(e.now, 'humpback', P));
+    at(2.0, () => S.blow(e.now, 'orca', P));
+    at(3.4, () => S.blow(e.now, 'porpoise', P));
+    at(4.2, () => S.bigSplash(e.now, 'breach', P));
+    at(6.0, () => S.bigSplash(e.now, 'slap', P));
+    at(7.2, () => S.bark(e.now, P, true));
+    at(8.6, () => S.gull(e.now, P, 3));
+    at(9.8, () => S.eagle(e.now, P));
+    at(10.8, () => S.thrush(e.now, P));
+    at(12.0, () => S.foghorn(e.now, { gain: 1, pan: -0.3, lp: 900 }));
+  } else if (kind === 'foot') {
+    ['wood', 'wood', 'wood', 'wood', 'gravel', 'gravel', 'gravel', 'gravel', 'grass', 'grass', 'grass', 'grass', 'sand', 'sand', 'sand', 'sand'].forEach((s, i) => at(0.2 + i * 0.45, () => S.step(e.now, s, 0.6)));
+    at(8, () => S.murmur(e.now, 'Tie her up tight, the tide turns fast here.', 60));
+    at(10.5, () => S.murmur(e.now, 'Welcome to Cedar Landing!', 74));
+  }
+  for (let t = step; t < secs - step; t += step) {
+    const tt = +t.toFixed(3);
+    ctx.suspend(tt).then(() => { for (const h of hooks) h(tt); ctx.resume(); });
+  }
+  const buf = await ctx.startRendering();
+  const chs = [buf.getChannelData(0), buf.getChannelData(1)];
+  const stats = { ...measure(chs), peakVoices: e.peakActive, dropped: e.dropped, events: Object.keys(e.eventCount).length ? e.eventCount : undefined };
+  // 16-bit PCM WAV → base64
+  const n = buf.length, data = new DataView(new ArrayBuffer(44 + n * 4));
+  const w = (o: number, s: string) => { for (let i = 0; i < s.length; i++) data.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); data.setUint32(4, 36 + n * 4, true); w(8, 'WAVE'); w(12, 'fmt '); data.setUint32(16, 16, true);
+  data.setUint16(20, 1, true); data.setUint16(22, 2, true); data.setUint32(24, sr, true); data.setUint32(28, sr * 4, true);
+  data.setUint16(32, 4, true); data.setUint16(34, 16, true); w(36, 'data'); data.setUint32(40, n * 4, true);
+  for (let i = 0; i < n; i++) for (let c = 0; c < 2; c++) data.setInt16(44 + i * 4 + c * 2, Math.max(-32768, Math.min(32767, Math.round(chs[c][i] * 32767))), true);
+  const bytes = new Uint8Array(data.buffer);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { stats, wav: btoa(bin) };
+}
+
+/** Compose without rendering (tests can inspect form / event counts). */
+export const composePiece = compose;
+
+/**
+ * Footstep surface from the ground under the feet (the world is flat vertex-coloured):
+ * anything with more geometry under it (piers, decks, boardwalks, stairs) → wood; otherwise by
+ * colour in sRGB: green → grass, pale tan near the water → sand, grey → gravel / stone,
+ * red-brown → wood. Calibrated on Cedar Landing samples (docs/audio_study.md).
+ */
+export function surfaceFromColor(s: { c: [number, number, number]; hollow: boolean; y?: number } | null, y: number): string {
+  if (!s) return y < 1.2 ? 'sand' : 'grass';
+  if (s.hollow) return 'wood';
+  const [r, g, b] = s.c.map((v) => Math.pow(v / 255, 1 / 2.2)); // stored linear → sRGB
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), sat = mx > 0 ? (mx - mn) / mx : 0;
+  if (g >= r && g > b && sat > 0.1) return 'grass';
+  if (r > g && g > b && r - b > 0.12 && mx > 0.5 && (s.y ?? y) < 2.5) return 'sand';
+  if (sat < 0.16) return 'gravel';
+  if (r > g + 0.08) return 'wood';
+  return 'grass';
+}

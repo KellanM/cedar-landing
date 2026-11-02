@@ -11,7 +11,11 @@ export interface SaveData {
   records: Record<string, { size: number; stars: number; count: number }>;
   seenReveal: boolean;
   reachedLanding: boolean;
-  settings: { quality: 'high' | 'low'; autoReel: boolean; showFps: boolean; tod: string | null };
+  settings: {
+    quality: 'high' | 'low'; autoReel: boolean; showFps: boolean; tod: string | null;
+    /** player volumes 0..1 (0 = off): Music, and Sound (effects + ambience + UI) */
+    music: number; sound: number;
+  };
   boat?: { x: number; z: number; yaw: number; moored: boolean };
   /** which world the saved boat position belongs to */
   worldTag?: string;
@@ -29,7 +33,7 @@ export function defaultSave(): SaveData {
     records: {},
     seenReveal: false,
     reachedLanding: false,
-    settings: { quality: 'high', autoReel: false, showFps: false, tod: null },
+    settings: { quality: 'high', autoReel: false, showFps: false, tod: null, music: 0.7, sound: 1 },
   };
 }
 
@@ -39,7 +43,12 @@ export function loadSave(): SaveData {
     if (!raw) return defaultSave();
     const d = JSON.parse(raw);
     const def = defaultSave();
-    return { ...def, ...d, settings: { ...def.settings, ...(d.settings ?? {}) } };
+    const settings = { ...def.settings, ...(d.settings ?? {}) };
+    // migration (pre-audio saves): the old UI "Sound" switch lived in the UI prefs
+    if (typeof d.settings?.sound !== 'number') settings.sound = legacySoundOff() ? 0 : def.settings.sound;
+    if (typeof d.settings?.music !== 'number') settings.music = legacySoundOff() ? 0 : def.settings.music;
+    settings.music = clamp01(settings.music); settings.sound = clamp01(settings.sound);
+    return { ...def, ...d, settings };
   } catch {
     return defaultSave();
   }
@@ -51,4 +60,9 @@ export function writeSave(d: SaveData) {
 
 export function clearSave() {
   try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+}
+
+const clamp01 = (v: unknown) => (typeof v === 'number' && isFinite(v) ? Math.min(1, Math.max(0, v)) : 1);
+function legacySoundOff() {
+  try { return JSON.parse(localStorage.getItem('salish-sea-ui-v1') ?? '{}').sound === false; } catch { return false; }
 }

@@ -105,7 +105,7 @@ export class MammalField {
   group = new THREE.Group();
   blows = new BlowFX();
   /** Audio hooks (no sound assets yet): whale blow, big splash (breach / tail-lob), seal splash. */
-  onSound: ((kind: 'blow' | 'breach' | 'slap' | 'seal', x: number, z: number) => void) | null = null;
+  onSound: ((kind: 'blow' | 'breach' | 'slap' | 'seal', x: number, z: number, sp?: string) => void) | null = null;
   private pods: Pod[] = [];
   private seals: SealGroup[] = [];
   private otterGroups: OtterGroup[] = [];
@@ -643,7 +643,7 @@ export class MammalField {
             const d = 0.46 * L, tx2 = c.x - Math.sin(c.yaw) * d * 0.55, tz2 = c.z - Math.cos(c.yaw) * d * 0.55;
             this.splash.burst(tx2, tz2, 1.3 * ks + 0.3, 16);
             this.splash.splash(tx2, tz2, 1.2 * ks);
-            this.onSound?.('slap', tx2, tz2);
+            this.onSound?.('slap', tx2, tz2, pod.sp);
           }
         } else { const v = smooth((c.t - tIn - nSlap * 1.15) / tOut); pitch = lerp(0.9, 1.1, v); y = lerp(-0.3 * L, -0.75 * L, v); }
         arch = -0.03 * r; amp = 0;
@@ -669,7 +669,7 @@ export class MammalField {
             this.splash.splash(sx, sz, 2 * ks + 0.3);
             this.splash.splash(c.x - Math.sin(c.yaw) * 0.3 * L, c.z - Math.cos(c.yaw) * 0.3 * L, 1.3 * ks);
             this.splash.foam(c.x, c.z, 10, 0.45 * L, 0.5 * ks + 0.15, 2.4);
-            this.onSound?.('breach', sx, sz);
+            this.onSound?.('breach', sx, sz, pod.sp);
           }
           y = lerp(-0.12 * L, deep, smooth(v)); pitch = lerp(0.35, 0.2, v); roll = c.side * 1.5 * (1 - smooth(v));
         }
@@ -721,7 +721,7 @@ export class MammalField {
     const hx = c.x + Math.sin(c.yaw) * d * Math.cos(pitch), hz = c.z + Math.cos(c.yaw) * d * Math.cos(pitch);
     this.blows.blow(hx, 0.15, hz, pod.tune.blowH * (c.calf ? 0.55 : Math.sqrt(c.len / (pod.sp === 'orca' ? 7 : 12))));
     this.splash.ring(hx, hz, 0.35 * c.len / 3);
-    this.onSound?.('blow', hx, hz);
+    this.onSound?.('blow', hx, hz, pod.sp);
   }
 
   private hide(c: Ceta) {
@@ -803,7 +803,7 @@ export class MammalField {
         if (u >= 1) {
           this.splash.splash(x, z, s.lion ? 1 : 0.7);
           this.splash.foam(x, z, 5, 0.6, 0.3, 1.4);
-          this.onSound?.('seal', x, z);
+          this.onSound?.('seal', x, z, s.lion ? 'lion' : 'seal');
           s.st = WATER; s.t = 0; s.dur = rand(10, 18); s.away = 0;
           s.x = x; s.z = z;
         }

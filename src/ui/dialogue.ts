@@ -5,6 +5,7 @@
  */
 import { $, ctx, h, setModal, T, reduceMotion } from './ctx';
 import { fx } from './fx';
+import { gameAudio } from '../audio';
 
 export interface Line { who: string; text: string; choices?: { label: string; value: string }[] }
 
@@ -56,6 +57,7 @@ function next() {
     $('dlg-text').textContent = full.slice(0, shown);
     if (shown >= full.length) complete(line);
   };
+  gameAudio.voice(line.who, line.text, reduceMotion() ? 0.6 : Math.min(2.4, full.length / T.cps)); // non-verbal murmur while it types
   if (reduceMotion()) { shown = full.length - 1; tick(); } else typing = window.setInterval(tick, 1000 / T.cps);
 }
 

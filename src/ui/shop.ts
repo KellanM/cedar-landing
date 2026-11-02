@@ -167,7 +167,7 @@ export function buy(id: string): boolean {
   host.commit();
   just = it.id;
   tab = it.track;
-  fx('stamp');
+  fx(it.track === 'bait' ? 'buy' : 'upgrade');
   host.toast(SAID[it.track](it), 'good');
   render();
   return true;

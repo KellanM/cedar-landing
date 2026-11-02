@@ -3,6 +3,17 @@ import { CAMERA_TUNING, FISH_CAM } from '../game/camera';
 import { FIGHT_FX } from '../game/fishing';
 import { TACKLE_TUNING } from '../game/tackle';
 import { HOTSPOT_FX } from '../game/hotspots';
+import { AUDIO_TUNING } from '../audio/engine';
+import { gameAudio } from '../audio';
+
+// audio mix (src/audio/engine.ts): bus trims, reverb, engine / wake, music rest between pieces
+const AUDIO_KEY = 'salish-audio-tune-v1';
+const AUDIO_DEFAULT = { ...AUDIO_TUNING };
+const AUDIO_RANGES: Record<keyof typeof AUDIO_TUNING, [number, number, number]> = {
+  music: [0, 1.5, 0.05], sfx: [0, 1.5, 0.05], amb: [0, 1.5, 0.05], ui: [0, 1.5, 0.05], reverb: [0, 0.6, 0.02],
+  engine: [0, 1.5, 0.05], wake: [0, 1.5, 0.05], gapMin: [0, 300, 5], gapMax: [10, 600, 5], blip: [0, 2, 0.05],
+};
+const saveAudio = () => { localStorage.setItem(AUDIO_KEY, JSON.stringify(AUDIO_TUNING)); gameAudio.e?.applyLevels(); };
 
 // fishing polish (docs/study/fishing_polish.md): camera framing/juice, fight VFX, float, spot marker
 const FISH_KEY = 'salish-fish-tune-v1';
@@ -45,6 +56,7 @@ export function initTuneOverlay() {
     const f = JSON.parse(localStorage.getItem(FISH_KEY) ?? '{}');
     Object.assign(FISH_CAM, f.cam ?? {}); Object.assign(FIGHT_FX, f.fx ?? {}); Object.assign(TACKLE_TUNING, f.tackle ?? {}); Object.assign(HOTSPOT_FX, f.spot ?? {});
   } catch { /* ignore */ }
+  try { Object.assign(AUDIO_TUNING, JSON.parse(localStorage.getItem(AUDIO_KEY) ?? '{}')); } catch { /* ignore */ }
   const saveFish = () => localStorage.setItem(FISH_KEY, JSON.stringify({ cam: FISH_CAM, fx: FIGHT_FX, tackle: TACKLE_TUNING, spot: HOTSPOT_FX }));
 
   const panel = document.createElement('div');
@@ -65,7 +77,8 @@ export function initTuneOverlay() {
   btn('reset', () => {
     Object.assign(BOAT_TUNING, BOAT_T0); Object.assign(CAMERA_TUNING, CAM_DEFAULT);
     Object.assign(FISH_CAM, FISH_DEFAULT.cam); Object.assign(FIGHT_FX, FISH_DEFAULT.fx); Object.assign(TACKLE_TUNING, FISH_DEFAULT.tackle); Object.assign(HOTSPOT_FX, FISH_DEFAULT.spot);
-    localStorage.removeItem(KEY); localStorage.removeItem(CAM_KEY); localStorage.removeItem(FISH_KEY); render();
+    Object.assign(AUDIO_TUNING, AUDIO_DEFAULT); gameAudio.e?.applyLevels();
+    localStorage.removeItem(KEY); localStorage.removeItem(CAM_KEY); localStorage.removeItem(FISH_KEY); localStorage.removeItem(AUDIO_KEY); render();
   });
   btn('copy', () => { navigator.clipboard?.writeText(JSON.stringify({ BOAT_TUNING, CAMERA_TUNING, FISH_CAM, FIGHT_FX, TACKLE_TUNING, HOTSPOT_FX }, null, 2)).catch(() => {}); });
   panel.append(head, body);
@@ -104,6 +117,7 @@ export function initTuneOverlay() {
     section('Fight FX', FIGHT_FX as Record<string, number>, FIGHT_RANGES, saveFish);
     section('Float + line', TACKLE_TUNING as Record<string, number>, TACKLE_RANGES, saveFish);
     section('Fishing spot', HOTSPOT_FX as Record<string, number>, SPOT_RANGES, saveFish);
+    section('Audio mix', AUDIO_TUNING as Record<string, number>, AUDIO_RANGES, saveAudio);
   }
   render();
   document.body.appendChild(panel);

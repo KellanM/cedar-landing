@@ -15,6 +15,8 @@ export interface UIHandlers {
   autoReel(): void;
   tod(): void;
   fps(): void;
+  /** Music / Sound volume 0..1 (persisted in the save's settings) */
+  volume(which: 'music' | 'sound', v: number): void;
   reset(): void;
 }
 

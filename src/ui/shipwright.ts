@@ -222,7 +222,7 @@ export function commitPaint(): boolean {
   pending = {};
   host.commit();
   preview();
-  fx('stamp');
+  fx('paint');
   host.toast(`Fresh paint on ${BOAT_TIERS[u.boat].name}`, 'good');
   render();
   return true;
@@ -237,7 +237,7 @@ export function chooseFlag(id: string): boolean {
     if (host.save.shells < f.price) return false;
     host.save.shells -= f.price;
     u.flags.push(id);
-    fx('stamp');
+    fx('buy');
   } else fx('tap');
   u.flag = id;
   setFlag(host.boatModel(), id);
@@ -255,6 +255,7 @@ export function buyBoat(id: BoatTierId): boolean {
   host.save.shells -= t.price;
   u.boats.push(id);
   host.commit();
+  fx('upgrade');
   takeBoat(id, true);
   host.launched(id);
   return true;
