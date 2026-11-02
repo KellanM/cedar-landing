@@ -29,6 +29,8 @@ const browser = await chromium.launch({
 });
 const lines = [];
 const log = (...a) => { console.log(...a); lines.push(a.join(' ')); };
+const failures = [];
+const check = (name, ok, what) => { if (!ok) { failures.push(`[${name}] ${what}`); log(`[${name}] FAIL: ${what}`); } };
 
 const FAKE_SAVE = {
   shells: 0, coolerCap: 2, records: {}, seenReveal: true, reachedLanding: true,
@@ -53,7 +55,7 @@ async function run(name, viewport, isMobile) {
     const np = await page.evaluate(([x, z]) => window.__debug.footPathTo(x, z), [x, z]);
     const t0 = Date.now();
     let f = 0;
-    while (Date.now() - t0 < 15000) {
+    while (Date.now() - t0 < 30000) {
       const s = await st();
       if (!s.foot.autoWalk) break;
       if (f < frames) { await shot(`walk_${String(f).padStart(2, '0')}`); f++; await sleep(120); } else await sleep(100);
@@ -83,6 +85,7 @@ async function run(name, viewport, isMobile) {
   await sleep(1100);
   s = await st();
   const landed = s.foot.feet;
+  check(name, s.foot.mode === 'foot', 'step ashore');
   log(`[${name}] stepped ashore: mode`, s.foot.mode, 'feet', JSON.stringify(s.foot.feet), 'boat moored', s.boat.moored, 'model', s.foot.model);
   await shot('03_ashore');
 
@@ -105,17 +108,21 @@ async function run(name, viewport, isMobile) {
     const before = (await st()).shells;
     await page.click('#sell-all');
     await sleep(300);
-    log(`[${name}] sold on foot: shells`, before, '->', (await st()).shells);
+    const after = (await st()).shells;
+    check(name, after > before, 'sell on foot');
+    log(`[${name}] sold on foot: shells`, before, '->', after);
     await page.click('#sell-close');
-  } else log(`[${name}] !! no Sell prompt at the market`);
+  } else check(name, false, 'Sell prompt at the market');
 
   // 5) Plaza: talk to the crier.
   await walkTo(16.3, 147.8, 'market west door');
+  await walkTo(21.6, 144.7, 'plaza bridge (west end)');
   s = await walkTo(24.9, 140.4, 'plaza / crier', 14);
   log(`[${name}] at plaza ctx`, JSON.stringify(s.foot.ctx));
   await page.keyboard.press('e');
   await sleep(400);
   s = await st();
+  check(name, !!s.foot.bubble, 'NPC talk bubble');
   log(`[${name}] talk: bubble`, JSON.stringify(s.foot.bubble));
   await shot('06_plaza_talk');
 
@@ -135,11 +142,16 @@ async function run(name, viewport, isMobile) {
   await page.waitForFunction(() => window.__debug && window.__debug.state.chunks > 0, null, { timeout: 120000 });
   await sleep(1500);
   s = await st();
+  check(name, s.foot.mode === 'foot', 'restore on foot after reload');
   log(`[${name}] after reload: mode`, s.foot.mode, 'feet', JSON.stringify(s.foot.feet));
   await shot('08_restored');
 
   // 8) Walk back to the boat and board.
+  // Return the way we came (same legs as the outbound trip, reversed).
+  await walkTo(22.6, 144.0, 'plaza bridge (east end)');
+  await walkTo(20.2, 145.3, 'wharf junction');
   await walkTo(16.3, 147.8, 'market west door');
+  await walkTo(21.2, 150.9, 'fish market');
   s = await walkTo(landed.x, landed.z, 'back to the landing spot');
   log(`[${name}] near boat ctx`, s.foot.ctx);
   await page.keyboard.press('e');
@@ -147,6 +159,7 @@ async function run(name, viewport, isMobile) {
   await shot('09_boarding');
   await sleep(1300);
   s = await st();
+  check(name, s.foot.mode === 'boat', 'board');
   log(`[${name}] boarded: mode`, s.foot.mode, 'moored', s.boat.moored, 'saved onfoot', JSON.stringify(await page.evaluate(() => JSON.parse(localStorage.getItem('salish-sea-save-v1') || '{}').onfoot)));
   await shot('10_boarded');
   // paddle away
@@ -155,6 +168,7 @@ async function run(name, viewport, isMobile) {
   await page.keyboard.up('w');
   s = await st();
   log(`[${name}] paddled: moored`, s.boat.moored, 'speed', s.boat.speed.toFixed(2), 'fps', s.fps);
+  check(name, !errors.length, 'no console errors');
   log(`[${name}] console errors: ${errors.length}`, errors.slice(0, 5).join(' | '));
   await ctx.close();
 }
@@ -162,4 +176,6 @@ async function run(name, viewport, isMobile) {
 if (!ONLY || ONLY === 'phone') await run('phone', { width: 390, height: 844 }, true);
 if (!ONLY || ONLY === 'desktop') await run('desktop', { width: 1280, height: 800 }, false);
 await browser.close();
+log(failures.length ? `FAILED: ${failures.join('; ')}` : 'PASS');
 fs.writeFileSync(`${OUT}/foot_log.txt`, lines.join('\n'));
+process.exitCode = failures.length ? 1 : 0;

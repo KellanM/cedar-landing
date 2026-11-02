@@ -79,7 +79,7 @@ export class FootWorld {
   private build(e: Entry) {
     const t0 = performance.now();
     const g = bakeChunk(e.chunk.object);
-    e.bvh = g ? new MeshBVH(g, { maxLeafSize: 12 }) : new MeshBVH(new THREE.BoxGeometry(0, 0, 0));
+    e.bvh = g ? new MeshBVH(g, { targetLeafSize: 12 }) : new MeshBVH(new THREE.BoxGeometry(0, 0, 0));
     this.buildMs += performance.now() - t0;
     this.built++;
   }

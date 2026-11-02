@@ -6,22 +6,32 @@ import { STEP_UP, WATER_Y } from './footworld';
  * Debug/test helper: grid A* over walkable cells (same ground + wall tests as the controller),
  * so automated tests can walk real routes through the village instead of teleporting.
  */
-export function findPath(world: FootWorld, from: { x: number; y: number; z: number }, to: { x: number; z: number }, cell = 0.35, margin = 8) {
-  const x0 = Math.min(from.x, to.x) - margin, z0 = Math.min(from.z, to.z) - margin;
-  const W = Math.ceil((Math.abs(to.x - from.x) + 2 * margin) / cell) + 1;
-  const H = Math.ceil((Math.abs(to.z - from.z) + 2 * margin) / cell) + 1;
+export function findPath(world: FootWorld, from: { x: number; y: number; z: number }, to: { x: number; z: number }, cell = 0.25, margin = 8) {
+  // Grid anchored to world coordinates, so results don't depend on exactly where you start.
+  const x0 = Math.floor((Math.min(from.x, to.x) - margin) / cell) * cell;
+  const z0 = Math.floor((Math.min(from.z, to.z) - margin) / cell) * cell;
+  const W = Math.ceil((Math.max(from.x, to.x) + margin - x0) / cell) + 1;
+  const H = Math.ceil((Math.max(from.z, to.z) + margin - z0) / cell) + 1;
   const N = W * H;
   const hy = new Float32Array(N).fill(NaN);
   const probed = new Uint8Array(N);
   const p = new THREE.Vector3();
-  const height = (i: number, nearY: number) => {
+  // Probe every cell against the same reference height (order-independent; the village is one
+  // level of decks ± steps).
+  const refY = from.y;
+  const height = (i: number, _nearY: number) => {
     if (probed[i]) return hy[i];
     probed[i] = 1;
     const x = x0 + (i % W) * cell, z = z0 + Math.floor(i / W) * cell;
-    const g = world.groundAt(x, z, nearY, STEP_UP, 1.1);
+    const g = world.groundAt(x, z, refY, 0.8, 1.2);
     if (!g || g.y < WATER_Y) return NaN;
+    // Keep the same lip the controller keeps from drops / water (FOOT.edgeLook + radius).
+    for (const [ox, oz] of [[0.18, 0], [-0.18, 0], [0, 0.18], [0, -0.18]]) {
+      const gn = world.groundAt(x + ox, z + oz, g.y, STEP_UP, 1.1);
+      if (!gn || gn.y < WATER_Y) return NaN;
+    }
     const push = world.pushOut(p.set(x, g.y, z), 0.26, 1.65);
-    if (push > 0.06) return NaN;
+    if (push > 0.12) return NaN;
     hy[i] = g.y;
     return g.y;
   };
@@ -37,7 +47,7 @@ export function findPath(world: FootWorld, from: { x: number; y: number; z: numb
   f[start] = hx(start);
   let best = start;
   let iters = 0;
-  while (open.length && iters++ < 40000) {
+  while (open.length && iters++ < 80000) {
     let bi = 0;
     for (let k = 1; k < open.length; k++) if (f[open[k]] < f[open[bi]]) bi = k;
     const cur = open.splice(bi, 1)[0];

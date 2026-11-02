@@ -75,6 +75,8 @@ export class OnFoot {
   private talkCount = new Map<string, number>();
   private autoWalk: { x: number; z: number } | null = null;
   private autoPath: { x: number; z: number }[] = [];
+  private autoGoal: { x: number; z: number } | null = null;
+  private autoStall = 0;
   private returnBlend: { pos: THREE.Vector3; q: THREE.Quaternion; t: number } | null = null;
   lastSpeed = 0;
   steps = 0;
@@ -263,8 +265,8 @@ export class OnFoot {
     const boat = this.host.boat();
     const db = Math.hypot(boat.pos.x - f.x, boat.pos.z - f.z);
     if (boat.moored && db < FOOT.boardRange) {
-      // score by the gap to the hull, not the boat's centre (boats sit a few metres off the deck)
-      bs = Math.max(0.2, db - 4.5) * face(boat.pos.x, boat.pos.z);
+      // score by the gap to the hull, not the boat's centre: the troller (~7 m) sits 6-7 m off the deck
+      bs = Math.max(0.2, db - 5.5) * face(boat.pos.x, boat.pos.z);
       best = { name: 'board', label: 'Board', prompt: 'Board your boat', run: () => this.board() };
       look = boat.pos.clone().setY(1);
     }
@@ -305,9 +307,11 @@ export class OnFoot {
   }
 
   /** Debug/test: walk toward a world point through the normal controller (null to stop). */
-  setAutoWalk(x: number | null, z = 0) { this.autoWalk = x === null ? null : { x, z }; this.autoPath = []; }
+  setAutoWalk(x: number | null, z = 0) { this.autoWalk = x === null ? null : { x, z }; this.autoPath = []; this.autoGoal = null; }
   /** Debug/test: A* a route over the walkable grid and follow it with the normal controller. */
   setAutoPath(x: number, z: number) {
+    this.autoGoal = { x, z };
+    this.autoStall = 0;
     const path = findPath(this.world, this.feet, { x, z });
     this.autoPath = path.slice(1);
     this.autoWalk = this.autoPath.shift() ?? null;
@@ -322,6 +326,13 @@ export class OnFoot {
     this.world.pushOut(p, FOOT.radius, FOOT.height);
     const g = this.world.walkable(p.x, p.z, this.feet.y);
     if (!g) return null;
+    // Only step DOWN onto something with open footing all round (stairs, lower decks) — never onto
+    // a narrow stringer / beam lip below a deck edge.
+    if (g.y < this.feet.y - 0.2) {
+      for (const [ox, oz] of [[0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]]) {
+        if (!this.world.walkable(p.x + ox, p.z + oz, g.y)) return null;
+      }
+    }
     // Keep a lip back from drop-offs / water so the body never hangs over the edge.
     const L = Math.hypot(dirx, dirz);
     if (L > 1e-4) {
@@ -345,11 +356,11 @@ export class OnFoot {
     if (this.autoWalk) {
       const dx = this.autoWalk.x - this.feet.x, dz = this.autoWalk.z - this.feet.z;
       const d = Math.hypot(dx, dz);
-      if (d < (this.autoPath.length ? 0.6 : 0.4)) { this.autoWalk = this.autoPath.shift() ?? null; mx = 0; my = 0; } else {
+      if (d < (this.autoPath.length ? 0.3 : 0.35)) { this.autoWalk = this.autoPath.shift() ?? null; mx = 0; my = 0; } else {
         // convert world direction to camera-relative stick
         const a = this.cam.viewYaw;
         const fx = -Math.sin(a), fz = -Math.cos(a), rx = Math.cos(a), rz = -Math.sin(a);
-        my = (dx * fx + dz * fz) / d; mx = (dx * rx + dz * rz) / d; run = d > 3;
+        my = (dx * fx + dz * fz) / d; mx = (dx * rx + dz * rz) / d; run = false;
       }
     }
     if (frozen) { mx = 0; my = 0; }
@@ -389,6 +400,11 @@ export class OnFoot {
     const moved = Math.hypot(this.feet.x - sx, this.feet.z - sz);
     const speed = dt > 0 ? moved / dt : 0;
     if (moved < Math.hypot(stepX, stepZ) * 0.3) { this.vel.multiplyScalar(0.5); }
+    // Test autopilot: re-plan from here if the walker stalls (e.g. against the edge lip).
+    if (this.autoWalk && this.autoGoal) {
+      this.autoStall = speed < 0.2 ? this.autoStall + dt : 0;
+      if (this.autoStall > 0.6) { const g = this.autoGoal; this.setAutoPath(g.x, g.z); }
+    }
     this.lastSpeed = speed;
 
     // ---- vertical: snap up steps, fall down small drops
