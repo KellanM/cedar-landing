@@ -44,6 +44,9 @@ export const ctx = {
   chart: null as ChartSource | null,
   boat: { x: 0, z: 0, yaw: 0 },
   tod: 'overcast',
+  /** HUD clock text "HH:MM" and the words for the current look */
+  clock: '10:40',
+  clockWords: 'Grey and still',
   worldInfo: 'placeholder',
   layout: 'portrait' as Layout,
   modal: null as Modal,

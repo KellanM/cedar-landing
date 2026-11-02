@@ -287,10 +287,14 @@ const TOD_INFO: Record<string, { icon: string; time: string; words: string }> = 
 };
 const todInfo = (k: string) => TOD_INFO[k] ?? { icon: 'cloud', time: '12:00', words: k };
 let clockPop = 0;
-export function setTOD(key: string) {
+export function setTOD(key: string, time?: string, words?: string) {
   const changed = ctx.tod !== key;
+  const ticked = changed || ctx.clock !== time;
   ctx.tod = key;
-  const t = todInfo(key);
+  const t = { ...todInfo(key) };
+  if (time) t.time = time;
+  if (words) t.words = words;
+  ctx.clock = t.time; ctx.clockWords = t.words;
   $('clock-ico').innerHTML = ICONS[t.icon];
   $('clock-time').textContent = t.time;
   $('clock').title = t.words;
@@ -302,7 +306,7 @@ export function setTOD(key: string) {
     clearTimeout(clockPop);
     clockPop = window.setTimeout(() => $('clock').classList.remove('pop'), T.peek);
   }
-  refreshLog();
+  if (ticked) refreshLog();
 }
 
 // ------------------------------------------------------------------ fishing cues

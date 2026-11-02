@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { Sky, Sea } from './render/environment';
 import { backdropHaze, setTint } from './render/materials';
 import { InstanceField } from './render/instances';
-import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingTOD, updateLighting } from './render/lighting';
+import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingBlend, updateLighting } from './render/lighting';
+import { setLineContext, setNpcRoster } from './game/onfoot/npclines';
+import { DAY_REAL_MIN, LOOK_HOUR, START_HOUR, clockText, lookAt, lookWords, wrapHour, type ClockLook } from './game/clock';
 import { flutterMat } from './render/materials';
 import { buildPlaceholderWorld, placeholderBoat } from './world/placeholder';
 import { checkReady, loadExportWorld } from './world/loader';
-import type { Hotspot, Interact, LoadedWorld } from './world/types';
+import type { Hotspot, Interact, LoadedWorld, TimeOfDay } from './world/types';
 import { Input } from './game/input';
 import { LandCollision } from './game/collision';
 import { Boat, BOAT_TUNING } from './game/boat';
@@ -137,7 +139,11 @@ let squawks = 0;
 let boat: Boat;
 let landing: Interact | null = null; // Cedar Landing fish market (compass + reveal)
 let todKeys: string[] = [];
-let todIndex = 0;
+/** game clock (hours) and the current blend of time-of-day looks */
+let clockHour = START_HOUR;
+let look: ClockLook = { a: 'overcast', b: 'overcast', f: 0, key: 'overcast' };
+let todTimer = 0;
+const todBlend: TimeOfDay = { zenith: '', horizon: '', sea: '', haze: '', tint: [1, 1, 1] };
 let pendingCatch: CaughtFish | null = null;
 let modalOpen = false;
 // On-foot mode (src/game/onfoot): walk around the village with the boat tied up.
@@ -211,14 +217,15 @@ function installWorld(w: LoadedWorld) {
   boat.update(0, 0, 0, land);
   chase.snap(boat);
   foot.setWorld(w);
+  setNpcRoster(w.gameplay.npcs ?? []);
   if (save.onfoot && boat.moored && save.worldTag === w.source && !foot.active) foot.restore(save.onfoot);
 
   const ints = w.gameplay.interacts;
   landing = ints.find((i) => i.name === 'Interact_SellFish') ?? ints.find((i) => i.kind === 'sell_fish') ?? null;
 
   todKeys = Object.keys(w.gameplay.time_of_day);
-  const want = save.settings.tod && todKeys.includes(save.settings.tod) ? save.settings.tod : todKeys.includes('overcast') ? 'overcast' : todKeys[0];
-  todIndex = Math.max(0, todKeys.indexOf(want));
+  // the clock carries on from the save; old saves with a fixed look start at that look's hour
+  clockHour = typeof save.clock === 'number' ? wrapHour(save.clock) : save.settings.tod && LOOK_HOUR[save.settings.tod] !== undefined ? LOOK_HOUR[save.settings.tod] : START_HOUR;
   applyTOD();
 
   fishing.cancel();
@@ -250,16 +257,29 @@ function buildWildlife() {
   scene.add(smoke.mesh, fogBanks.mesh);
 }
 
+const _ca = new THREE.Color(), _cb = new THREE.Color();
+const mixHex = (a: string | undefined, b: string | undefined, f: number) => {
+  if (!a) return b ?? '#000000';
+  if (!b || f <= 0) return a;
+  return '#' + _ca.set(a).lerp(_cb.set(b), f).getHexString();
+};
 function applyTOD() {
   if (!world) return;
-  const key = todKeys[todIndex];
-  const t = world.gameplay.time_of_day[key];
+  look = lookAt(clockHour, todKeys);
+  const key = look.key;
+  const A = world.gameplay.time_of_day[look.a], B = world.gameplay.time_of_day[look.b] ?? A;
+  const f = look.f;
+  todBlend.zenith = mixHex(A.zenith, B.zenith, f); todBlend.horizon = mixHex(A.horizon, B.horizon, f);
+  todBlend.sea = mixHex(A.sea, B.sea, f); todBlend.haze = mixHex(A.haze, B.haze, f);
+  todBlend.shallow = A.shallow || B.shallow ? mixHex(A.shallow ?? A.sea, B.shallow ?? B.sea, f) : undefined;
+  todBlend.tint = [0, 1, 2].map((i) => A.tint[i] + (B.tint[i] - A.tint[i]) * f) as [number, number, number];
+  const t = { ...(f < 0.5 ? A : B), ...todBlend } as typeof A;
   sky.apply(t);
   sea.apply(t);
   (scene.fog as THREE.Fog).color.set(t.haze);
   renderer.setClearColor(t.haze);
   setTint(t.tint);
-  setLightingTOD(key, t as Parameters<typeof setLightingTOD>[1]);
+  setLightingBlend(look.a, A as Parameters<typeof setLightingBlend>[1], look.b, B as Parameters<typeof setLightingBlend>[1], f);
   const foggy = /fog/i.test(key);
   (scene.fog as THREE.Fog).near = foggy ? 12 : quality.fogNear;
   (scene.fog as THREE.Fog).far = foggy ? 210 : quality.fogFar;
@@ -267,7 +287,8 @@ function applyTOD() {
   fogBanks?.set(foggy ? 1 : key === 'overcast' ? 0.25 : 0, t.haze);
   wake.setSea(t.sea);
   backdropHaze.value = foggy ? 0.92 : quality.haze;
-  hud.setTOD(key);
+  hud.setTOD(key, clockText(clockHour), lookWords(key));
+  setLineContext(key, clockHour);
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.haze);
 }
 
@@ -493,9 +514,12 @@ function swingStern(adt: number) {
 function refreshSettingsUI() {
   $('fps').classList.toggle('hidden', !save.settings.showFps);
 }
+/** Debug: jump the clock to the next look's hour. */
 function cycleTOD() {
-  todIndex = (todIndex + 1) % Math.max(1, todKeys.length);
-  save.settings.tod = todKeys[todIndex];
+  const order = ['fog', 'overcast', 'sunbreak', 'dusk', 'night'].filter((k) => todKeys.includes(k));
+  const next = order[(order.indexOf(look.key) + 1) % Math.max(1, order.length)] ?? look.key;
+  clockHour = LOOK_HOUR[next] ?? clockHour;
+  save.clock = clockHour;
   writeSave(save);
   applyTOD();
 }
@@ -620,6 +644,13 @@ function frame(now: number) {
   input.update();
 
   if (world && !hud.paused()) {
+    // the day turns while you play (paused in the Log, shops and menus)
+    if (!modalOpen && dt > 0) {
+      clockHour = wrapHour(clockHour + (dt * 24) / (DAY_REAL_MIN * 60));
+      save.clock = clockHour;
+      todTimer += dt;
+      if (todTimer > 0.5) { todTimer = 0; applyTOD(); }
+    }
     const tapped = input.consumeTap();
     if (chase.inShot) {
       if (tapped || input.consumeAction()) chase.skipShot();
@@ -702,7 +733,7 @@ function audioFrame(dt: number) {
     boat: { x: boat.pos.x, z: boat.pos.z, speed: boat.speed, maxSpeed: BOAT_TUNING.maxSpeed, throttle: lastThrottle, moored: boat.moored, heavy: boat.modelObject?.name === 'BOAT_T1' },
     onFoot: foot.active,
     feet: foot.active ? { x: foot.feet.x, z: foot.feet.z } : undefined,
-    tod: todKeys[todIndex] ?? 'overcast',
+    tod: look.key,
     fishing: { phase: fishing.phase, tension: fishing.tension, reelHeld: fishing.reelHeld, thrashing: fishing.thrashing, distance: fishing.distance, bobber: { x: bp.x, z: bp.z } },
   });
 }
@@ -728,7 +759,7 @@ window.__debug = {
       boat: { x: boat?.pos.x, z: boat?.pos.z, yaw: boat?.yaw, speed: boat?.speed, moored: boat?.moored },
       phase: fishing.phase, tension: fishing.tension, distance: fishing.distance, species: fishing.species?.name,
       shells: save.shells, cooler: save.cooler.map((f) => `${f.name} ${f.size}cm ${f.stars}★ ${f.price}`), fps: Math.round(fps),
-      tod: todKeys[todIndex], nearestHotspot: nearestHotspot()?.hs.name, nearestHotspotDist: nearestHotspot()?.d,
+      tod: look.key, clock: clockText(clockHour), nearestHotspot: nearestHotspot()?.hs.name, nearestHotspotDist: nearestHotspot()?.d,
       wildlife: wildlife ? { ...wildlife.birds.stats(), mammals: wildlife.mammals.count, blows: wildlife.mammals.blows.count, ms: +wildlife.cost.toFixed(3), squawks } : null,
       fx: { smokeEmitters: smoke?.emitterCount ?? 0, floaters: floaters?.count ?? 0, fogBanks: fogBanks?.mesh.visible ? fogBanks.mesh.count : 0 },
       interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, npcAnim: crowd ? { ...crowd.stats, ms: +crowd.stats.ms.toFixed(3) } : null, inShot: chase.inShot, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
@@ -790,6 +821,8 @@ window.__debug = {
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,
+  /** jump the game clock (hours) */
+  setClock: (h: number) => { clockHour = wrapHour(h); save.clock = clockHour; applyTOD(); return clockText(clockHour); },
   skipperState: () => ({ ready: skipper.ready, attached: skipper.attached, pose: skipper.currentPose, landingK: chase.landingK }),
   keep: () => closeCard(true),
   sellAll: () => sellFish(save.cooler.map((_, i) => i)),

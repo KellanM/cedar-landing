@@ -115,7 +115,8 @@ function show(t: Tab, keepScroll = false) {
 
 function head() {
   const tod = ctx.tod;
-  const info = TOD_HEAD[tod] ?? { ico: 'cloud', t: '12:00', w: tod };
+  const base = TOD_HEAD[tod] ?? { ico: 'cloud', t: '12:00', w: tod };
+  const info = { ...base, t: ctx.clock || base.t };
   $('log-head-info').innerHTML = `<span class="ico">${ICONS[info.ico]}</span><span class="num">${info.t}</span><span class="w">${info.w}</span><span class="sh"><span class="ico">${ICONS.shell}</span><b class="num">${ctx.save?.shells ?? 0}</b></span>`;
 }
 const TOD_HEAD: Record<string, { ico: string; t: string; w: string }> = {

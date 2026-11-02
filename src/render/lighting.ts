@@ -139,6 +139,28 @@ export function setLightingTOD(key: string, tod?: TodSun, instant = false) {
   if (first || instant) { copyState(cur, target); first = false; push(); }
 }
 
+const blendB = mkState();
+/** Continuous clock: target = look `a` blended toward look `b` by `f` (0..1). */
+export function setLightingBlend(a: string, todA: TodSun, b: string, todB: TodSun, f: number) {
+  presetKey = f < 0.5 ? a : b;
+  lastTod = f < 0.5 ? todA : todB;
+  const sunOf = (k: string, t: TodSun) => (t?.clouds?.sun && t.clouds.sun.length === 2 ? t.clouds.sun : presetFor(k).sun) as [number, number];
+  fillState(target, presetFor(a), sunOf(a, todA));
+  if (f > 0 && b !== a) {
+    fillState(blendB, presetFor(b), sunOf(b, todB));
+    target.dir.lerp(blendB.dir, f).normalize();
+    target.lit.lerp(blendB.lit, f);
+    target.side.lerp(blendB.side, f);
+    target.shadow.lerp(blendB.shadow, f);
+    target.t0 += (blendB.t0 - target.t0) * f;
+    target.t1 += (blendB.t1 - target.t1) * f;
+    target.sky += (blendB.sky - target.sky) * f;
+    target.ambient += (blendB.ambient - target.ambient) * f;
+    target.wind += (blendB.wind - target.wind) * f;
+  }
+  if (first) { copyState(cur, target); first = false; push(); }
+}
+
 function copyState(a: State, b: State) {
   a.dir.copy(b.dir); a.lit.copy(b.lit); a.side.copy(b.side); a.shadow.copy(b.shadow);
   a.t0 = b.t0; a.t1 = b.t1; a.sky = b.sky; a.ambient = b.ambient; a.wind = b.wind;

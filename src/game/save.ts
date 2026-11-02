@@ -23,6 +23,8 @@ export interface SaveData {
   onfoot?: { x: number; y: number; z: number; yaw: number } | null;
   /** gear tiers, boats, paint, flags (game/progression/gear.ts ensureUpg fills defaults) */
   upg?: UpgSave;
+  /** game clock, hours 0..24 (game/clock.ts) */
+  clock?: number;
 }
 
 export function defaultSave(): SaveData {
