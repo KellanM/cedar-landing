@@ -90,7 +90,9 @@ async function run(name, viewport, isMobile) {
   await page.keyboard.up('Space');
   const landed = await st();
   log(`[${name}] reel finished in`, ((Date.now() - t1) / 1000).toFixed(1), 's, phase', landed.phase, 'species', landed.species);
-  await sleep(400);
+  // Two-tier catch result: a first catch is always NEW, so the specimen card enters at t0+0.9 s and
+  // its buttons ignore taps for 400 ms (input guard) — wait until it is armed.
+  await page.waitForSelector('#card.armed #card-keep', { timeout: 6000 });
   await page.screenshot({ path: `${OUT}/${name}_05_catchcard.png` });
   await page.click('#card-keep');
   await sleep(300);
