@@ -35,6 +35,9 @@ export interface FishingEvents {
   toast(msg: string, kind?: 'info' | 'good' | 'warn'): void;
   landed(fish: CaughtFish, species: Species, perfect: boolean): void;
   bite(): void;
+  /** UI hooks (sound/haptics); optional */
+  nibble?(): void;
+  slip?(): void;
 }
 
 export class Fishing {
@@ -51,6 +54,8 @@ export class Fishing {
   thrashing = false;
   slips = 0;
   reelHeld = false;
+  /** which way the fish is pulling during a thrash (-1 left / +1 right), for the UI arrow */
+  pull = 1;
 
   private t = 0;
   private nibbles: number[] = [];
@@ -135,7 +140,7 @@ export class Fishing {
     switch (this.phase) {
       case 'waiting':
         // Too early: the fish startles but stays around — try again, no bait loss.
-        this.ev.toast('Too early! It swam off…', 'warn');
+        this.ev.toast('Too soon! It swam off… it\'ll be back', 'warn');
         this.phase = 'missed';
         this.t = 0;
         return true;
@@ -184,7 +189,7 @@ export class Fishing {
         const e = THREE.MathUtils.smoothstep(k, 0, 1);
         this.shadowPos.copy(this.shadowFrom).lerp(new THREE.Vector3(this.bobberPos.x, 0.01, this.bobberPos.z), e * 0.88);
         this.shadow.material.opacity = Math.min(0.45, this.t * 0.4);
-        while (this.nibbles.length && this.t >= this.nibbles[0]) { this.nibbles.shift(); this.dip = 0.08; this.doSplash(0.25); }
+        while (this.nibbles.length && this.t >= this.nibbles[0]) { this.nibbles.shift(); this.dip = 0.08; this.doSplash(0.25); this.ev.nibble?.(); }
         if (this.t >= this.biteAt) {
           this.phase = 'bite';
           this.t = 0;
@@ -198,7 +203,7 @@ export class Fishing {
       case 'bite': {
         this.dip = Math.max(this.dip, 0.25);
         if (this.t > T.biteWindow) {
-          this.ev.toast('Missed the bite — it\'s still nearby', 'warn');
+          this.ev.toast('Missed it! Still nosing about', 'warn');
           this.phase = 'missed';
           this.t = 0;
         }
@@ -226,6 +231,7 @@ export class Fishing {
           const b = BEHAVIOR[this.species!.behavior];
           this.thrashing = true;
           this.thrashEnd = this.t + rand(b.len[0], b.len[1]);
+          this.pull = Math.random() < 0.5 ? -1 : 1;
         } else if (this.thrashing && this.t >= this.thrashEnd) {
           this.thrashing = false;
           this.scheduleThrash();
@@ -245,11 +251,13 @@ export class Fishing {
           this.slips++;
           this.distance += T.slipGain;
           this.tension = 0.55;
-          this.ev.toast('Line slipped! Ease off when it thrashes', 'warn');
+          this.ev.toast('Line slipped! Ease off when it pulls', 'warn');
+          this.ev.slip?.();
         }
         // fish shadow tugs around at the line's end
         const dir = new THREE.Vector3(this.bobberPos.x - boatPos.x, 0, this.bobberPos.z - boatPos.z).normalize();
-        const wob = Math.sin(this.t * (this.thrashing ? 9 : 3)) * (this.thrashing ? 0.9 : 0.3);
+        // during a thrash the fish swings out to the `pull` side, so the UI arrow tells the truth
+        const wob = this.thrashing ? this.pull * (0.45 + 0.45 * Math.abs(Math.sin(this.t * 9))) : Math.sin(this.t * 3) * 0.3;
         const side = new THREE.Vector3(-dir.z, 0, dir.x);
         const d = Math.max(0.5, this.distance * 0.55);
         this.shadowPos.set(boatPos.x + dir.x * d + side.x * wob, 0.01, boatPos.z + dir.z * d + side.z * wob);

@@ -19,6 +19,10 @@ export class Input {
   moveY = 0;
   /** On foot: run (stick pushed far, or keyboard without Shift). */
   moveRun = false;
+  /** fraction of screen width (from the thumb side) where a touch spawns the joystick; set by the UI layout */
+  joyZone = 0.5;
+  /** left-handed mirror: joystick zone on the right */
+  mirrored = false;
 
   private keys = new Set<string>();
   private actionPresses = 0;
@@ -65,12 +69,13 @@ export class Input {
 
   private onDown(e: PointerEvent) {
     this.tapPresses++;
-    const leftHalf = e.clientX < window.innerWidth * 0.5;
-    if (e.pointerType !== 'mouse' && leftHalf && this.joyId === null) {
+    const inZone = this.mirrored ? e.clientX > window.innerWidth * (1 - this.joyZone) : e.clientX < window.innerWidth * this.joyZone;
+    if (e.pointerType !== 'mouse' && inZone && this.joyId === null) {
       this.joyId = e.pointerId;
       this.joyOrigin = { x: e.clientX, y: e.clientY };
       this.joyVec = { x: 0, y: 0 };
-      this.joyBase.style.display = 'block';
+      this.joyBase.classList.add('on');
+      this.joyBase.classList.remove('ghost');
       this.joyBase.style.left = `${e.clientX}px`;
       this.joyBase.style.top = `${e.clientY}px`;
       this.joyKnob.style.transform = 'translate(-50%,-50%)';
@@ -99,7 +104,7 @@ export class Input {
     if (e.pointerId === this.joyId) {
       this.joyId = null;
       this.joyVec = { x: 0, y: 0 };
-      this.joyBase.style.display = 'none';
+      this.joyBase.classList.add('ghost'); // fades to a faint ghost at its last position (CSS)
     }
     if (e.pointerId === this.orbitId) this.orbitId = null;
   }

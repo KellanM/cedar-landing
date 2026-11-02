@@ -1,0 +1,662 @@
+{
+  "copper-rockfish": {
+    "name": "Copper Rockfish",
+    "scientific": "Sebastes caurinus",
+    "game_id": "copper_rockfish",
+    "in_game_table": true,
+    "svg": "art/fish/copper-rockfish.svg",
+    "silhouette": "art/fish/silhouettes/copper-rockfish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#B8703E",
+        "#7A4426",
+        "#E2B07E",
+        "#EAD3A6",
+        "#D9A15A"
+      ]
+    },
+    "id_note": "Coppery body with a pale band along the rear two-thirds of the lateral line; dark bars radiate back from the eye."
+  },
+  "quillback-rockfish": {
+    "name": "Quillback Rockfish",
+    "scientific": "Sebastes maliger",
+    "game_id": "quillback_rockfish",
+    "in_game_table": true,
+    "svg": "art/fish/quillback-rockfish.svg",
+    "silhouette": "art/fish/silhouettes/quillback-rockfish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#D9A04A",
+        "#5A3A24",
+        "#ECCB8C",
+        "#A8602E",
+        "#C7883A"
+      ]
+    },
+    "id_note": "Very tall, deeply notched spiny dorsal; freckled yellow-tan head and forebody fading to dark brown behind; no lateral band."
+  },
+  "yelloweye-rockfish": {
+    "name": "Yelloweye Rockfish",
+    "scientific": "Sebastes ruberrimus",
+    "game_id": "yelloweye_rockfish",
+    "in_game_table": true,
+    "svg": "art/fish/yelloweye-rockfish.svg",
+    "silhouette": "art/fish/silhouettes/yelloweye-rockfish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#3A2A24",
+        "#D9662E",
+        "#B04A26",
+        "#F0A866",
+        "#F2C230"
+      ]
+    },
+    "id_note": "Orange-red to orange-yellow all over with black-edged fins and a bright golden-yellow eye; rough ridges above the eye."
+  },
+  "black-rockfish": {
+    "name": "Black Rockfish",
+    "scientific": "Sebastes melanops",
+    "game_id": "black_rockfish",
+    "in_game_table": true,
+    "svg": "art/fish/black-rockfish.svg",
+    "silhouette": "art/fish/silhouettes/black-rockfish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#4A5157",
+        "#3E444A",
+        "#C9CDC8",
+        "#626A70",
+        "#8E8A6A"
+      ]
+    },
+    "id_note": "Slate-black back with paler grey mottling, whitish belly, large mouth and dark spots on the spiny dorsal."
+  },
+  "lingcod": {
+    "name": "Lingcod",
+    "scientific": "Ophiodon elongatus",
+    "game_id": "lingcod",
+    "in_game_table": true,
+    "svg": "art/fish/lingcod.svg",
+    "silhouette": "art/fish/silhouettes/lingcod.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#7C8456",
+        "#4E5638",
+        "#D8D2B0",
+        "#B07A3E",
+        "#C9A35A"
+      ]
+    },
+    "id_note": "Long, big-headed predator with a huge toothy mouth, long notched dorsal and brown-grey mottling flecked with copper."
+  },
+  "kelp-greenling": {
+    "name": "Kelp Greenling",
+    "scientific": "Hexagrammos decagrammus",
+    "game_id": "kelp_greenling",
+    "in_game_table": true,
+    "svg": "art/fish/kelp-greenling.svg",
+    "silhouette": "art/fish/silhouettes/kelp-greenling.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#8C7A4E",
+        "#6A5A36",
+        "#D4C49A",
+        "#B5643C",
+        "#3F6E92"
+      ]
+    },
+    "id_note": "Slender, small-headed and small-mouthed, one long notched dorsal; male shown: grey-brown with blue head spots ringed in rust."
+  },
+  "cabezon": {
+    "name": "Cabezon",
+    "scientific": "Scorpaenichthys marmoratus",
+    "game_id": "cabezon",
+    "in_game_table": true,
+    "svg": "art/fish/cabezon.svg",
+    "silhouette": "art/fish/silhouettes/cabezon.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#7A6A3E",
+        "#4E4428",
+        "#CBB98A",
+        "#B49A62",
+        "#C9A35A"
+      ]
+    },
+    "id_note": "Huge broad head, scaleless marbled skin (green/red-brown), fleshy cirrus above each eye and on the snout, big fan pectorals."
+  },
+  "red-irish-lord": {
+    "name": "Red Irish Lord",
+    "scientific": "Hemilepidotus hemilepidotus",
+    "game_id": "red_irish_lord",
+    "in_game_table": true,
+    "svg": "art/fish/red-irish-lord.svg",
+    "silhouette": "art/fish/silhouettes/red-irish-lord.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#B5463A",
+        "#6E2E26",
+        "#E7B8A0",
+        "#EADBC8",
+        "#D9A15A"
+      ]
+    },
+    "id_note": "Sculpin mottled red, white and brown; spiny dorsal notched into a distinct front lobe; band of scales below the dorsal."
+  },
+  "staghorn-sculpin": {
+    "name": "Pacific Staghorn Sculpin",
+    "scientific": "Leptocottus armatus",
+    "game_id": "staghorn_sculpin",
+    "in_game_table": true,
+    "svg": "art/fish/staghorn-sculpin.svg",
+    "silhouette": "art/fish/silhouettes/staghorn-sculpin.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#C9C59E",
+        "#4C5446",
+        "#6F7A6A",
+        "#E8E2C6"
+      ]
+    },
+    "id_note": "Flat broad head with an antler-like preopercle spine; small first dorsal with a black spot at its rear; barred fins."
+  },
+  "buffalo-sculpin": {
+    "name": "Buffalo Sculpin",
+    "scientific": "Enophrys bison",
+    "game_id": "buffalo_sculpin",
+    "in_game_table": true,
+    "svg": "art/fish/buffalo-sculpin.svg",
+    "silhouette": "art/fish/silhouettes/buffalo-sculpin.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#5E6450",
+        "#3A3E30",
+        "#C8C49A",
+        "#9AA07E",
+        "#B49A62"
+      ]
+    },
+    "id_note": "Massive head with a long straight preopercle spine; row of raised bony plates along the lateral line; dark mottled green-brown."
+  },
+  "shiner-perch": {
+    "name": "Shiner Perch",
+    "scientific": "Cymatogaster aggregata",
+    "game_id": "shiner_perch",
+    "in_game_table": true,
+    "svg": "art/fish/shiner-perch.svg",
+    "silhouette": "art/fish/silhouettes/shiner-perch.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#C9CCC3",
+        "#7E8C86",
+        "#EEEBDD",
+        "#D8B85A"
+      ]
+    },
+    "id_note": "Small deep-bodied silver surfperch with rows of dark dots along the sides crossed by three yellow vertical bars."
+  },
+  "pile-perch": {
+    "name": "Pile Perch",
+    "scientific": "Rhacochilus vacca",
+    "game_id": "pile_perch",
+    "in_game_table": true,
+    "svg": "art/fish/pile-perch.svg",
+    "silhouette": "art/fish/silhouettes/pile-perch.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#A8ADA3",
+        "#5D625C",
+        "#DCDAD0"
+      ]
+    },
+    "id_note": "Deep silvery-grey surfperch with one dark vertical bar mid-body, tall rear lobe on the soft dorsal and a deeply forked tail."
+  },
+  "striped-seaperch": {
+    "name": "Striped Seaperch",
+    "scientific": "Embiotoca lateralis",
+    "game_id": "striped_seaperch",
+    "in_game_table": true,
+    "svg": "art/fish/striped-seaperch.svg",
+    "silhouette": "art/fish/silhouettes/striped-seaperch.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#C7835A",
+        "#9E5E3A",
+        "#E8C9A2",
+        "#3F6C8A"
+      ]
+    },
+    "id_note": "Coppery-orange surfperch with about fifteen bright blue horizontal stripes and blue streaks on the cheek."
+  },
+  "pacific-herring": {
+    "name": "Pacific Herring",
+    "scientific": "Clupea pallasii",
+    "game_id": "pacific_herring",
+    "in_game_table": true,
+    "svg": "art/fish/pacific-herring.svg",
+    "silhouette": "art/fish/silhouettes/pacific-herring.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#C9D3D6",
+        "#4E7489",
+        "#EEF0EA"
+      ]
+    },
+    "id_note": "Slim silver fish with a blue-green back, one mid-body dorsal, no visible lateral line and a deeply forked tail."
+  },
+  "pacific-sand-lance": {
+    "name": "Pacific Sand Lance",
+    "scientific": "Ammodytes personatus",
+    "game_id": "pacific_sand_lance",
+    "in_game_table": true,
+    "svg": "art/fish/pacific-sand-lance.svg",
+    "silhouette": "art/fish/silhouettes/pacific-sand-lance.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#CED6CF",
+        "#4F7A7E",
+        "#EEF0E6"
+      ]
+    },
+    "id_note": "Pencil-thin, pointed silver fish with a jutting lower jaw, a long low dorsal and a small forked tail; no pelvic fins."
+  },
+  "surf-smelt": {
+    "name": "Surf Smelt",
+    "scientific": "Hypomesus pretiosus",
+    "game_id": "surf_smelt",
+    "in_game_table": true,
+    "svg": "art/fish/surf-smelt.svg",
+    "silhouette": "art/fish/silhouettes/surf-smelt.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#B9C4B4",
+        "#7E8E70",
+        "#E4EAE2"
+      ]
+    },
+    "id_note": "Slender olive-backed smelt with a bright silver side stripe, a small adipose fin and a forked tail."
+  },
+  "starry-flounder": {
+    "name": "Starry Flounder",
+    "scientific": "Platichthys stellatus",
+    "game_id": "starry_flounder",
+    "in_game_table": true,
+    "svg": "art/fish/starry-flounder.svg",
+    "silhouette": "art/fish/silhouettes/starry-flounder.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#D9893A",
+        "#6E6A52",
+        "#A39D7E",
+        "#57533F"
+      ]
+    },
+    "id_note": "Dark olive flatfish with bold alternating orange-white and black bars on the dorsal, anal and tail fins; star-shaped rough plates on the skin."
+  },
+  "english-sole": {
+    "name": "English Sole",
+    "scientific": "Parophrys vetulus",
+    "game_id": "english_sole",
+    "in_game_table": true,
+    "svg": "art/fish/english-sole.svg",
+    "silhouette": "art/fish/silhouettes/english-sole.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#A99C78",
+        "#6A6048",
+        "#8A7F62"
+      ]
+    },
+    "id_note": "Plain brown flatfish with a sharply pointed head and a straight lateral line that sends a long branch up along the dorsal fin base."
+  },
+  "pacific-sanddab": {
+    "name": "Pacific Sanddab",
+    "scientific": "Citharichthys sordidus",
+    "game_id": "pacific_sanddab",
+    "in_game_table": true,
+    "svg": "art/fish/pacific-sanddab.svg",
+    "silhouette": "art/fish/silhouettes/pacific-sanddab.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#9A8C6C",
+        "#5E523A",
+        "#C27A3E"
+      ]
+    },
+    "id_note": "Small oval left-eyed flatfish, light brown with orange and dark speckles, big eyes and a straight lateral line."
+  },
+  "sand-sole": {
+    "name": "Sand Sole",
+    "scientific": "Psettichthys melanostictus",
+    "game_id": "sand_sole",
+    "in_game_table": true,
+    "svg": "art/fish/sand-sole.svg",
+    "silhouette": "art/fish/silhouettes/sand-sole.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#9E8E66",
+        "#B8A880"
+      ]
+    },
+    "id_note": "Elongate sandy-olive flatfish peppered with tiny black spots; the first few dorsal rays are long and free of membrane."
+  },
+  "pacific-halibut": {
+    "name": "Pacific Halibut",
+    "scientific": "Hippoglossus stenolepis",
+    "game_id": "pacific_halibut",
+    "in_game_table": true,
+    "svg": "art/fish/pacific-halibut.svg",
+    "silhouette": "art/fish/silhouettes/pacific-halibut.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#5E5A4A",
+        "#7E7862",
+        "#3E3A2E"
+      ]
+    },
+    "id_note": "Large diamond-shaped flatfish, mottled olive-brown, with a crescent (lunate) tail and a lateral line that arches high over the pectoral fin."
+  },
+  "coho-salmon": {
+    "name": "Coho Salmon",
+    "scientific": "Oncorhynchus kisutch",
+    "game_id": "coho_salmon",
+    "in_game_table": true,
+    "svg": "art/fish/coho-salmon.svg",
+    "silhouette": "art/fish/silhouettes/coho-salmon.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#C9D3D8",
+        "#4F6E7E",
+        "#EEF0EA"
+      ]
+    },
+    "id_note": "Bright silver with a metallic blue-green back; small black spots on the back and the UPPER tail lobe only; white gums."
+  },
+  "chinook-salmon": {
+    "name": "Chinook Salmon",
+    "scientific": "Oncorhynchus tshawytscha",
+    "game_id": "chinook_salmon",
+    "in_game_table": true,
+    "svg": "art/fish/chinook-salmon.svg",
+    "silhouette": "art/fish/silhouettes/chinook-salmon.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#BFC8CE",
+        "#4A6272",
+        "#EBEDE6"
+      ]
+    },
+    "id_note": "The king: big, deep, blue-green-grey back; black spots on back, dorsal fin and BOTH tail lobes; black gums along the lower jaw."
+  },
+  "pink-salmon": {
+    "name": "Pink Salmon",
+    "scientific": "Oncorhynchus gorbuscha",
+    "game_id": "pink_salmon",
+    "in_game_table": true,
+    "svg": "art/fish/pink-salmon.svg",
+    "silhouette": "art/fish/silhouettes/pink-salmon.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#CCD5D6",
+        "#5E7E86",
+        "#E6D2CF"
+      ]
+    },
+    "id_note": "Smallest Pacific salmon: tiny scales, large oval black spots on the back and both tail lobes; males grow a hump."
+  },
+  "sockeye-salmon": {
+    "name": "Sockeye Salmon",
+    "scientific": "Oncorhynchus nerka",
+    "game_id": "sockeye_salmon",
+    "in_game_table": true,
+    "svg": "art/fish/sockeye-salmon.svg",
+    "silhouette": "art/fish/silhouettes/sockeye-salmon.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#B8443A",
+        "#8E2E28",
+        "#4E6B4A",
+        "#D8D2B0"
+      ]
+    },
+    "id_note": "Spawning colours shown: brilliant red body, olive-green head, pale hooked jaw (kype) and humped back; no large spots."
+  },
+  "chum-salmon": {
+    "name": "Chum Salmon",
+    "scientific": "Oncorhynchus keta",
+    "game_id": "chum_salmon",
+    "in_game_table": false,
+    "svg": "art/fish/chum-salmon.svg",
+    "silhouette": "art/fish/silhouettes/chum-salmon.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#7C8456",
+        "#4E5638",
+        "#EFE6D2",
+        "#D4D0A8",
+        "#7A3E5A"
+      ]
+    },
+    "id_note": "Spawning \"calico\" colours shown: olive body with jagged purple-magenta bars, white-tipped anal and pelvic fins, big canine teeth."
+  },
+  "cutthroat-trout": {
+    "name": "Coastal Cutthroat Trout",
+    "scientific": "Oncorhynchus clarkii clarkii",
+    "game_id": "cutthroat_trout",
+    "in_game_table": true,
+    "svg": "art/fish/cutthroat-trout.svg",
+    "silhouette": "art/fish/silhouettes/cutthroat-trout.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#B4A77A",
+        "#6E7A52",
+        "#E6E0C8",
+        "#C0392B"
+      ]
+    },
+    "id_note": "Olive-silver sea-run trout densely spotted above and below the lateral line and on the fins; red-orange slash under the lower jaw."
+  },
+  "coho-smolt": {
+    "name": "Coho Smolt",
+    "scientific": "Oncorhynchus kisutch (juvenile)",
+    "game_id": "coho_smolt",
+    "in_game_table": true,
+    "svg": "art/fish/coho-smolt.svg",
+    "silhouette": "art/fish/silhouettes/coho-smolt.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#C9D3D3",
+        "#6E8A86",
+        "#EEF0EA",
+        "#9AAAA8"
+      ]
+    },
+    "id_note": "Finger-sized juvenile coho turning silver for the sea: faint oval parr marks along the side, big eye, dark-edged tail. Release it."
+  },
+  "sablefish": {
+    "name": "Sablefish",
+    "scientific": "Anoplopoma fimbria",
+    "game_id": "sablefish",
+    "in_game_table": true,
+    "svg": "art/fish/sablefish.svg",
+    "silhouette": "art/fish/silhouettes/sablefish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#3E4246",
+        "#6E7478",
+        "#B8BCBA"
+      ]
+    },
+    "id_note": "Long, smooth slate-black \"black cod\" with two widely separated dorsal fins, a straight lateral line and a forked tail."
+  },
+  "spiny-dogfish": {
+    "name": "Spiny Dogfish",
+    "scientific": "Squalus suckleyi",
+    "game_id": "spiny_dogfish",
+    "in_game_table": true,
+    "svg": "art/fish/spiny-dogfish.svg",
+    "silhouette": "art/fish/silhouettes/spiny-dogfish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#7E8790",
+        "#DCDDD6",
+        "#5C646C",
+        "#8FA86A"
+      ]
+    },
+    "id_note": "Slim grey shark with scattered white spots, a sharp spine in front of each of its two dorsal fins, no anal fin and five gill slits."
+  },
+  "bluntnose-sixgill": {
+    "name": "Bluntnose Sixgill Shark",
+    "scientific": "Hexanchus griseus",
+    "game_id": "bluntnose_sixgill",
+    "in_game_table": true,
+    "svg": "art/fish/bluntnose-sixgill.svg",
+    "silhouette": "art/fish/silhouettes/bluntnose-sixgill.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#5A5E66",
+        "#3E4248",
+        "#9EA2A6",
+        "#7FC08A"
+      ]
+    },
+    "id_note": "Huge, ancient deep-water shark: blunt rounded snout, SIX gill slits, a single dorsal fin set far back, glowing green eyes."
+  },
+  "spotted-ratfish": {
+    "name": "Spotted Ratfish",
+    "scientific": "Hydrolagus colliei",
+    "game_id": "spotted_ratfish",
+    "in_game_table": true,
+    "svg": "art/fish/spotted-ratfish.svg",
+    "silhouette": "art/fish/silhouettes/spotted-ratfish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#9A8FA4",
+        "#6E6478",
+        "#E3DDE6",
+        "#6FA67A"
+      ]
+    },
+    "id_note": "Chimaera with a rabbit-like face and tooth plates, huge green eyes, a venomous spine before the tall first dorsal, white spots, big wing-like pectorals and a whip tail."
+  },
+  "wolf-eel": {
+    "name": "Wolf Eel",
+    "scientific": "Anarrhichthys ocellatus",
+    "game_id": "wolf_eel",
+    "in_game_table": true,
+    "svg": "art/fish/wolf-eel.svg",
+    "silhouette": "art/fish/silhouettes/wolf-eel.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#6C6A66",
+        "#A8A49A",
+        "#3E3C3A"
+      ]
+    },
+    "id_note": "Not an eel: a huge-headed wolffish with heavy lips and crushing jaws, long tapering body fringed by one continuous dorsal fin, grey with dark ringed spots."
+  },
+  "bay-pipefish": {
+    "name": "Bay Pipefish",
+    "scientific": "Syngnathus leptorhynchus",
+    "game_id": "bay_pipefish",
+    "in_game_table": true,
+    "svg": "art/fish/bay-pipefish.svg",
+    "silhouette": "art/fish/silhouettes/bay-pipefish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#7E8A52",
+        "#C9C79A",
+        "#556038"
+      ]
+    },
+    "id_note": "Seahorse relative stretched straight: long tube snout, armoured ringed body, small dorsal fin and a tiny fan tail; green-brown like eelgrass."
+  },
+  "dungeness-crab": {
+    "name": "Dungeness Crab",
+    "scientific": "Metacarcinus magister",
+    "game_id": "dungeness_crab",
+    "in_game_table": true,
+    "svg": "art/fish/dungeness-crab.svg",
+    "silhouette": "art/fish/silhouettes/dungeness-crab.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#D9A273",
+        "#A0604A",
+        "#EFE6D2",
+        "#6E3A30"
+      ]
+    },
+    "id_note": "Shown from above: broad purple-brown shell with ten small teeth on each front edge (the last one largest) and white-tipped claws without dark tips."
+  },
+  "oarfish": {
+    "name": "Giant Oarfish",
+    "scientific": "Regalecus russelii",
+    "game_id": "oarfish",
+    "in_game_table": false,
+    "svg": "art/fish/oarfish.svg",
+    "silhouette": "art/fish/silhouettes/oarfish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#C0392B",
+        "#CFD6D8",
+        "#9EAAB0",
+        "#5E6A72"
+      ]
+    },
+    "id_note": "Legendary ribbon of silver: an endless red dorsal fin, a red crest plume over the head and long oar-tipped pelvic rays."
+  },
+  "unknown-fish": {
+    "name": "Unknown Fish",
+    "scientific": "\u2014",
+    "game_id": "",
+    "in_game_table": false,
+    "svg": "art/fish/unknown-fish.svg",
+    "silhouette": "art/fish/silhouettes/unknown-fish.svg",
+    "palette": {
+      "ink": "#2B2622",
+      "fills": [
+        "#CFC6B5",
+        "#857E72",
+        "#E9E1CF"
+      ]
+    },
+    "id_note": "Generic placeholder fish for species without art yet (and for \"???\" entries)."
+  }
+}
