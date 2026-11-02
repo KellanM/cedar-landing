@@ -1,0 +1,27 @@
+// Reel button only near a fishing spot (or when it is the Ashore action).
+import { chromium } from 'playwright';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+const BASE = process.argv[2] ?? 'http://localhost:5196/cedar-landing/';
+const root = path.join(os.homedir(), 'AppData/Local/ms-playwright');
+const exe = fs.readdirSync(root).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse().map((d) => path.join(root, d, 'chrome-win64', 'chrome.exe')).find((e) => fs.existsSync(e));
+const b = await chromium.launch({ executablePath: exe, args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'] });
+const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })).newPage();
+const errors = []; p.on('pageerror', (e) => errors.push(String(e))); p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+await p.goto(BASE + '?debug'); await p.evaluate(() => localStorage.clear()); await p.reload();
+await p.waitForFunction(() => window.__debug && window.__debug.state.chunks > 0, null, { timeout: 180000 });
+await p.evaluate(() => window.__debug.markRevealSeen());
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const st = () => p.evaluate(() => { const e = document.getElementById('btn-action'); return { label: document.getElementById('action-label').textContent, away: e.classList.contains('away'), opacity: getComputedStyle(e).opacity }; });
+let fails = 0; const check = (name, ok, s) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`, JSON.stringify(s)); if (!ok) fails++; };
+await sleep(1500); let s = await st(); check('at spawn (dock): shows, as Ashore or Cast', !s.away, s);
+await p.screenshot({ path: 'screenshots/reel_away_spawn.png' });
+await p.evaluate(() => window.__debug.teleport(60, 260, 0)); await sleep(1500);
+s = await st(); check('open water, no spot near: hidden', s.away && s.opacity === '0', s);
+await p.screenshot({ path: 'screenshots/reel_away_open.png' });
+const hs = (await p.evaluate(() => window.__debug.hotspots()))[0];
+await p.evaluate((h) => window.__debug.viewHotspot(h, 7), hs); await sleep(1500);
+s = await st(); check('in range of a fishing spot: shows Cast', !s.away && s.label === 'Cast' && s.opacity === '1', s);
+await p.screenshot({ path: 'screenshots/reel_away_spot.png' });
+console.log('console errors:', errors.length, errors.slice(0, 3).join(' | '));
+console.log(fails ? 'REEL AWAY: FAIL' : 'REEL AWAY: ALL PASS');
+await b.close();

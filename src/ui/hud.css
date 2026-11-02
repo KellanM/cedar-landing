@@ -190,6 +190,9 @@ body.fishing #joy-base.ghost { opacity: 0; transition-delay: 0s; } /* never unde
 /* left-handed mirror */
 .lefty .hud-controls { right: auto; left: calc(16px + var(--safe-l)); }
 .lefty .reel-btn { right: auto; left: 0; }
+/* away from any fishing spot: the reel steps out of the way (comes back in range, like the context button) */
+.reel-btn { opacity: 1; scale: 1; transition: width 160ms var(--ease-pop), height 160ms var(--ease-pop), background 160ms, transform var(--t-tap), opacity 220ms var(--ease-out), scale 260ms var(--ease-pop); }
+.reel-btn.away { opacity: 0; scale: .6; pointer-events: none; }
 .lefty .ctx { right: auto; left: 70px; }
 
 /* desktop: no on-screen discs — keycap hints, 70% opacity, bottom-right */

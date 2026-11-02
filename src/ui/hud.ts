@@ -363,11 +363,13 @@ export function frame(dt: number, s: FrameState) {
 
   // ---- reel / cast button (desktop: a keycap label)
   const btn = $('btn-action'), lbl = $('action-label');
-  let label = 'Cast', mode = 'cast', enabled = true;
+  let label = 'Cast', mode = 'cast', enabled = true, away = false;
   switch (f.phase) {
     case 'idle':
       if (s.action) { label = s.action; mode = 'ashore'; }
-      else if (!s.canCast) { label = 'Find ripples'; enabled = false; }
+      // out of range of a fishing spot (and nothing else to do): the button steps away, like the
+      // context button; it comes back when you reach the ripples
+      else if (!s.canCast) { label = 'Cast'; enabled = false; away = true; }
       else if (s.coolerFull) { label = 'Cooler full'; enabled = false; }
       else if (!s.slowEnough) { label = 'Slow down'; enabled = false; }
       break;
@@ -379,6 +381,8 @@ export function frame(dt: number, s: FrameState) {
   if (lbl.textContent !== label) lbl.textContent = label;
   btn.dataset.mode = mode;
   btn.classList.toggle('off', !enabled);
+  btn.classList.toggle('away', away);
+  btn.setAttribute('aria-hidden', String(away));
   btn.classList.toggle('held', f.phase === 'reeling' && f.reelHeld);
   btn.setAttribute('aria-label', label);
 
