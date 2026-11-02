@@ -14,7 +14,7 @@ import type { Hotspot, Interact, LoadedWorld, TimeOfDay } from './world/types';
 import { Input } from './game/input';
 import { LandCollision } from './game/collision';
 import { Boat, BOAT_TUNING } from './game/boat';
-import { ChaseCamera } from './game/camera';
+import { CAMERA_TUNING, ChaseCamera } from './game/camera';
 import { Fishing } from './game/fishing';
 import { HotspotFX, hideBakedHotspotMarkers } from './game/hotspots';
 import { Skipper } from './game/skipper';
@@ -851,6 +851,8 @@ window.__debug = {
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,
+  /** captures (app icon etc.): override chase-camera tuning */
+  camTune: (o: Partial<typeof CAMERA_TUNING>) => { Object.assign(CAMERA_TUNING, o); chase.snap(boat); },
   /** jump the game clock (hours) */
   setClock: (h: number) => { clockHour = wrapHour(h); save.clock = clockHour; applyTOD(); return clockText(clockHour); },
   skipperState: () => ({ ready: skipper.ready, attached: skipper.attached, pose: skipper.currentPose, landingK: chase.landingK }),
