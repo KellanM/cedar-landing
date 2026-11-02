@@ -23,6 +23,8 @@ export interface ChartSource {
   root: THREE.Object3D;
   /** objects to hide while the top-down chart is rendered (backdrops, clouds) */
   hide: THREE.Object3D[];
+  /** objects to force visible while it renders (distance-culled instance batches: far islets, trees) */
+  show?: () => THREE.Object3D[];
 }
 
 export type Layout = 'portrait' | 'landscape' | 'desktop';

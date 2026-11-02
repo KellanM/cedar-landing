@@ -1,3 +1,6 @@
 node_modules
 dist
 screenshots
+docs/refs/map/full
+docs/refs/map/games
+docs/refs/map/view_*

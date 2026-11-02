@@ -21,7 +21,7 @@ import { chart } from './chart';
 import { bubble, updateBubbles } from './bubble';
 import { buildCard, showCard as presentCatch } from './catchcard';
 import { buildMarket, marketOpen, hideSell, marketPos } from './market';
-import { buildLog, openLog, closeLog, refreshLog, setApplyPrefs } from './log';
+import { buildLog, openLog, closeLog, refreshLog, setApplyPrefs, chartDebug } from './log';
 import { chip, pinChip, setLogBadge } from './chip';
 import { titleCard, endTitle } from './title';
 import { dialogue } from './dialogue';
@@ -549,6 +549,8 @@ export const debug = {
   clearHints: () => hints.clear(),
   revealAll: () => chart.revealAll(),
   visitAll: () => { for (const p of chart.places) if (!log.places.includes(p.key)) log.places.push(p.key); saveLog(); },
+  /** map captures: bounds/places, partial reveal around a point, view state, destination */
+  map: chartDebug,
   title: (t: string, s: string) => titleCard(t, s),
   dialogue: (who: string, text: string) => dialogue([{ who, text, choices: [{ label: 'Sure', value: 'y' }, { label: 'Not today', value: 'n' }] }]),
   dive: () => { const d = new DiveHUD(); d.show(true); d.update({ breath: 0.55, cold: 0.12, over: 0.08, need: 0.3, depth: 9, limit: 8, max: 12 }); return d; },
