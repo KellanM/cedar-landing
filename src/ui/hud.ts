@@ -350,6 +350,7 @@ export function frame(dt: number, s: FrameState) {
   ctx.fishPhase = f.phase;
   ctx.boat.x = s.boat.pos.x; ctx.boat.z = s.boat.pos.z; ctx.boat.yaw = s.boat.yaw;
   bobberPos.copy(f.bobber.position);
+  document.body.classList.toggle('fishing', f.active);
 
   // ---- reel / cast button (desktop: a keycap label)
   const btn = $('btn-action'), lbl = $('action-label');

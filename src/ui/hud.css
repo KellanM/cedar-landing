@@ -111,6 +111,7 @@ body.underwater #shells, body.underwater #cooler-tab, body.underwater #compass {
 }
 #joy-base.on { display: block; opacity: 1; }
 #joy-base.ghost { opacity: .22; transition-delay: 2s; }
+body.fishing #joy-base.ghost { opacity: 0; transition-delay: 0s; } /* never under the tension ring */
 #joy-knob {
   position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; border-radius: 50%;
   background: var(--paper) repeating-linear-gradient(90deg, transparent 0 9px, rgba(181, 100, 60, .45) 9px 11px);

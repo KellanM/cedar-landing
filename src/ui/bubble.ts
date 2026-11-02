@@ -49,7 +49,7 @@ function place(b: Live) {
   const st = parseFloat(cs.getPropertyValue('--safe-t')) || 0;
   let x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
   x = Math.min(W - sr - 8 - bw / 2, Math.max(sl + 8 + bw / 2, x));
-  y = Math.min(H * 0.62, Math.max(st + 70 + bh, y));
+  y = Math.min(H * 0.62, Math.max(st + 112 + bh, y)); // keep the bubble below the top HUD row + errand note
   b.el.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px) translate(-50%, -100%)`;
   b.el.classList.toggle('behind', behind);
 }

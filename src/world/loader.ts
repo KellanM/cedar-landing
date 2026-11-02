@@ -81,7 +81,7 @@ function bakeNode(node: THREE.Object3D): THREE.BufferGeometry | null {
 export type Progress = (msg: string, frac: number) => void;
 
 export async function loadExportWorld(version: string, progress: Progress): Promise<LoadedWorld> {
-  progress('Reading manifest', 0);
+  progress('Unrolling the chart…', 0);
   const [manifest, gameplayRaw] = await Promise.all([
     getJSON<Manifest>('manifest.json', version),
     getJSON<Gameplay>('gameplay.json', version),
@@ -118,7 +118,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
           : new THREE.Box3().setFromObject(gltf.scene);
         chunks.push({ object: gltf.scene, bounds, center: bounds.getCenter(new THREE.Vector3()) });
       } catch (e) { console.warn('[world] chunk failed', c.file, e); }
-      tick(`Chunk ${c.file}`);
+      tick('Charting the islands…');
     }
   });
   await Promise.all(workers);
@@ -129,7 +129,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
       applyWorldMaterial(g.scene, 'backdrop');
       backdrops.push(g.scene);
     } catch (e) { console.warn('[world] backdrop failed', f, e); }
-    tick(f);
+    tick('Raising the mountains…');
   }
   if (manifest.clouds) {
     try {
@@ -137,7 +137,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
       applyWorldMaterial(g.scene, 'clouds');
       clouds.push(g.scene);
     } catch (e) { console.warn('[world] clouds failed', e); }
-    tick('clouds');
+    tick('Gathering clouds…');
   }
   if (manifest.dynamic) {
     try {
@@ -148,7 +148,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
       if (nodes.length === 1 && !(nodes[0] as THREE.Mesh).isMesh && !nodes[0].userData.anim && nodes[0].children.length > 1) nodes = nodes[0].children;
       dynamic.push(...nodes);
     } catch (e) { console.warn('[world] dynamic failed', e); }
-    tick('dynamic');
+    tick('Setting the buoys…');
   }
 
   const protos = new Map<string, THREE.BufferGeometry>();
@@ -184,7 +184,7 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
       const missing = [...wanted].filter((k) => k !== 'BOAT_T0' && !protos.has(k));
       if (missing.length) console.warn('[world] protos missing from protos.glb:', missing);
     } catch (e) { console.warn('[world] protos failed', e); }
-    tick('protos');
+    tick('Growing the forests…');
   }
 
   return { source: 'export', chunks, backdrops, clouds, dynamic, protos, instances, boat, gameplay };

@@ -159,7 +159,14 @@ export class Boat {
 
     // Move with land sliding
     const res = land.move(this.pos.x, this.pos.z, this.vel.x * dt, this.vel.y * dt, P.radius);
-    if (res.hit) { this.speed *= Math.exp(-3 * dt); this.vel.multiplyScalar(Math.exp(-3 * dt)); }
+    if (res.hit && dt > 0) {
+      // Pushing into the shore: report the speed we actually made (sliding along the coast), not the
+      // throttle's wish — the wake, funnel smoke and "Slow down" all read boat.speed.
+      const mx = (res.x - this.pos.x) / dt, mz = (res.z - this.pos.z) / dt;
+      const along = mx * nf.x + mz * nf.z;
+      this.speed = Math.sign(this.speed) * Math.min(Math.abs(this.speed), Math.abs(along));
+      this.vel.set(mx, mz);
+    }
     this.pos.x = res.x;
     this.pos.z = res.z;
 

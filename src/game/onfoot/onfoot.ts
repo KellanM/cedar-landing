@@ -27,6 +27,8 @@ export const FOOT = {
 };
 
 /** Interacts that only make sense from the boat. */
+/** Interact kinds that actually do something today (everything else toasts "not open yet"). */
+export const OPEN_INTERACTS = new Set(['sell_fish', 'moor_boat', 'read_sunstone', 'read_message_bottle', 'read_warning', 'trade_rumours']);
 const FOOT_IGNORED = new Set(['fish_here', 'moor_boat', 'dive_here', 'land_here', 'haul_crab_pots', 'reef_net_event']);
 const ASHORE_HINT_KINDS = new Set(['moor_boat', 'land_here', 'sell_fish']);
 
@@ -176,7 +178,10 @@ export class OnFoot {
    * market rather than at a mooring (and you're not tied up).
    */
   boatContext(boat: Boat, best: Interact | null, sellFirst: boolean): FootContext | null {
-    if (sellFirst && best?.kind === 'sell_fish' && !boat.moored) return null; // Ashore moves to the action button
+    // A working boat-side interact (Sell, Tie up / Untie, a sign…) keeps the context button;
+    // "Ashore" then moves to the idle Cast button instead of hijacking E.
+    if (best && OPEN_INTERACTS.has(best.kind)) return null;
+    if (sellFirst && best?.kind === 'sell_fish') return null;
     return this.ashoreContext(boat);
   }
 
@@ -274,7 +279,9 @@ export class OnFoot {
       if (FOOT_IGNORED.has(it.kind)) continue;
       const d = Math.hypot(it.pos[0] - f.x, it.pos[2] - f.z);
       if (d > FOOT.interactRange || Math.abs(it.pos[1] - (f.y + 1.1)) > 2.2) continue;
-      const s = Math.max(0.1, d - (it.kind === 'sell_fish' ? 0.5 : 0)) * face(it.pos[0], it.pos[2]);
+      // Sell wins at the counter; things that aren't open yet only get the button when nothing else is near.
+      const w = it.kind === 'sell_fish' ? 0.3 : OPEN_INTERACTS.has(it.kind) ? 1 : 3;
+      const s = Math.max(0.1, d * w) * face(it.pos[0], it.pos[2]);
       if (s < bs) {
         bs = s;
         const lbl = this.host.labelFor(it);
@@ -285,7 +292,7 @@ export class OnFoot {
     for (const n of this.npcs) {
       const d = Math.hypot(n.pos[0] - f.x, n.pos[2] - f.z);
       if (d > FOOT.npcRange || Math.abs(n.pos[1] - f.y) > 1.5) continue;
-      const s = (d + 0.4) * face(n.pos[0], n.pos[2]);
+      const s = (d + 0.4) * face(n.pos[0], n.pos[2]) * (String(n.props?.npc_role ?? n.role ?? '') === 'cat' ? 1.6 : 1);
       if (s < bs) {
         bs = s;
         const who = npcDisplayName(n);

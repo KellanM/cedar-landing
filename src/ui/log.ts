@@ -230,8 +230,8 @@ function setDest(key: string) {
   chart.setDestination(log.dest === key ? null : key);
   fx('reveal');
   const p = chart.places.find((q) => q.key === key);
+  show('map', true); // re-renders the page, so write the note after
   $('map-note') && ($('map-note').textContent = log.dest && p ? `Compass set for ${p.name}` : 'Compass cleared');
-  show('map', true);
 }
 
 class MapView {
