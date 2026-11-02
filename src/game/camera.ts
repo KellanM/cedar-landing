@@ -192,7 +192,7 @@ export class ChaseCamera {
     L.eye.set(head.x + Math.sin(az) * d, head.y + up, head.z + Math.cos(az) * d);
     L.at.copy(head).lerp(fish, mode === 'hand' ? 0.6 : 0.5);
     // portrait: put the hold-up in the top third, clear of the catch card / slip below
-    if (portrait) L.at.y -= d * (mode === 'hand' ? 0.1 : 0.14);
+    if (portrait) L.at.y -= d * (mode === 'hand' ? 0.2 : 0.14);
     L.dir = 1;
   }
   endLanding() { if (this.land.k > 0 || this.land.dir > 0) this.land.dir = -1; }

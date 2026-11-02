@@ -67,7 +67,12 @@ export function loadFishModel(slug: string): Promise<Built | null> {
       .then(build)
       .catch(() => (slug === 'unknown-fish' ? null : loadFishModel('unknown-fish')));
     cache.set(slug, p);
-    if (cache.size > 6) { const k = cache.keys().next().value!; if (k !== slug && k !== 'unknown-fish') cache.delete(k); }
+    // keep a few species (one is on the line at a time); free the evicted atlas on the GPU (≈5.5 MB
+    // with mips at 1024×1040 — three.js re-uploads it if a model still shows it)
+    if (cache.size > 4) {
+      const k = [...cache.keys()].find((c) => c !== slug && c !== 'unknown-fish');
+      if (k) { const old = cache.get(k)!; cache.delete(k); void old.then((b) => b?.tex.dispose()); }
+    }
   }
   return p;
 }

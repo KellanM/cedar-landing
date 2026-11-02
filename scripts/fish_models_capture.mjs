@@ -64,7 +64,8 @@ async function sheet() {
     const side = await page.evaluate((i) => window.__debug.fishStudio(i, 'side', 768, 384), id);
     const quarter = await page.evaluate((i) => window.__debug.fishStudio(i, 'quarter', 512, 384), id);
     const flop = await page.evaluate((i) => window.__debug.fishStudio(i, 'flop', 512, 384), id);
-    rows.push({ slug, name: slug, side, quarter, flop, plate: `${BASE}fish/${slug}.svg` });
+    const leap = await page.evaluate((i) => window.__debug.fishStudio(i, 'leap', 512, 384), id);
+    rows.push({ slug, name: slug, side, quarter, flop, leap, plate: `${BASE}fish/${slug}.svg` });
     log(`[sheet] ${slug} plan ${side?.plan} tris ${side?.tris}`);
   }
   const per = 9;
@@ -72,14 +73,14 @@ async function sheet() {
     const part = rows.slice(s * per, s * per + per);
     const html = `<!doctype html><html><head><style>
       body{margin:0;padding:12px;background:#F4EFE3;font:15px Georgia,serif;color:#2B2622}
-      .r{display:grid;grid-template-columns:120px 384px 384px 256px 256px;gap:6px;margin-bottom:6px;align-items:center}
+      .r{display:grid;grid-template-columns:120px 384px 384px 256px 256px 256px;gap:6px;margin-bottom:6px;align-items:center}
       img{display:block;background:#E9E1CF;border:1px solid #CFC6B5}
       .p,.s{width:384px;height:192px}.q{width:256px;height:192px}
       h3{margin:0 0 8px;font-size:14px}
-      </style></head><body><h3>plate | 3D side (same scale) | 3D 3/4 | 3D flop — ${TAG}</h3>${part.map((r) => `<div class="r"><div>${r.name}<br><small>${r.side?.plan ?? '?'} · ${r.side?.tris ?? 0} tris</small></div>
-      <img class="p" src="${r.plate}"><img class="s" src="${r.side?.url ?? ''}"><img class="q" src="${r.quarter?.url ?? ''}"><img class="q" src="${r.flop?.url ?? ''}"></div>`).join('')}</body></html>`;
+      </style></head><body><h3>plate | 3D side (same scale) | 3D 3/4 at rest (flatfish/crab lie flat) | flop in hand | leap pose — ${TAG}</h3>${part.map((r) => `<div class="r"><div>${r.name}<br><small>${r.side?.plan ?? '?'} · ${r.side?.tris ?? 0} tris</small></div>
+      <img class="p" src="${r.plate}"><img class="s" src="${r.side?.url ?? ''}"><img class="q" src="${r.quarter?.url ?? ''}"><img class="q" src="${r.flop?.url ?? ''}"><img class="q" src="${r.leap?.url ?? ''}"></div>`).join('')}</body></html>`;
     const p2 = await ctx.newPage();
-    await p2.setViewportSize({ width: 1460, height: 800 });
+    await p2.setViewportSize({ width: 1730, height: 800 });
     await p2.setContent(html, { waitUntil: 'load' });
     await sleep(300);
     const file = `${OUT}/fishmodels_${TAG}_sheet_${s + 1}.png`;
@@ -154,6 +155,52 @@ async function hold(name, viewport, isMobile) {
   await ctx.close();
 }
 
+// ------------------------------------------------------------------ leap / roll frames during the fight
+async function leaps(name, viewport, isMobile) {
+  const { ctx, page, errors } = await open(viewport, isMobile);
+  const hs = (await page.evaluate(() => window.__debug.hotspots()))[0];
+  await page.evaluate((h) => window.__debug.viewHotspot(h, 7), hs);
+  await sleep(2000);
+  const shots = [];
+  for (const id of (process.env.FISH_LEAP ?? 'coho_salmon,starry_flounder').split(',')) {
+    await page.evaluate((i) => window.__debug.nextCatch(i, null), id);
+    await page.evaluate(() => window.__debug.action());
+    await page.waitForFunction(() => window.__debug.state.phase === 'waiting', null, { timeout: 8000 }).catch(() => {});
+    await sleep(400);
+    await page.evaluate(() => window.__debug.forceBite());
+    await page.waitForFunction(() => window.__debug.state.phase === 'bite', null, { timeout: 6000 }).catch(() => {});
+    await page.evaluate(() => window.__debug.action());
+    await sleep(800);
+    let got = 0;
+    for (let tries = 0; tries < 12 && got < 3; tries++) {
+      await page.evaluate(() => { window.__debug.actorSlow(0.25, 5000); window.__debug.forceThrash(); });
+      for (let i = 0; i < 14 && got < 3; i++) {
+        await sleep(110);
+        if (await page.evaluate(() => window.__debug.fishing.fish.group.visible && window.__debug.state.phase === 'reeling')) {
+          const f = `fishmodels_${TAG}_leap_${name}_${id}_${got}.png`;
+          await page.screenshot({ path: `${OUT}/${f}` });
+          shots.push(f); got++;
+          await sleep(250);
+        }
+      }
+      await page.evaluate(() => window.__debug.actorSlow(1, 0));
+      await sleep(900);
+    }
+    log(`[${name}] leap ${id}: ${got} frames`);
+    await page.evaluate(() => window.__debug.landNow());
+    await page.waitForFunction(() => window.__debug.state.phase === 'landed', null, { timeout: 6000 }).catch(() => {});
+    await sleep(1500);
+    await page.evaluate(() => { window.__debug.keep(); window.__debug.closeModals(); window.__debug.sellAll(); });
+    await page.waitForFunction(() => window.__debug.state.phase === 'idle', null, { timeout: 8000 }).catch(() => {});
+    await sleep(1000);
+  }
+  await page.evaluate(() => window.__debug.nextCatch(null));
+  log(`[${name}] console errors: ${errors.length}`, errors.slice(0, 5).join(' | '));
+  totalErrors += errors.length;
+  await ctx.close();
+}
+
+if (WHAT === 'leap') { if (ONLY !== 'desktop') await leaps('phone', { width: 390, height: 844 }, true); if (ONLY !== 'phone') await leaps('desktop', { width: 1280, height: 800 }, false); }
 if (WHAT === 'sheet' || WHAT === 'all') await sheet();
 if (WHAT === 'hold' || WHAT === 'all') {
   if (ONLY !== 'desktop') await hold('phone', { width: 390, height: 844 }, true);

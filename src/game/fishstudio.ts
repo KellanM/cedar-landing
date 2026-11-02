@@ -6,7 +6,7 @@ import { FishModel } from './fishmodel';
  * game's own renderer, untinted, on the plate paper colour. 'side' uses an orthographic camera
  * that matches the 512×256 plate canvas exactly, so the render can be laid next to the plate.
  */
-export type StudioView = 'side' | 'quarter' | 'top' | 'flop';
+export type StudioView = 'side' | 'quarter' | 'top' | 'flop' | 'leap';
 const scene = new THREE.Scene();
 const model = new FishModel(false);
 scene.add(model.group);
@@ -30,9 +30,10 @@ export async function fishStudio(renderer: THREE.WebGLRenderer, id: string, view
     o.position.set(0, 0, 3); o.updateProjectionMatrix();
     cam = o;
   } else {
-    if (view === 'flop') { model.wag = 0.9; model.flop(1); for (let i = 0; i < 9; i++) model.update(1 / 60); model.setTime(0.55); }
+    if (view === 'flop') { model.wag = 0.9; model.flop(1); for (let i = 0; i < 9; i++) model.update(1 / 60); model.setTime(0.55); model.present = model.isFlat ? 1 : 0; }
+    if (view === 'leap') { model.leap = 1; model.wag = 0.8; model.setTime(0.21); model.group.rotation.set(0, 0, 0.5); }
     const p = new THREE.PerspectiveCamera(30, w / h, 0.05, 20);
-    const az = view === 'top' ? 0.0 : 0.65, el = view === 'top' ? 1.25 : 0.42;
+    const az = view === 'top' ? 0.0 : view === 'leap' ? 0.25 : 0.65, el = view === 'top' ? 1.25 : view === 'leap' ? 0.15 : 0.42;
     const d = 1.55;
     p.position.set(Math.sin(az) * Math.cos(el) * d, Math.sin(el) * d, Math.cos(az) * Math.cos(el) * d);
     p.lookAt(0, 0, 0);

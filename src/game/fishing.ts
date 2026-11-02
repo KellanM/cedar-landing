@@ -47,9 +47,10 @@ const RSCALE = { common: 1, uncommon: 1.2, rare: 1.5, legendary: 2 } as const;
 const SEA_Y = -0.06;
 /** Hold-up layout (fish_models_study.md §scale). */
 export const HOLD = {
-  handMax: 0.42, // m drawn length: below this, one hand by the face (hold_show); above, two fists overhead (hold_hoist)
+  handMax: 0.34, // m drawn length: below this, one hand by the face (hold_show); above, two fists overhead (hold_hoist)
   fist: 0.09, // m from the wrist bone to the top of the closed fist (the belly rests here)
   grip: 0.03, // m above the wrist for a one-hand hold
+  outset: 0.05, // m the one-hand fish is shifted out from the grip, so the nose sits at the cheek, not the mouth
   front: 0.1, // m toward the camera from the hand (in front of the face plane, never inside it)
   present: 0.82, // flatfish/crab held up: 0 = lying flat, 1 = eyed side square to the camera
 };
@@ -547,7 +548,7 @@ export class Fishing {
     const noseOut = fm.isFlat ? 1 : -out; // flatfish/crab keep the eyed side (and nose right) to the camera
     if (noseOut < 0) yaw += Math.PI;
     // hold point (42 % from the snout) sits 0.12 L tailward of the grip (30 %); flat/crab: centred out
-    const along = fm.isFlat ? (0.5 * s + 0.04) * out : -0.12 * s * noseOut;
+    const along = (fm.isFlat ? 0.5 * s + 0.04 : 0.12 * s + HOLD.outset) * out;
     const camDx = this.camPos.x - grip.x, camDz = this.camPos.z - grip.z, cl = Math.hypot(camDx, camDz) || 1;
     g.position.set(grip.x + rx * along + (camDx / cl) * HOLD.front, grip.y + HOLD.grip, grip.z + rz * along + (camDz / cl) * HOLD.front);
     g.rotation.set(0, yaw, 0.12 * noseOut);
