@@ -380,6 +380,9 @@ export class MapView {
         g.restore();
       }
     }
+    // furniture again on top, so glyphs passing under the cartouche/scale/rose don't scribble over them
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.drawRose(g, cw - 40, 46); this.drawCartouche(g, pad + 4, pad + 4, cw); this.drawScale(g, pad + 6, ch - pad - 8, cw);
     this.drawBoat(g, bx, bz, cw, ch, dpr);
     this.lastDrawMs = performance.now() - t0;
   }
