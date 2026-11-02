@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { fishStudio, type StudioView } from './game/fishstudio';
 import { Sky, Sea } from './render/environment';
 import { buildShoreField } from './render/shorefield';
-import type { SeaVariant } from './render/sea';
+import type { SeaVariant, CrestMode } from './render/sea';
 import { backdropHaze, setTint } from './render/materials';
 import { InstanceField } from './render/instances';
 import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingBlend, updateLighting } from './render/lighting';
@@ -68,7 +68,7 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xc7ced1, 90, 1100);
 const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 20000);
 const sky = new Sky();
-const sea = new Sea((new URLSearchParams(location.search).get('sea') ?? 'full') as SeaVariant);
+const sea = new Sea((new URLSearchParams(location.search).get('sea') ?? 'full') as SeaVariant, (new URLSearchParams(location.search).get('crests') ?? 'sprites') as CrestMode);
 scene.add(sky.mesh, sea.group);
 
 const save: SaveData = loadSave();
@@ -861,6 +861,7 @@ window.__debug = {
   },
   seaFieldImage: () => sea.fieldImage(),
   seaObj: () => sea,
+  crestStats: () => sea.crests.stats(),
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,

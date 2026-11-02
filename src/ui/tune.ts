@@ -15,6 +15,7 @@ const AUDIO_RANGES: Record<keyof typeof AUDIO_TUNING, [number, number, number]> 
 };
 const saveAudio = () => { localStorage.setItem(AUDIO_KEY, JSON.stringify(AUDIO_TUNING)); gameAudio.e?.applyLevels(); };
 import { WATER_TUNE } from '../render/sea';
+import { CREST_TUNE } from '../render/crests';
 
 // water study (docs/water_study.md): sea crests, shore foam, shallows, glints, swell, wind lines
 const WATER_KEY = 'salish-water-tune-v1';
@@ -23,6 +24,13 @@ const WATER_RANGES: Record<keyof typeof WATER_TUNE, [number, number, number]> = 
   crest: [0, 1, 0.05], crestDensity: [0, 1, 0.05], crestScale: [0.5, 1.6, 0.05], crestSpeed: [0, 1.5, 0.05], crestFar: [30, 200, 5],
   shore: [0, 1, 0.05], surfPeriod: [2, 12, 0.25], surfReach: [1, 8, 0.1], shallow: [0, 1, 0.05], shallowDepth: [1, 12, 0.25],
   glint: [0, 2, 0.05], glintCone: [0.6, 0.98, 0.01], swell: [0, 0.08, 0.005], windLines: [0, 1, 1],
+};
+
+// crest study (docs/crest_study.md): the crest sprite pool
+const CREST_KEY = 'salish-crest-tune-v1';
+const CREST_DEFAULT = { ...CREST_TUNE };
+const CREST_RANGES: Record<keyof typeof CREST_TUNE, [number, number, number]> = {
+  count: [0, 60, 1], life: [1.5, 9, 0.1], size: [0.4, 2, 0.05], near: [0, 20, 0.5], shelter: [5, 80, 1],
 };
 
 // fishing polish (docs/study/fishing_polish.md): camera framing/juice, fight VFX, float, spot marker
@@ -68,6 +76,7 @@ export function initTuneOverlay() {
   } catch { /* ignore */ }
   try { Object.assign(AUDIO_TUNING, JSON.parse(localStorage.getItem(AUDIO_KEY) ?? '{}')); } catch { /* ignore */ }
   try { Object.assign(WATER_TUNE, JSON.parse(localStorage.getItem(WATER_KEY) ?? '{}')); } catch { /* ignore */ }
+  try { Object.assign(CREST_TUNE, JSON.parse(localStorage.getItem(CREST_KEY) ?? '{}')); } catch { /* ignore */ }
   const saveFish = () => localStorage.setItem(FISH_KEY, JSON.stringify({ cam: FISH_CAM, fx: FIGHT_FX, tackle: TACKLE_TUNING, spot: HOTSPOT_FX }));
 
   const panel = document.createElement('div');
@@ -90,9 +99,10 @@ export function initTuneOverlay() {
     Object.assign(FISH_CAM, FISH_DEFAULT.cam); Object.assign(FIGHT_FX, FISH_DEFAULT.fx); Object.assign(TACKLE_TUNING, FISH_DEFAULT.tackle); Object.assign(HOTSPOT_FX, FISH_DEFAULT.spot);
     Object.assign(AUDIO_TUNING, AUDIO_DEFAULT); gameAudio.e?.applyLevels();
     Object.assign(WATER_TUNE, WATER_DEFAULT); localStorage.removeItem(WATER_KEY);
+    Object.assign(CREST_TUNE, CREST_DEFAULT); localStorage.removeItem(CREST_KEY);
     localStorage.removeItem(KEY); localStorage.removeItem(CAM_KEY); localStorage.removeItem(FISH_KEY); localStorage.removeItem(AUDIO_KEY); render();
   });
-  btn('copy', () => { navigator.clipboard?.writeText(JSON.stringify({ BOAT_TUNING, CAMERA_TUNING, FISH_CAM, FIGHT_FX, TACKLE_TUNING, HOTSPOT_FX, WATER_TUNE }, null, 2)).catch(() => {}); });
+  btn('copy', () => { navigator.clipboard?.writeText(JSON.stringify({ BOAT_TUNING, CAMERA_TUNING, FISH_CAM, FIGHT_FX, TACKLE_TUNING, HOTSPOT_FX, WATER_TUNE, CREST_TUNE }, null, 2)).catch(() => {}); });
   panel.append(head, body);
 
   function section(title: string, obj: Record<string, number>, ranges: Record<string, [number, number, number]>, key: string | (() => void)) {
@@ -131,6 +141,7 @@ export function initTuneOverlay() {
     section('Fishing spot', HOTSPOT_FX as Record<string, number>, SPOT_RANGES, saveFish);
     section('Audio mix', AUDIO_TUNING as Record<string, number>, AUDIO_RANGES, saveAudio);
     section('Water', WATER_TUNE as Record<string, number>, WATER_RANGES, WATER_KEY);
+    section('Crests', CREST_TUNE as Record<string, number>, CREST_RANGES, CREST_KEY);
   }
   render();
   document.body.appendChild(panel);
