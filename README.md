@@ -74,6 +74,8 @@ Blender (`lighthouse_island.blend`) is the level editor, and its export script w
 - **Startup:** if `READY` is missing, the game builds a small **placeholder world**. This is a few islands plus a Cedar Landing pier and market, using the same data shapes, and a red badge says so.
 - **Live updates:** the game polls `READY` every 5 s. When it appears or changes, the export is loaded and swapped in live.
 - **Lighting:** everything is unlit. The time-of-day `tint` is applied as `material.color` (a multiply on the vertex colours).
+- **Sun-plane shading:** `src/render/lighting.ts` derives a flat face normal per fragment (`dFdx`/`dFdy`, the glbs have no normals) and maps `dot(N, sun)` through a hard 3-step ramp (lit / side / shadow) with a warm-lit / cool-shadow tint per time of day. The sun comes from `time_of_day[*].clouds.sun` when set, otherwise from the `PRESETS` table. Backdrops get 15 %, clouds, sea and sky none. Settings → Sun shading toggles it.
+- **Wind:** instanced trees and shrubs sway in the vertex shader (more with height, per-instance phase; broadleaf and shrubs a bit more). Meshes in `world/dynamic.glb` with extras `anim: "flutter"` (optional `anchor`: `-x`/`+x`/`-z`/`+z`/`top`) wave like cloth; give them 6+ segments along their length. `?flagtest` adds a test pennant. Settings → Wind toggles it.
 - **Fog:** chunks use distance fog in the haze colour. Backdrops (and the `PTL*` far-forest protos) use a constant weak haze instead. Clouds have no fog.
 - **Far forests:** `PTL*` protos (150–580 tris each, ~20k instances ≈ 6.5M tris) are swapped at load for 8–20 tri impostors (cone / blob) that keep each proto's height, width and average colours. That cuts the frame from ~4.4M to ~0.8M tris. A proper low-LOD `PTL*` export would remove the need for this.
 - **Draco:** the decoder is shipped in `public/draco/`, copied from `three/examples/jsm/libs/draco/gltf`.
@@ -87,6 +89,7 @@ src/world/loader.ts       READY polling, manifest/glb/proto loading (GLTF + Drac
 src/world/placeholder.ts  built-in dev world + default time-of-day palettes
 src/render/materials.ts   shared unlit materials, tint, backdrop haze
 src/render/environment.ts sky dome (gradient), sea (near wave patch + far ring)
+src/render/lighting.ts    sun-plane shading + wind (shader patch, TOD presets, toggles, window.__light)
 src/render/instances.ts   per-cell InstancedMesh field with distance culling
 src/game/boat.ts          arcade canoe physics (3 m/s tier 0), bob/roll
 src/game/collision.ts     landgrid (plus optional circle/poly) collision with sliding
@@ -103,5 +106,6 @@ scripts/smoke.mjs         Playwright smoke test
 - `BOAT_T0` in `boat.ts`
 - `T` in `fishing.ts`
 - `QUALITY` and the ranges at the top of `main.ts`
+- `PRESETS` in `lighting.ts` (sun, steps, tints, thresholds, wind), `LIGHT_STRENGTH` and `WIND` in `materials.ts`
 
 **Low quality setting:** drops foliage protos under 1 m, lowers the fog and draw distance to 600 m, and lowers the pixel ratio to 1.5.

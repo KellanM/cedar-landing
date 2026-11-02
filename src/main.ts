@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Sky, Sea } from './render/environment';
 import { backdropHaze, setTint } from './render/materials';
 import { InstanceField } from './render/instances';
+import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingTOD, updateLighting } from './render/lighting';
+import { flutterMat } from './render/materials';
 import { buildPlaceholderWorld, placeholderBoat } from './world/placeholder';
 import { checkReady, loadExportWorld } from './world/loader';
 import type { Hotspot, Interact, LoadedWorld } from './world/types';
@@ -100,6 +102,8 @@ function installWorld(w: LoadedWorld) {
   for (const c of w.chunks) worldRoot.add(c.object);
   for (const b of w.backdrops) worldRoot.add(b);
   for (const c of w.clouds) worldRoot.add(c);
+  for (const d of w.dynamic ?? []) worldRoot.add(d);
+  if (new URLSearchParams(location.search).has('flagtest')) worldRoot.add(makeTestFlag(flutterMat, w.gameplay.spawn.pos));
   buildInstances();
 
   land = new LandCollision(w.gameplay);
@@ -154,6 +158,7 @@ function applyTOD() {
   (scene.fog as THREE.Fog).color.set(t.haze);
   renderer.setClearColor(t.haze);
   setTint(t.tint);
+  setLightingTOD(key, t as Parameters<typeof setLightingTOD>[1]);
   const foggy = /fog/i.test(key);
   (scene.fog as THREE.Fog).near = foggy ? 20 : quality.fogNear;
   (scene.fog as THREE.Fog).far = foggy ? 260 : quality.fogFar;
@@ -335,6 +340,8 @@ fsBtn.onclick = () => {
 };
 if (new URLSearchParams(location.search).has('debug')) { save.settings.showFps = true; }
 refreshSettingsUI();
+mountSunShadingSetting();
+mountWindSetting();
 window.addEventListener('keydown', (e) => {
   if (e.key === 't' || e.key === 'T') cycleTOD();
   if (e.key === 'f' || e.key === 'F') { save.settings.showFps = !save.settings.showFps; refreshSettingsUI(); }
@@ -487,6 +494,7 @@ function frame(now: number) {
     updateUI(dt);
   }
 
+  updateLighting(dt);
   renderer.render(scene, camera);
 
   fpsAcc += dt; fpsFrames++;

@@ -68,6 +68,8 @@ export interface Manifest {
   backdrops: string[];
   clouds?: string;
   protos?: string;
+  /** animated props (flags, laundry...): meshes with extras anim:"flutter" wave in the wind */
+  dynamic?: string;
 }
 
 /** instances.json: [x,y,z, qx,qy,qz,qw, s] per instance (older rotY form [x,y,z,rotY,s] also accepted). */
@@ -80,6 +82,8 @@ export interface LoadedWorld {
   chunks: LoadedChunk[];
   backdrops: THREE.Object3D[];
   clouds: THREE.Object3D[];
+  /** world/dynamic.glb (optional) */
+  dynamic?: THREE.Object3D[];
   /** proto geometry (merged, vertex coloured) by name */
   protos: Map<string, THREE.BufferGeometry>;
   instances: Instances;

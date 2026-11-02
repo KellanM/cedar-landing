@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { backdropMat, worldMat } from './materials';
+import { backdropMat, protoMaterial } from './materials';
 import type { Instances } from '../world/types';
 
 const CELL = 120; // matches the export chunk grid
@@ -40,7 +40,7 @@ export class InstanceField {
         arr.push(it);
       }
       for (const items of cells.values()) {
-        const mesh = new THREE.InstancedMesh(geom, far ? backdropMat : worldMat, items.length);
+        const mesh = new THREE.InstancedMesh(geom, far ? backdropMat : protoMaterial(name), items.length);
         const center = new THREE.Vector3();
         items.forEach((it, i) => {
           p.set(it[0], it[1], it[2]);

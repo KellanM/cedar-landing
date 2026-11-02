@@ -95,13 +95,14 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
   let instances: Instances = { protos: {} };
   try { instances = await getJSON<Instances>('instances.json', version); } catch (e) { console.warn('[world] no instances.json', e); }
 
-  const total = manifest.chunks.length + manifest.backdrops.length + (manifest.clouds ? 1 : 0) + (manifest.protos ? 1 : 0);
+  const total = manifest.chunks.length + manifest.backdrops.length + (manifest.clouds ? 1 : 0) + (manifest.protos ? 1 : 0) + (manifest.dynamic ? 1 : 0);
   let done = 0;
   const tick = (what: string) => progress(what, ++done / Math.max(1, total));
 
   const chunks: LoadedChunk[] = [];
   const backdrops: THREE.Object3D[] = [];
   const clouds: THREE.Object3D[] = [];
+  const dynamic: THREE.Object3D[] = [];
 
   // Load chunks with limited concurrency (phones choke on dozens of parallel Draco decodes).
   const queue = [...manifest.chunks];
@@ -137,6 +138,14 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
       clouds.push(g.scene);
     } catch (e) { console.warn('[world] clouds failed', e); }
     tick('clouds');
+  }
+  if (manifest.dynamic) {
+    try {
+      const g = await loadGLB(manifest.dynamic, version);
+      applyWorldMaterial(g.scene, 'dynamic');
+      dynamic.push(g.scene);
+    } catch (e) { console.warn('[world] dynamic failed', e); }
+    tick('dynamic');
   }
 
   const protos = new Map<string, THREE.BufferGeometry>();
@@ -174,5 +183,5 @@ export async function loadExportWorld(version: string, progress: Progress): Prom
     tick('protos');
   }
 
-  return { source: 'export', chunks, backdrops, clouds, protos, instances, boat, gameplay };
+  return { source: 'export', chunks, backdrops, clouds, dynamic, protos, instances, boat, gameplay };
 }
