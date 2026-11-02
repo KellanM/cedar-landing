@@ -7,7 +7,7 @@ import { backdropHaze, setTint } from './render/materials';
 import { InstanceField } from './render/instances';
 import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingBlend, updateLighting } from './render/lighting';
 import { setLineContext, setNpcRoster } from './game/onfoot/npclines';
-import { DAY_REAL_MIN, LOOK_HOUR, START_HOUR, clockText, lookAt, lookWords, wrapHour, type ClockLook } from './game/clock';
+import { DAY_REAL_MIN, LOOK_HOUR, START_HOUR, clockText, lookAt, lookWords, mistAt, wrapHour, type ClockLook } from './game/clock';
 import { flutterMat } from './render/materials';
 import { buildPlaceholderWorld, placeholderBoat } from './world/placeholder';
 import { checkReady, loadExportWorld } from './world/loader';
@@ -147,6 +147,8 @@ let landing: Interact | null = null; // Cedar Landing fish market (compass + rev
 let todKeys: string[] = [];
 /** game clock (hours) and the current blend of time-of-day looks */
 let clockHour = START_HOUR;
+let mistNow = 0;
+let mistOverride: number | null = null;
 let look: ClockLook = { a: 'overcast', b: 'overcast', f: 0, key: 'overcast' };
 let todTimer = 0;
 const todBlend: TimeOfDay = { zenith: '', horizon: '', sea: '', haze: '', tint: [1, 1, 1] };
@@ -297,11 +299,14 @@ function applyTOD() {
   setLightingBlend(look.a, A as Parameters<typeof setLightingBlend>[1], look.b, B as Parameters<typeof setLightingBlend>[1], f);
   // fog weight blends with the clock (misty dawn thins into the grey morning)
   const w = (k: string) => (look.a === k ? 1 - f : 0) + (look.b === k ? f : 0);
-  const fogW = /fog/i.test(look.a) || /fog/i.test(look.b) ? w(/fog/i.test(look.a) ? look.a : look.b) : 0;
+  const lookFog = /fog/i.test(look.a) || /fog/i.test(look.b) ? w(/fog/i.test(look.a) ? look.a : look.b) : 0;
+  // always some sea mist, varying through the day and from day to day (game/clock.ts mistAt)
+  mistNow = mistOverride ?? mistAt(clockHour, save.day ?? 0);
+  const fogW = Math.max(lookFog, mistNow);
   (scene.fog as THREE.Fog).near = THREE.MathUtils.lerp(quality.fogNear, 12, fogW);
-  (scene.fog as THREE.Fog).far = THREE.MathUtils.lerp(quality.fogFar, 210, fogW);
-  // low fog banks: full in the fog look, light morning wisps on overcast
-  fogBanks?.set(fogW + w('overcast') * 0.25, t.haze);
+  (scene.fog as THREE.Fog).far = THREE.MathUtils.lerp(quality.fogFar, 210, Math.pow(fogW, 1.15));
+  // low fog banks drift in with the mist (full in the fog look)
+  fogBanks?.set(Math.max(lookFog, Math.min(1, mistNow * 1.1)), t.haze);
   wake.setSea(t.sea);
   backdropHaze.value = THREE.MathUtils.lerp(quality.haze, 0.92, fogW);
   hud.setTOD(key, clockText(clockHour), lookWords(key));
@@ -672,7 +677,9 @@ function frame(now: number) {
   if (world && !hud.paused()) {
     // the day turns while you play (paused in the Log, shops and menus)
     if (!modalOpen && dt > 0) {
-      clockHour = wrapHour(clockHour + (dt * 24) / (DAY_REAL_MIN * 60));
+      const nextHour = wrapHour(clockHour + (dt * 24) / (DAY_REAL_MIN * 60));
+      if (nextHour < clockHour) save.day = (save.day ?? 0) + 1; // past midnight: a new day (new mist)
+      clockHour = nextHour;
       save.clock = clockHour;
       todTimer += dt;
       if (todTimer > 0.5) { todTimer = 0; applyTOD(); }
@@ -868,6 +875,8 @@ window.__debug = {
   camTune: (o: Partial<typeof CAMERA_TUNING>) => { Object.assign(CAMERA_TUNING, o); chase.snap(boat); },
   /** jump the game clock (hours) */
   setClock: (h: number) => { clockHour = wrapHour(h); save.clock = clockHour; applyTOD(); return clockText(clockHour); },
+  /** sea mist 0..1 now; mist(v) pins it (null = back to the clock), mist(null, day) sets the day */
+  mist: (v?: number | null, day?: number) => { if (v !== undefined) mistOverride = v; if (day !== undefined) save.day = day; applyTOD(); return { mist: +mistNow.toFixed(2), day: save.day ?? 0, far: Math.round((scene.fog as THREE.Fog).far) }; },
   skipperState: () => ({ ready: skipper.ready, attached: skipper.attached, pose: skipper.currentPose, landingK: chase.landingK }),
   keep: () => closeCard(true),
   sellAll: () => sellFish(save.cooler.map((_, i) => i)),

@@ -45,3 +45,26 @@ export function clockText(hour: number) {
 }
 
 export const lookWords = (key: string) => WORDS[key] ?? key;
+
+/**
+ * Sea mist, 0..1, always present (the user: "always some kind of fog, but varying amounts").
+ * Each day draws its own overall mistiness (blended smoothly across midnight); on top, a daily
+ * shape: thickest around dawn, lifting by mid-afternoon, creeping back in the evening.
+ * The "fog" look (dawn) still forces full fog (main.applyTOD takes the max).
+ */
+export const MIST = { min: 0.22, max: 0.85 };
+function dayMist(day: number) {
+  const s = Math.sin((Math.floor(day) + 1) * 127.1 + 311.7) * 43758.5453;
+  const r = s - Math.floor(s); // 0..1, fixed per day
+  return r * r * 0.9 + 0.05; // most days light-to-moderate, the odd thick one
+}
+export function mistAt(hour: number, day: number) {
+  const t = day + hour / 24 - 0.5; // seeds sit at noon; blend between neighbours
+  const d0 = Math.floor(t), k = t - d0, sk = k * k * (3 - 2 * k);
+  const daily = dayMist(d0) * (1 - sk) + dayMist(d0 + 1) * sk;
+  const g = (c: number, w: number) => { let d = Math.abs(hour - c); d = Math.min(d, 24 - d); return Math.exp(-(d * d) / (2 * w * w)); };
+  const shape = 0.45 * g(6.5, 2.2) + 0.18 * g(21, 3) - 0.22 * g(14.5, 2.5);
+  const wobble = 0.06 * Math.sin((day * 24 + hour) * 0.9) + 0.04 * Math.sin((day * 24 + hour) * 2.3 + 1.7);
+  const m = MIST.min + (MIST.max - MIST.min) * (daily * 0.75 + shape + wobble + 0.12);
+  return Math.min(1, Math.max(MIST.min, m));
+}
