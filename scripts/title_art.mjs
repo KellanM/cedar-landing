@@ -135,7 +135,7 @@ const landing = `<svg class="ld-landing" viewBox="0 0 120 70" aria-hidden="true"
 
 const gull = `<svg viewBox="0 0 24 10" aria-hidden="true"><path d="M1 8q5-7 11-1 6-6 11 1" fill="none" stroke="${INK}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-const lockup = `<div class="ld-lockup" role="img" aria-label="Cedar Landing, a fishing tale">
+const lockup = `<div class="ld-lockup" role="img" aria-label="Cedar Landing, a Northwest fishing tale">
   <svg class="ld-crest" viewBox="0 0 220 22" aria-hidden="true">
     <path d="M6 11h68M146 11h68" stroke="${INK}" stroke-width="1.4"/>
     <circle cx="80" cy="11" r="1.8" fill="${INK}"/><circle cx="140" cy="11" r="1.8" fill="${INK}"/>
@@ -147,7 +147,7 @@ const lockup = `<div class="ld-lockup" role="img" aria-label="Cedar Landing, a f
     <text class="ld-name-shadow"><textPath href="#ld-arc" startOffset="50%" text-anchor="middle">Cedar Landing</textPath></text>
     <text class="ld-name-face"><textPath href="#ld-arc" startOffset="50%" text-anchor="middle">Cedar Landing</textPath></text>
   </svg>
-  <div class="ld-ribbon"><span>a fishing tale</span></div>
+  <div class="ld-ribbon"><span>a Northwest fishing tale</span></div>
 </div>`;
 
 const svg = (cls, vb, par, body) => `<svg class="${cls}" viewBox="${vb}" preserveAspectRatio="${par}" aria-hidden="true">${body}</svg>`;
