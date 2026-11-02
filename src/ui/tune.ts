@@ -15,6 +15,14 @@ const AUDIO_RANGES: Record<keyof typeof AUDIO_TUNING, [number, number, number]> 
 };
 const saveAudio = () => { localStorage.setItem(AUDIO_KEY, JSON.stringify(AUDIO_TUNING)); gameAudio.e?.applyLevels(); };
 import { WATER_TUNE } from '../render/sea';
+import { OUTLINE, OUTLINE_DEFAULT } from '../render/outline';
+
+// ink outline experiment (src/render/outline.ts): on/off, mode 0 screen-space / 1 hull / 2 hybrid
+const OUTLINE_KEY = 'salish-outline-tune-v1';
+const OUTLINE_RANGES: Record<keyof typeof OUTLINE, [number, number, number]> = {
+  on: [0, 1, 1], mode: [0, 2, 1], width: [0.5, 4, 0.25], darkness: [0, 1, 0.05], fadeNear: [5, 300, 5], fadeFar: [20, 900, 10],
+  crease: [10, 90, 1], silhouette: [0.005, 0.2, 0.005], foliage: [0, 1, 0.5], backdrop: [0, 1, 0.5], detail: [0, 2, 0.05], taper: [0, 1, 1],
+};
 
 // water study (docs/water_study.md): sea crests, shore foam, shallows, glints, swell, wind lines
 const WATER_KEY = 'salish-water-tune-v1';
@@ -68,6 +76,7 @@ export function initTuneOverlay() {
   } catch { /* ignore */ }
   try { Object.assign(AUDIO_TUNING, JSON.parse(localStorage.getItem(AUDIO_KEY) ?? '{}')); } catch { /* ignore */ }
   try { Object.assign(WATER_TUNE, JSON.parse(localStorage.getItem(WATER_KEY) ?? '{}')); } catch { /* ignore */ }
+  try { Object.assign(OUTLINE, JSON.parse(localStorage.getItem(OUTLINE_KEY) ?? '{}')); } catch { /* ignore */ }
   const saveFish = () => localStorage.setItem(FISH_KEY, JSON.stringify({ cam: FISH_CAM, fx: FIGHT_FX, tackle: TACKLE_TUNING, spot: HOTSPOT_FX }));
 
   const panel = document.createElement('div');
@@ -90,9 +99,10 @@ export function initTuneOverlay() {
     Object.assign(FISH_CAM, FISH_DEFAULT.cam); Object.assign(FIGHT_FX, FISH_DEFAULT.fx); Object.assign(TACKLE_TUNING, FISH_DEFAULT.tackle); Object.assign(HOTSPOT_FX, FISH_DEFAULT.spot);
     Object.assign(AUDIO_TUNING, AUDIO_DEFAULT); gameAudio.e?.applyLevels();
     Object.assign(WATER_TUNE, WATER_DEFAULT); localStorage.removeItem(WATER_KEY);
+    Object.assign(OUTLINE, OUTLINE_DEFAULT); localStorage.removeItem(OUTLINE_KEY);
     localStorage.removeItem(KEY); localStorage.removeItem(CAM_KEY); localStorage.removeItem(FISH_KEY); localStorage.removeItem(AUDIO_KEY); render();
   });
-  btn('copy', () => { navigator.clipboard?.writeText(JSON.stringify({ BOAT_TUNING, CAMERA_TUNING, FISH_CAM, FIGHT_FX, TACKLE_TUNING, HOTSPOT_FX, WATER_TUNE }, null, 2)).catch(() => {}); });
+  btn('copy', () => { navigator.clipboard?.writeText(JSON.stringify({ BOAT_TUNING, CAMERA_TUNING, FISH_CAM, FIGHT_FX, TACKLE_TUNING, HOTSPOT_FX, WATER_TUNE, OUTLINE }, null, 2)).catch(() => {}); });
   panel.append(head, body);
 
   function section(title: string, obj: Record<string, number>, ranges: Record<string, [number, number, number]>, key: string | (() => void)) {
@@ -131,6 +141,7 @@ export function initTuneOverlay() {
     section('Fishing spot', HOTSPOT_FX as Record<string, number>, SPOT_RANGES, saveFish);
     section('Audio mix', AUDIO_TUNING as Record<string, number>, AUDIO_RANGES, saveAudio);
     section('Water', WATER_TUNE as Record<string, number>, WATER_RANGES, WATER_KEY);
+    section('Outline (on; mode 0 screen / 1 hull / 2 hybrid)', OUTLINE as Record<string, number>, OUTLINE_RANGES, OUTLINE_KEY);
   }
   render();
   document.body.appendChild(panel);

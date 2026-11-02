@@ -5,6 +5,7 @@ import { buildShoreField } from './render/shorefield';
 import type { SeaVariant } from './render/sea';
 import { backdropHaze, setTint } from './render/materials';
 import { InstanceField } from './render/instances';
+import { Outline, OUTLINE, outlineFromUrl } from './render/outline';
 import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingBlend, updateLighting } from './render/lighting';
 import { setLineContext, setNpcRoster } from './game/onfoot/npclines';
 import { DAY_REAL_MIN, LOOK_HOUR, START_HOUR, clockText, lookAt, lookWords, wrapHour, type ClockLook } from './game/clock';
@@ -75,6 +76,9 @@ const save: SaveData = loadSave();
 let quality = QUALITY[save.settings.quality];
 gameAudio.setVolumes(save.settings.music, save.settings.sound);
 sea.setQuality(save.settings.quality);
+// ink outlines (experiment, src/render/outline.ts): ?outline=1 | hull | hybrid, ?tune > Outline, __debug.outline()
+const outline = new Outline();
+outline.setQuality(save.settings.quality);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -223,6 +227,7 @@ function installWorld(w: LoadedWorld) {
   }
   boat.update(0, 0, 0, land);
   chase.snap(boat);
+  outlineTargets();
   foot.setWorld(w);
   setNpcRoster(w.gameplay.npcs ?? []);
   if (save.onfoot && boat.moored && save.worldTag === w.source && !foot.active) foot.restore(save.onfoot);
@@ -256,6 +261,7 @@ function buildInstances() {
   if (instances) worldRoot.remove(instances.group);
   instances = new InstanceField(world.instances, world.protos, save.settings.quality === 'low');
   worldRoot.add(instances.group);
+  outlineTargets();
 }
 
 function buildWildlife() {
@@ -270,6 +276,22 @@ function buildWildlife() {
   smoke = new SmokeFX(world.gameplay.smoke, save.settings.quality === 'low');
   fogBanks = new FogBanks(save.settings.quality === 'low');
   scene.add(smoke.mesh, fogBanks.mesh);
+  outlineTargets();
+}
+
+/** Outline pass: what is never inked (drawn over the ink) and what gets hulls in the hull modes. */
+function outlineTargets() {
+  outline.setLate([
+    wildlife?.birds.group, wildlife?.splash.group, wildlife?.mammals.blows.mesh, smoke?.mesh, fogBanks?.mesh, sea.wind.mesh, wake.mesh,
+    fishing.group, hotspotFX?.group, ...(world?.clouds ?? []),
+  ]);
+  outline.setHullTargets([
+    ...(world?.chunks.map((c) => ({ root: c.object, cat: 'chunk' as const })) ?? []),
+    { root: instances?.group, cat: 'prop' },
+    { root: boat?.root, cat: 'boat' },
+    { root: crowd?.group, cat: 'actor' },
+    { root: scene, cat: 'actor' },
+  ]);
 }
 
 const _ca = new THREE.Color(), _cb = new THREE.Color();
@@ -562,6 +584,7 @@ hud.init({
       resize();
       buildInstances();
       sea.setQuality(save.settings.quality);
+      outline.setQuality(save.settings.quality);
       if (world) buildSeaField(world);
       applyTOD();
       writeSave(save);
@@ -584,6 +607,7 @@ const upg = createUpgrades({
   snapCamera: () => { if (!foot.active) chase.snap(boat); },
 });
 initTuneOverlay();
+outlineFromUrl();
 mountSunShadingSetting();
 mountWindSetting();
 window.addEventListener('keydown', (e) => {
@@ -733,7 +757,7 @@ function frame(now: number) {
 
   updateLighting(dt);
   applyDebugCam();
-  renderer.render(scene, camera);
+  outline.render(renderer, scene, camera);
   if (world && boat) audioFrame(dt);
 
   fpsAcc += dt; fpsFrames++;
@@ -859,6 +883,33 @@ window.__debug = {
     return { full: +full.toFixed(3), noSea: +noSea.toFixed(3), sea: +(full - noSea).toFixed(3) };
   },
   seaFieldImage: () => sea.fieldImage(),
+  /** Ink outlines: true/false, 'screen' | 'hull' | 'hybrid', or a partial OUTLINE object. Returns the state. */
+  outline: (o?: boolean | 'screen' | 'hull' | 'hybrid' | Partial<typeof OUTLINE>) => {
+    if (typeof o === 'boolean') OUTLINE.on = o ? 1 : 0;
+    else if (typeof o === 'string') { OUTLINE.on = 1; OUTLINE.mode = o === 'hull' ? 1 : o === 'hybrid' ? 2 : 0; }
+    else if (o) Object.assign(OUTLINE, o);
+    return { ...OUTLINE, ...outline.stats() };
+  },
+  /** outline pass quality ('low' = no MSAA target, 2 axes); follows the game setting otherwise */
+  outlineQuality: (q: 'high' | 'low') => outline.setQuality(q),
+  /** ms per synchronous frame of the current view, outline off vs on (current mode), plus draws/tris. */
+  benchOutline: (n = 40) => {
+    const gl = renderer.getContext(), px = new Uint8Array(4);
+    const was = OUTLINE.on;
+    const time = () => {
+      outline.render(renderer, scene, camera); // settle layers / hulls
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      const t = performance.now();
+      for (let i = 0; i < n; i++) outline.render(renderer, scene, camera);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      const ms = (performance.now() - t) / n;
+      return { ms: +ms.toFixed(3), draws: renderer.info.render.calls, tris: renderer.info.render.triangles };
+    };
+    OUTLINE.on = 0; const off = time();
+    OUTLINE.on = 1; const on = time();
+    OUTLINE.on = was; outline.render(renderer, scene, camera);
+    return { off, on, mode: Math.round(OUTLINE.mode) };
+  },
   seaObj: () => sea,
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },

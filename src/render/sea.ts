@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { TimeOfDay } from '../world/types';
 import type { ShoreField } from './shorefield';
-import { LIGHT_U } from './lighting';
+import { INK_PASS, LIGHT_U } from './lighting';
 import { WindLines } from './windlines';
 
 /**
@@ -119,6 +119,7 @@ uniform float uSwell;
 uniform float uMotion;
 uniform float uLow;
 uniform float uDebug;
+uniform float uInkPass;
 varying vec3 vWorld;
 #include <fog_pars_fragment>
 
@@ -285,7 +286,8 @@ void main() {
   }
 
   if (uDebug > 0.5) col = vec3(fract(max(sd, 0.0) / 4.0) * step(0.0, sd), 1.0 - depth / 12.0, sd < 0.0 ? 1.0 : 0.0);
-  gl_FragColor = vec4(col, 1.0);
+  // alpha 0 = no ink in the outline pass (outline.ts, uInkPass = 1 only while it renders)
+  gl_FragColor = vec4(col, 1.0 - uInkPass);
   #include <colorspace_fragment>
   #include <fog_fragment>
 }`;
@@ -325,6 +327,7 @@ export class Sea {
       uShallowAmt: { value: 1 }, uShallowDepth: { value: 4.5 }, uSwell: { value: 0.025 }, uMotion: { value: 1 }, uLow: { value: 0 },
       uDebug: { value: variant === 'field' ? 1 : 0 },
     }]);
+    this.uniforms.uInkPass = INK_PASS; // shared (merge() clones)
     this.uniforms.uNoise.value = noiseTexture();
     // both meshes share one uniform set
     const mk = (factor: number) => new THREE.ShaderMaterial({
