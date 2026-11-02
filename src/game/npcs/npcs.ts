@@ -85,7 +85,9 @@ export class NpcCrowd {
     const bones: Partial<Record<BoneName, THREE.Object3D>> = {};
     let skinned: THREE.SkinnedMesh | null = null;
     node.traverse((o) => {
-      if ((o as THREE.Bone).isBone && (BONES as readonly string[]).includes(o.name)) bones[o.name as BoneName] = o;
+      // GLTFLoader makes node names unique across the file: the 2nd NPC's hips is "hips_1", …
+      const bn = o.name.replace(/_\d+$/, '');
+      if ((o as THREE.Bone).isBone && (BONES as readonly string[]).includes(bn)) bones[bn as BoneName] = o;
       const m = o as THREE.SkinnedMesh;
       if (m.isMesh) {
         if (m.geometry.getAttribute('color')) m.material = worldMat;
@@ -244,7 +246,8 @@ export class NpcCrowd {
         if (p < 0.55) k = ease(p / 0.55); // raise
         else if (p < 0.66) k = 1 - ease((p - 0.55) / 0.11) * 1.15; // fast chop with a small overshoot
         else k = -0.15 + 0.15 * ease((p - 0.66) / 0.34); // settle
-        uaRP += -26 * k * D; faRP += -22 * k * D; hdRP += -12 * k * D;
+        // lift by bending the elbow and cocking the wrist back (blade stays down, away from the face)
+        uaRP += -8 * k * D; faRP += -14 * k * D; hdRP += 18 * k * D;
         spP += (k < 0 ? -k * 22 : -k * 3) * D; // body follows the chop through
         uaLP += -4 * k * D; nkP += 6 * D;
         break;
@@ -258,8 +261,9 @@ export class NpcCrowd {
       }
       case 'stir': { // tending the fish over the fire: slow circling of the right arm, 2.2 s
         const p = (t / (2.2 * w)) * Math.PI * 2;
-        uaRP += 9 * Math.sin(p) * D; uaRR += 7 * Math.cos(p) * D; faRP += 8 * Math.sin(p + 0.5) * D;
-        spY += 4 * Math.sin(p) * D; spP += 2 * Math.cos(p) * D;
+        // small: the roasting stick is a 1 m lever
+        uaRP += 3.5 * Math.sin(p) * D; uaRR += 3 * Math.cos(p) * D; faRP += 3 * Math.sin(p + 0.5) * D;
+        spY += 2.5 * Math.sin(p) * D; spP += 1.5 * Math.cos(p) * D;
         break;
       }
       case 'dig': { // push the digging stick down, pull, 1.7 s

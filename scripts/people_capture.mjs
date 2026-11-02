@@ -166,7 +166,9 @@ async function run(name, viewport, isMobile) {
     const c = byName.NPC_TheCrier;
     if (c) {
       const p = c.pos;
-      await D((cc) => window.__debug.cam(cc), { pos: [p[0] - 4.5, p[1] + 2.4, p[2] + 3.2], target: [p[0] - 1.2, p[1] + 0.9, p[2] + 1.2], fov: 40 });
+      // side-on to the pair: the crier's facing f and its right-angle s
+      const ca = c.rotY ?? 0, f = [Math.sin(ca), Math.cos(ca)], sd = [Math.cos(ca), -Math.sin(ca)];
+      await D((cc) => window.__debug.cam(cc), { pos: [p[0] + f[0] * 4.0 - sd[0] * 1.6, p[1] + 2.2, p[2] + f[1] * 4.0 - sd[1] * 1.6], target: [p[0] + f[0] * 0.9, p[1] + 1.3, p[2] + f[1] * 0.9], fov: 38, near: 2.0 });
       await D(([x, z]) => window.__debug.footPathTo(x, z), [p[0] - 1.6, p[2] + 1.2]);
       await seq('approach', 14, 150);
       for (let i = 0; i < 100; i++) { s = await st(); if (!s.foot.autoWalk) break; await advance(100); }
@@ -183,7 +185,7 @@ async function run(name, viewport, isMobile) {
   await D(() => window.__debug.clock(false));
   await sleep(1500);
   s = await st();
-  log(`[${name}] fps ${s.fps} draws ${s.drawCalls} tris ${s.tris}`);
+  log(`[${name}] fps ${s.fps} draws ${s.drawCalls} tris ${s.tris} npcAnim ${JSON.stringify(s.npcAnim)}`);
   if (errors.length) failures.push(`[${name}] console errors: ${errors.slice(0, 3).join(' | ')}`);
   log(`[${name}] console errors: ${errors.length}`, errors.slice(0, 5).join(' | '));
   await ctx.close();

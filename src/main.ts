@@ -621,6 +621,11 @@ window.__debug = {
     debugCam = { pos: c.pos && new THREE.Vector3(...c.pos), target: c.target && new THREE.Vector3(...c.target), follow: c.follow, fov: c.fov ?? 40, near: c.near ?? 0.3 };
   },
   footFace: (yaw: number) => { foot.yaw = yaw; },
+  npcProbe: () => crowd?.actors.slice(0, 6).map((a) => {
+    const out: Record<string, unknown> = { name: a.name, kind: a.kind, pos: a.pos.toArray().map((v) => +v.toFixed(2)) };
+    a.root.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { m.updateMatrixWorld(true); const bs = m.geometry.boundingSphere; out.mesh = { name: m.name, vis: m.visible, wpos: m.getWorldPosition(new THREE.Vector3()).toArray().map((v) => +v.toFixed(2)), bs: bs ? [bs.center.toArray().map((v) => +v.toFixed(2)), +bs.radius.toFixed(2)] : null, bones: m.skeleton.bones.length, hips: m.skeleton.bones[0].getWorldPosition(new THREE.Vector3()).toArray().map((v) => +v.toFixed(2)) }; } });
+    return out;
+  }),
   /** Studio mode for animation captures: hide the scenery (collision still works), keep player + NPCs. */
   isolate: (on: boolean) => { worldRoot.visible = !on; },
   npcs: () => world?.gameplay.npcs?.map((n) => ({ name: n.name, pos: n.pos, rotY: n.rotY, role: n.props?.npc_role, pose: n.props?.npc_pose })),
