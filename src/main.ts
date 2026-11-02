@@ -321,7 +321,7 @@ async function loadWorld(initial: boolean) {
   try {
     if (!initial) hud.toast('New world export found — loading…');
     const w = await loadExportWorld(v, (msg, f) => {
-      if (initial) { $('load-msg').textContent = msg; $('load-bar').style.width = `${Math.round(f * 100)}%`; }
+      if (initial) hud.setLoadProgress(msg, f);
     });
     if (!w.chunks.length) throw new Error('export has no chunks');
     installWorld(w);
@@ -647,6 +647,63 @@ function cull() {
   instances?.update(cp, draw, quality.small);
 }
 
+// ---------------------------------------------------------------- title camera
+/**
+ * Title screen (src/ui/loading.ts): a low, slow drift behind the moored boat looking out over the
+ * harbour (boat in the lower third, sky up top for the lockup). On "set out" it eases into the
+ * chase camera over TITLE_BLEND s. Gameplay input is discarded while the title is up.
+ */
+let titleOpen = false;
+let titleT = 0, titleBlend = 1;
+const TITLE_BLEND = 1.8;
+const tPos = new THREE.Vector3(), tLook = new THREE.Vector3(), cPos = new THREE.Vector3(), cQ = new THREE.Quaternion(), cLook = new THREE.Vector3();
+const tObj = new THREE.PerspectiveCamera(); // a camera, so lookAt aims -Z (an Object3D would face away)
+let titleYaw = 0;
+function titleCamera(dt: number) {
+  if (titleOpen) titleT += dt; else if (titleBlend < 1) titleBlend = Math.min(1, titleBlend + dt / TITLE_BLEND); else return;
+  // camera out over the water, off the boat's quarter, looking past it to open sea: boat low in
+  // frame, horizon + islands beyond, sky at the top for the lockup
+  const a = titleYaw + Math.sin(titleT * 0.09) * 0.12;
+  // portrait frames tall (boat big, low); landscape's narrower vertical FOV needs a wider, flatter shot
+  const portrait = camera.aspect < 1;
+  const cam = a + (portrait ? 0.2 : 0.3), drift = Math.min(titleT, 30);
+  const back = (portrait ? 15.5 : 19) - drift * 0.05, up = (portrait ? 4.6 : 4.3) + Math.sin(titleT * 0.13) * 0.35;
+  tPos.set(boat.pos.x - Math.sin(cam) * back, up, boat.pos.z - Math.cos(cam) * back);
+  tLook.set(boat.pos.x + Math.sin(a) * 12, portrait ? 1.6 : 3.6, boat.pos.z + Math.cos(a) * 12);
+  const k = titleOpen ? 0 : titleBlend * titleBlend * (3 - 2 * titleBlend);
+  cPos.copy(camera.position); cQ.copy(camera.quaternion);
+  // swing around the boat (azimuth / distance / height), never through it
+  const bx = boat.pos.x, bz = boat.pos.z;
+  const azT = Math.atan2(tPos.x - bx, tPos.z - bz), azC = Math.atan2(cPos.x - bx, cPos.z - bz);
+  const az = azT + Math.atan2(Math.sin(azC - azT), Math.cos(azC - azT)) * k;
+  const d = THREE.MathUtils.lerp(Math.hypot(tPos.x - bx, tPos.z - bz), Math.hypot(cPos.x - bx, cPos.z - bz), k);
+  camera.position.set(bx + Math.sin(az) * d, THREE.MathUtils.lerp(tPos.y, cPos.y, k), bz + Math.cos(az) * d);
+  // aim: from the title's look point to where the chase camera looks (its forward ray at the boat's range)
+  const cr = Math.hypot(cPos.x - bx, cPos.y - boat.pos.y, cPos.z - bz);
+  cLook.set(0, 0, -1).applyQuaternion(cQ).multiplyScalar(cr).add(cPos);
+  tObj.position.copy(camera.position); tObj.lookAt(tLook.lerp(cLook, k)); camera.quaternion.copy(tObj.quaternion);
+}
+/** Direction (azimuth, sin/cos convention x=sin, z=cos) of the longest open-water run from the boat. */
+function openWaterYaw() {
+  let best = 0, bestRun = -1;
+  for (let i = 0; i < 32; i++) {
+    const a = (i / 32) * Math.PI * 2;
+    let run = 0;
+    for (let d = 4; d <= 140; d += 4) { if (land.blocked(boat.pos.x + Math.sin(a) * d, boat.pos.z + Math.cos(a) * d)) break; run = d; }
+    // the camera sits on the far side of this ray (a + 0.2–0.3 rad, behind the boat): it must be water too
+    const ca = a + 0.25 + Math.PI;
+    let ok = true;
+    for (let d = 4; d <= 24; d += 4) if (land.blocked(boat.pos.x + Math.sin(ca) * d, boat.pos.z + Math.cos(ca) * d)) { ok = false; break; }
+    const score = run + (ok ? 60 : 0);
+    if (score > bestRun) { bestRun = score; best = a; }
+  }
+  return best;
+}
+function beginTitle() {
+  titleOpen = true; titleT = 0; titleBlend = 0;
+  titleYaw = openWaterYaw();
+}
+
 // ---------------------------------------------------------------- loop
 let last = performance.now();
 let fpsAcc = 0, fpsFrames = 0, fps = 0;
@@ -677,6 +734,7 @@ function frame(now: number) {
       todTimer += dt;
       if (todTimer > 0.5) { todTimer = 0; applyTOD(); }
     }
+    if (titleOpen) { input.consumeTap(); input.consumeAction(); input.consumeInteract(); input.takeOrbit(); }
     const tapped = input.consumeTap();
     if (chase.inShot) {
       if (tapped || input.consumeAction()) chase.skipShot();
@@ -694,7 +752,7 @@ function frame(now: number) {
 
     let throttle = input.throttle, steer = input.steer;
     lastThrottle = 0;
-    if (modalOpen || chase.inShot || foot.active) { throttle = 0; steer = 0; }
+    if (modalOpen || chase.inShot || foot.active || titleOpen) { throttle = 0; steer = 0; }
     if (fishing.active) {
       // Paddling away while waiting reels the line in; during the fight the boat holds still.
       if ((fishing.phase === 'casting' || fishing.phase === 'waiting' || fishing.phase === 'missed') && Math.abs(throttle) > 0.3) {
@@ -727,8 +785,9 @@ function frame(now: number) {
     fogBanks?.update(dt, camera.position);
     floaters?.update(dt, camera.position);
     crowd?.update(dt, camera.position, foot.active ? foot.feet : null);
+    titleCamera(dt);
     cull();
-    updateUI(dt);
+    if (!titleOpen) updateUI(dt);
     upg.tick(dt, camera, window.innerHeight > window.innerWidth);
   }
 
@@ -770,8 +829,14 @@ async function boot() {
   hud.setShells(save.shells);
   hud.renderCooler(save.cooler, save.coolerCap);
   await loadWorld(true);
+  // Title screen on every cold launch (one tap; a tap during loading skips it). Automated runs
+  // (?debug) go straight in unless they ask for it with ?title.
+  const qs = new URLSearchParams(location.search);
+  const title = !qs.has('debug') || qs.has('title');
+  if (title) beginTitle();
   requestAnimationFrame(frame);
-  await hud.loadingDone();
+  await hud.loadingDone(title);
+  titleOpen = false;
   // Poll for a (new) export; swap in live when READY appears or changes.
   setInterval(() => { if (!fishing.active && !modalOpen) loadWorld(false); }, 5000);
 }

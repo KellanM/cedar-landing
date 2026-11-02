@@ -446,20 +446,7 @@ body.titling #hud { }
 .dive-hud .rope .below { position: absolute; left: 0; right: 0; top: calc(var(--limit) * 100%); bottom: 0; background: repeating-linear-gradient(45deg, rgba(158, 59, 42, .6) 0 3px, transparent 3px 6px); }
 .dive-hud .rope .diver { position: absolute; left: 50%; top: calc(var(--depth) * 100%); transform: translate(-50%, -50%); font-style: normal; font-size: 22px; color: var(--paper); text-shadow: 0 0 2px var(--ink), 0 0 3px var(--ink); }
 
-/* ---------- loading page (paper, pencil sketch, tip, pencil rule) ---------- */
-#loading {
-  position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-  background: var(--paper) repeating-linear-gradient(0deg, transparent 0 31px, rgba(46, 94, 99, .08) 31px 32px);
-  color: var(--ink); opacity: 0; transition: opacity 400ms; pointer-events: none;
-}
-#loading.shown { opacity: 1; }
-#loading.done { opacity: 0 !important; }
-#loading .sketch { width: min(50vw, 360px); height: auto; }
-#loading .title { font: 700 36px var(--f-display); letter-spacing: .03em; }
-#loading .tip { position: absolute; top: 66%; left: 8%; right: 8%; text-align: center; margin: 0; font: 700 20px var(--f-hand); color: var(--ink-soft); }
-#loading .rule { position: absolute; top: 80%; left: 15%; right: 15%; height: 6px; border-top: 1px solid var(--ink-soft); border-bottom: 1px solid var(--ink-soft); }
-#load-bar { height: 2px; margin-top: 1px; width: 0; background: var(--ink); transition: width 200ms; }
-#load-msg { position: absolute; top: calc(80% + 14px); font: 600 14px var(--f-ui); color: var(--ink-soft); }
+/* ---------- loading + title: src/ui/opening.css ---------- */
 
 @media (prefers-reduced-motion: reduce) { * { animation-duration: 1ms !important; transition-duration: 1ms !important; } }
 .reduce-motion * { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
