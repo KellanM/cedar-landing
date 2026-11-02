@@ -757,6 +757,17 @@ window.__debug = {
     for (const [k, o] of Object.entries(parts)) { if (!o) continue; const v = o.visible; o.visible = false; out[k] = all - count(); o.visible = v; }
     return out;
   },
+  /** GPU bench (water study): ms per synchronous render of the current view, with and without the sea. */
+  benchFrame: (n = 60) => {
+    const gl = renderer.getContext(), px = new Uint8Array(4);
+    const time = () => { gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); const t = performance.now(); for (let i = 0; i < n; i++) renderer.render(scene, camera); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return (performance.now() - t) / n; };
+    time();
+    const full = time();
+    sea.group.visible = false;
+    const noSea = time();
+    sea.group.visible = true;
+    return { full: +full.toFixed(3), noSea: +noSea.toFixed(3), sea: +(full - noSea).toFixed(3) };
+  },
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,
