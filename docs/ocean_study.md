@@ -551,3 +551,47 @@ Reference strips are in `docs/refs/ocean3/` (kept locally, gitignored): `ww_land
   and slower, its thump deeper, and its heave springs softer (so it leaves the water less often).
 - **Calm water** (sea state < 3): the same shapes at ≤ 40% size. The boat rarely leaves the
   water.
+
+## Build (pass 3)
+- **`swell.ts` Buoyancy.** The heave spring's downward acceleration is capped at g. Under way, the
+  hull is carried up each face at speed × slope (0.85, Packer 0.6). Over a sharp crest she keeps
+  that lift and flies off the back. It reports `air`, `airT` and `impact` (touchdown speed). The
+  existing bow `slam` is kept.
+- **`render/hullsplash.ts`.** One instanced draw call, 256 pooled shapes, CPU-simulated, in the
+  sea's foam and bead colours:
+  - puffs: pop with an overshoot, then shrink;
+  - droplets: stretched along their velocity, and they spawn a dimple ring when they hit
+    `waterHeight`;
+  - crown crescents: compact arches leaning out from the hull, world-fixed so the boat sails out
+    of them, standing up in ~0.15 s then sinking and thinning;
+  - a broken foam ring that spreads on `waterHeight`.
+- **`game/hullfx.ts`.** Landing, bow slam and bow churn. Size is scaled by the impact (k), the sea
+  state and the boat. Each event also gets a whoosh + splash + thump (`sfx.hullSplash`), haptics,
+  and a camera bump (`chase.shake`: nothing under Reduce motion, never a roll).
+- **Roughsea.** The splash, sound and bump of a bow slam moved from roughsea to here. Roughsea
+  keeps the dangerous-sea "green water" flecks, the crash and the heading kick.
+- **Low quality** halves every count.
+
+## Pass 3 results
+Captures are from `scripts/hull_capture.mjs`, before (v0.12.3 build) vs after, phone and desktop:
+under way at full throttle at sea states 5, 8 and 10, plus forced landings (k 0.8) from the chase
+camera and a low side view, a bow slam, and a calm landing. Slow-mo strips use consecutive frames.
+`screenshots/ocean3/strips/reference_vs_ours.jpg` sets Wind Waker's landing beside ours.
+
+- **Under way, about 7 s each:**
+  - S5: 0 landings, 2 slams.
+  - S8: 0–1 landings, 5–6 slams; one hop measured 0.8 s in the air.
+  - S10: 1–3 landings, 8 slams.
+  - Landings come about once per big crest crossed. At S8 the long waves are ~55 m, so at
+    7 m/s that is one every ~8 s.
+- **Look:** puffs, crown arcs, droplets and a foam ring in our flat drawn language. They hold up
+  next to the Wind Waker frames (similar shapes and timing; ours is a little longer, ~0.5 s).
+- **Cost:**
+  - CPU: HullFX 0.006–0.06 ms plus HullSplash 0.01–0.06 ms per frame (dev desktop).
+  - GPU: one extra draw call of ≤ ~120 small quads.
+  - Within the ~0.3 ms phone budget on CPU; not measured on a device.
+- **Weak spots:**
+  - In heavy seas (S8+) the white splashes compete with the sea's own foam, so they read less
+    than in calm water.
+  - From the phone chase camera, the crown arcs read as small white cards at the hull's side.
+  - Landing frequency depends on the long-wave period, so a short capture can miss one.
