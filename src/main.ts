@@ -22,6 +22,8 @@ import { Skipper } from './game/skipper';
 import { reduceMotion } from './ui/ctx';
 import { Wildlife } from './game/wildlife';
 import { Floaters } from './game/floaters';
+import { flotsamId, kindOf, noteFor, isGone } from './game/flotsam';
+import { fx } from './ui/fx';
 import { BoatWake } from './render/wake';
 import { SmokeFX } from './render/smoke';
 import { FogBanks } from './render/fogbanks';
@@ -205,6 +207,7 @@ function installWorld(w: LoadedWorld) {
   buildWildlife();
   floaters = w.dynamic?.length ? new Floaters(w.dynamic) : null;
   if (floaters) worldRoot.add(floaters.group);
+  syncFlotsam();
   // rigged NPCs (world/npcs.glb); older exports bake their NPCs into the chunks and have none
   crowd = w.npcs ? new NpcCrowd(w.npcs, w.gameplay.npcs ?? []) : null;
   if (crowd) scene.add(crowd.group); // not in worldRoot: the capture 'isolate' mode hides worldRoot only
@@ -320,6 +323,7 @@ function applyTOD() {
   fogBanks?.set(Math.max(lookFog, Math.min(1, mistK * 1.05)), t.haze);
   wake.setSea(t.sea);
   backdropHaze.value = THREE.MathUtils.lerp(quality.haze, 0.92, fogW);
+  syncFlotsam();
   hud.setTOD(key, clockText(clockHour), lookWords(key));
   setLineContext(key, clockHour);
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.haze);
@@ -355,6 +359,7 @@ function nearestInteract(): Interact | null {
   let best: Interact | null = null, bd = Infinity;
   for (const it of world.gameplay.interacts) {
     if (IGNORED_KINDS.has(it.kind)) continue;
+    if (it.kind === 'collect_flotsam' && flotsamGoneNow(it)) continue;
     const d = Math.hypot(it.pos[0] - boat.pos.x, it.pos[2] - boat.pos.z);
     const r = it.kind === 'sell_fish' ? SELL_RANGE : INTERACT_RANGE;
     // Working interacts win over "coming soon" ones when several are in range.
@@ -380,8 +385,39 @@ function labelFor(it: Interact) {
   return KIND_LABEL[it.kind] ?? it.kind.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 }
 
+// ---------------------------------------------------------------- flotsam pick-up (game/flotsam.ts)
+function flotsamGoneNow(it: Interact) { const id = flotsamId(it); return !!id && isGone(save.flotsam, id, save.day ?? 0); }
+/** hide what's been collected, bring back what has drifted back (runs with the clock) */
+function syncFlotsam() {
+  if (!world || !floaters) return;
+  for (const it of world.gameplay.interacts) {
+    if (it.kind !== 'collect_flotsam') continue;
+    const id = flotsamId(it);
+    if (id) floaters.setGone(`LIFE_${id}_Flotsam`, isGone(save.flotsam, id, save.day ?? 0));
+  }
+}
+function pickUpFlotsam(it: Interact) {
+  const id = flotsamId(it);
+  if (!id || flotsamGoneNow(it)) return;
+  const key = `LIFE_${id}_Flotsam`;
+  const kind = kindOf(floaters?.nameOf(key) ?? '');
+  const note = noteFor(id);
+  save.flotsam = { ...(save.flotsam ?? {}), [id]: kind.once || note ? -1 : save.day ?? 0 };
+  save.shells += kind.shells;
+  writeSave(save);
+  floaters?.collect(key, boat.pos.clone().setY(1.2));
+  gameAudio.leap(it.pos[0], it.pos[2], 0.6);
+  fx('sell');
+  hud.setShells(save.shells);
+  hud.toast(`Hauled aboard ${kind.noun} · +${kind.shells} Shells`, 'good');
+  if (note) setTimeout(() => hud.readNote(note.from, note.text), 650);
+}
+
 function doInteract(it: Interact) {
   switch (it.kind) {
+    case 'collect_flotsam':
+      pickUpFlotsam(it);
+      break;
     case 'sell_fish':
       openSell();
       break;

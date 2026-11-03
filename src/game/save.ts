@@ -23,6 +23,8 @@ export interface SaveData {
   onfoot?: { x: number; y: number; z: number; yaw: number } | null;
   /** gear tiers, boats, paint, flags (game/progression/gear.ts ensureUpg fills defaults) */
   upg?: UpgSave;
+  /** flotsam picked up: id → game day collected (-1 = for good, e.g. read bottles) */
+  flotsam?: Record<string, number>;
   /** days passed on the game clock (sets each day's sea mist) */
   day?: number;
   /** game clock, hours 0..24 (game/clock.ts) */
