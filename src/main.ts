@@ -101,10 +101,10 @@ const save: SaveData = loadSave();
 let quality = QUALITY[save.settings.quality];
 gameAudio.setVolumes(save.settings.music, save.settings.sound);
 sea.setQuality(save.settings.quality);
-// Ocean experiment (docs/ocean_study.md): Log > Developer > Ocean, or ?ocean=swell|classic; default Classic
+// Ocean (docs/ocean_study.md): Log > Developer > Ocean, or ?ocean=swell|classic; default Swell (smooth) since v0.12.4
 const OCEAN_KEY = 'salish-ocean';
-let oceanMode: 'classic' | 'swell' = 'classic';
-try { oceanMode = localStorage.getItem(OCEAN_KEY) === 'swell' ? 'swell' : 'classic'; } catch { /* private mode */ }
+let oceanMode: 'classic' | 'swell' = 'swell';
+try { oceanMode = localStorage.getItem(OCEAN_KEY) === 'classic' ? 'classic' : 'swell'; } catch { /* private mode */ }
 { const q = new URLSearchParams(location.search).get('ocean'); if (q === 'swell' || q === 'classic') oceanMode = q; }
 sea.setOcean(oceanMode);
 // Ocean pass 2: the cascades (GPU), spray, and the sea state (Log > Dev slider: Auto = weather, or 0–10)
@@ -816,6 +816,10 @@ function fishingDirector(adt: number) {
   } else if (pendingCatch) ex = 'happy';
   if ((ex === 'neutral' || ex === 'effort') && SWELL.on && SWELL.state > 6) ex = 'worried'; // rough seas (sea state 0..10; 7+ is dangerous)
   skipper.setExpr(dbgExpr ?? ex);
+  // the fishing camera is behind him: on the Strike!, the catch and the one that got away he looks back
+  // over his shoulder so the expression is actually seen (not while cranking: hands + eyes on the line)
+  const shown = dbgExpr ?? ex;
+  skipper.glance = !foot.active && (shown === 'surprised' || shown === 'joy' || shown === 'happy' || shown === 'sad' || shown === 'worried') ? camera.position : null;
   // two-hand hold: the fists close in to cradle a short fish (about half its drawn length apart)
   skipper.gripSpread = ph === 'landed' && fishing.holdMode === 'hoist' ? Math.max(0.3, 0.5 * fishing.shownLen + 0.08) : null;
   skipper.update(adt);
@@ -1480,6 +1484,32 @@ window.__debug = {
   wobble: (k: number) => setWobble(k),
   npcEmote: (name: string, e: Expr, sec = 3) => crowd?.emote(name, e, sec, 5),
   npcReact: (ev: 'catch' | 'catch_big' | 'legendary' | 'thunder' | 'thunder_near', x?: number, z?: number) => crowd?.reactAt(x ?? camera.position.x, z ?? camera.position.z, ev),
+  /** test probe: world position of an NPC's (or the skipper's, name 'skipper') face overlay + which one shows */
+  faceProbe: (name = 'skipper') => {
+    const f = name === 'skipper' ? skipper.expr : crowd?.actors.find((a) => a.name === name)?.face;
+    if (!f) return null;
+    const o = f.shownObject() ?? f.anyObject();
+    if (!o) return null;
+    o.updateWorldMatrix(true, false);
+    const box = new THREE.Box3();
+    // world-space centre of the overlay's geometry (works whether or not it is visible)
+    o.traverse((m) => { const g = (m as THREE.Mesh).geometry; if (g) { g.computeBoundingBox(); box.union(g.boundingBox!.clone().applyMatrix4(m.matrixWorld)); } });
+    const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
+    // the same centre in the head bone's space (idle sway / turning removed): this is what must hold still
+    const lc = o.parent ? o.parent.worldToLocal(c.clone()) : c;
+    // forward = head bone → face centre, flattened (the face sits in front of the head bone)
+    // forward = the overlay's mean surface normal (its faces point out of the face), flattened
+    const fwd = new THREE.Vector3(), nm = new THREE.Vector3(), N3 = new THREE.Matrix3();
+    o.traverse((m) => {
+      const n = (m as THREE.Mesh).geometry?.getAttribute('normal'); if (!n) return;
+      N3.getNormalMatrix(m.matrixWorld);
+      for (let i = 0; i < n.count; i++) fwd.add(nm.fromBufferAttribute(n, i).applyMatrix3(N3));
+    });
+    fwd.y = 0; if (fwd.lengthSq() > 1e-8) fwd.normalize();
+    return { want: f.current, shown: f.shownName, visible: o.visible, c: [c.x, c.y, c.z], lc: [lc.x, lc.y, lc.z], size: [sz.x, sz.y, sz.z], fwd: [fwd.x, fwd.y, fwd.z], scale: [o.scale.x, o.scale.y, o.scale.z], glance: name === 'skipper' ? +(skipper as unknown as { glanceYaw: number }).glanceYaw.toFixed(2) : null, toCam: +fwd.dot(camera.position.clone().sub(c).setY(0).normalize()).toFixed(2) };
+  },
+  /** test: hold off the NPC pair emotes (no ambient events) */
+  crowdQuiet: (on = true) => { if (crowd) crowd.pairT = on ? 1e9 : 5; },
   npcFaces: () => crowd?.actors.filter((a) => a.face).map((a) => ({ name: a.name, want: a.want, shown: a.face!.current, temper: a.temper, d: +a.dist.toFixed(1) })),
   faces: () => ({ skipper: skipper.expr?.current, npcs: crowd?.actors.filter((a) => a.face?.has).length ?? 0, lod: crowd?.stats.lod ?? 0 }),
   /** the fish shadow vs the float: nose gap (m) — 0 means the mouth is on the float */
