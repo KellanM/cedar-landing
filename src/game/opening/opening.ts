@@ -1,0 +1,642 @@
+/**
+ * The opening (docs/opening_study.md, trimmed ~9-minute chain): the Thursday mail boat drops you at
+ * Keeper's Cove; Gran's logbook and keys on the porch; her tackle along the strandline; the Little
+ * Troller laid up at the dock (bail + patch); oars out between the buoys; first fish; a full box;
+ * the crossing to Cedar Landing; Mae; Old Tess and Gran's tab.
+ *
+ * Everything lives here + quests.ts / boatstage.ts / props.ts and ui/repair.ts / ui/granstab.ts.
+ * main.ts only calls prepare() / install() / update() / interact() / canCast() / compass().
+ * Synthetic interacts (kind 'opening') are added to and removed from the world's interact list as
+ * the quests move on, so the boat's and the walker's existing interact pickers find them.
+ */
+import * as THREE from 'three';
+import type { Boat } from '../boat';
+import { OPEN_INTERACTS, type OnFoot } from '../onfoot/onfoot';
+import type { Interact, LoadedWorld } from '../../world/types';
+import type { SaveData } from '../save';
+import { applyBoatTier } from '../progression/tiers';
+import { ERRANDS, errandsMeta, type Errand } from '../../ui/errands';
+import { log as uiLog } from '../../ui/prefs';
+import { repairBoat } from '../../ui/repair';
+import { gransTab, type LureId } from '../../ui/granstab';
+import * as P from './props';
+import { applyOars, fixedModel, fixerReady, loadFixer, wreckModel, type Stage } from './boatstage';
+import { ensureUpg } from '../progression/gear';
+import {
+  QUESTS, completeStep, fastPathOpening, hasFlag, migratedOpening, newOpening, passed, reached, setFlag, stepDone,
+  type OpeningSave, type QuestId,
+} from './quests';
+
+export interface OpeningHost {
+  scene: THREE.Scene;
+  save: SaveData & { opening?: OpeningSave };
+  writeSave(): void;
+  boat(): Boat;
+  foot: OnFoot;
+  /** put the boat's model back to the tier model (upgrades), re-attaching the skipper */
+  restoreBoatModel(): void;
+  setBoatModel(m: THREE.Object3D): void;
+  toast(m: string, k?: 'info' | 'good' | 'warn' | 'log'): void;
+  note(who: string, text: string): Promise<unknown>;
+  ask(who: string, text: string, choices: { label: string; value: string }[]): Promise<string | null>;
+  titleCard(t: string, s: string): void;
+  setShells(n: number): void;
+  drizzle(on: boolean): void;
+  setClock(h: number): void;
+  reduceMotion(): boolean;
+  busy(): boolean;
+  /** open the normal shop / shipwright for an interact (upgrades) */
+  passThrough(it: Interact): void;
+  /** the lure picked at Gran's tab (gear.ts) */
+  giveLure(id: LureId): void;
+}
+
+type V2 = [number, number];
+/** Kiln Point anchors (three x, z), from a walkable-ground survey of the island (scripts/_probe_kiln.mjs). */
+const A = {
+  arrive: [8.4, 26.6] as V2,
+  table: [6.5, 12] as V2,
+  rod: [-16, -8] as V2,
+  pool: [17, -4] as V2,
+  clams: [14, 14] as V2,
+  fire: [18, 7] as V2,
+  chain: [8.2, 28.0] as V2,
+  moor: [8.5, 33.2] as V2,
+  gate: [-14, 46] as V2,
+  fenceC: [2, 14] as V2,
+};
+const FENCE_R = 80;
+const LEVEL = { beach: 0.3, dock: 0.55, porch: 3.3 };
+const ARRIVE_R = 5;
+
+/** Gran's voice at the start of each quest (docs/opening_study.md §5). */
+const GRAN: Partial<Record<QuestId, string>> = {
+  q1: "If you're reading this, the mail boat got you here and the kettle's still where I left it. The keys are in the spine. The long one is her chain; the brass one is hers. She's been sulking under a tarp since spring. Be kind to her and she'll be kind back. Go gently. Take only what you need. — G.",
+  q2: "My tackle went down the beach in the October blow. The tide brings everything home in the end. Rod first: greenheart doesn't float far, so look in the driftwood on the west side. The line and hooks are in the tobacco tin — try the rock pools east. And dig a few clam necks for bait. Rig it all at my campfire.",
+  q3: "She takes a little water. Everything old does. Unlock her chain, bail till you see the boards, then put a patch on that seam by the stern. Don't bother with the engine. It's sulking. Oars are under the tarp.",
+  q4: 'Out between the green buoy and the red. Not past the point till the tide turns; the rip there has opinions.',
+  q5: "Look for the water wrinkling in rings — that's fish. Off the east shelf, most mornings. Stop by the rings and cast; wait for the bob, then strike quick.",
+  q6: 'The box holds two. Two is plenty for a first day.',
+  q7: "The tide's turned; you'll have an easy row to town now. Mark Cedar Landing on my chart and the compass will mind it for you. Tie up at the float. Mae pays fair. Mostly.",
+};
+
+export class Opening {
+  o: OpeningSave;
+  private group = new THREE.Group();
+  private world: LoadedWorld | null = null;
+  private ints = new Map<string, Interact>();
+  private items: Record<string, { obj: THREE.Object3D; glint: THREE.Mesh; at: V2 }> = {};
+  private pool: ReturnType<typeof P.rockPool> | null = null;
+  private mail: THREE.Mesh | null = null;
+  private mailT = 0;
+  private barrelObj: THREE.Mesh | null = null;
+  private barrelPos = new THREE.Vector2();
+  private rip: THREE.Mesh | null = null;
+  private t = 0;
+  private lastQ = -1;
+  private noteQueue: Promise<unknown> = Promise.resolve();
+  private fenceToastAt = 0;
+  private stageShown: Stage | -1 = -1;
+  private drizzling = false;
+  private hosted = false;
+
+  constructor(private h: OpeningHost) {
+    const s = h.save;
+    if (!s.opening) {
+      // a save from before the opening: count it all done and keep the troller as it is
+      const legacy = s.reachedLanding || Object.keys(s.records ?? {}).length > 0 || s.shells > 0 || (uiLog.sold ?? 0) > 0;
+      // automated runs (?debug) start as before (opening done) unless they ask for it with ?opening
+      const qs = new URLSearchParams(location.search);
+      const skip = qs.has('debug') && !qs.has('opening');
+      s.opening = legacy || skip ? migratedOpening() : newOpening();
+      if (!legacy && !skip) s.clock = 9.5; // a grey Thursday morning, falling tide
+      h.writeSave();
+    }
+    this.o = s.opening;
+    if (this.o.stage < 3) void loadFixer(); // the wreck / the fixed troller, ready by the time the world is
+    OPEN_INTERACTS.add('opening');
+    this.group.name = 'OPENING';
+    h.scene.add(this.group);
+    // the walker may not board her until she floats
+    const foot = h.foot as OnFoot & { board: () => boolean };
+    const board = foot.board.bind(foot);
+    foot.board = () => {
+      if (this.active && this.o.stage < 1) { this.h.toast("She's half full of rainwater — see to her first", 'warn'); return false; }
+      return board();
+    };
+  }
+
+  get active() { return !this.o.done; }
+  get stage(): Stage { return this.o.stage; }
+
+  /** Data fixes before the world is built (names the opening relies on). */
+  prepare(w: LoadedWorld) {
+    for (const n of w.gameplay.npcs ?? []) {
+      if (n.npc_name === 'Marlo' || n.props?.npc_name === 'Marlo') { n.npc_name = 'Mae'; if (n.props) n.props.npc_name = 'Mae'; }
+    }
+  }
+
+  /** After the world, boat and walker are in place (main.installWorld). */
+  install(w: LoadedWorld) {
+    this.world = w;
+    this.ints.clear();
+    this.group.clear();
+    this.items = {};
+    if (this.o.done) { this.restoreErrands(); this.applyStage(true); return; }
+    this.useQuestErrands();
+    this.snapAnchors();
+    this.buildProps();
+    this.applyStage(true);
+    if (this.o.q === 0 && !this.o.steps.length && !hasFlag(this.o, 'arrived')) this.arrive();
+    this.lastQ = -1;
+  }
+
+  // ------------------------------------------------------------------ boat stages
+  private applyStage(force = false) {
+    if (!force && this.stageShown === this.o.stage) return;
+    const s = this.o.stage;
+    if (s >= 3) { // a save from before the opening: the troller as it always was
+      if (this.stageShown !== 3 && this.stageShown !== -1) { applyBoatTier(ensureUpg(this.h.save).boat); this.h.restoreBoatModel(); }
+      this.stageShown = 3;
+      return;
+    }
+    void loadFixer().then(() => {
+      if (!fixerReady() || !this.world) return;
+      const s2 = this.o.stage;
+      if (s2 === 0) {
+        const m = wreckModel();
+        if (m) this.h.setBoatModel(m);
+        applyOars();
+      } else {
+        // the scruffy troller IS her BOAT_T0 from now on (paint / flags / tiers work as before)
+        const m = fixedModel(s2 >= 2)!;
+        if (this.world.boats) this.world.boats.BOAT_T0 = m;
+        this.world.boat = m;
+        this.h.restoreBoatModel();
+        if (ensureUpg(this.h.save).boat === 'T0') { if (s2 >= 2) applyBoatTier('T0'); else applyOars(); }
+      }
+      this.stageShown = s2;
+    });
+  }
+
+  setStage(s: Stage) {
+    const from = this.o.stage;
+    this.o.stage = s;
+    this.h.writeSave();
+    this.applyStage();
+    if (from === 0 && s === 1) this.revealT = 0.001; // she rights herself
+  }
+
+  /** Q3's before→after beat: the fixed troller rises out of the wreck's sink and list. */
+  private revealT = 0;
+  private reveal(dt: number) {
+    const m = this.h.boat().modelObject;
+    if (!m || !this.revealT) return;
+    this.revealT += dt;
+    const k = Math.min(1, this.revealT / 1.8);
+    const e = 1 - Math.pow(1 - k, 3);
+    m.position.y = -0.42 * (1 - e);
+    m.rotation.x = 0.26 * (1 - e) + Math.sin(this.revealT * 7) * 0.05 * (1 - k);
+    if (k >= 1) { m.position.y = 0; m.rotation.x = 0; this.revealT = 0; }
+  }
+
+  // ------------------------------------------------------------------ arrival (Q0)
+  private arrive() {
+    setFlag(this.o, 'arrived');
+    const boat = this.h.boat();
+    const yaw = Math.PI; // bow north, toward the island
+    boat.place(A.moor[0], A.moor[1], yaw);
+    boat.moored = true;
+    this.h.save.boat = { x: A.moor[0], z: A.moor[1], yaw, moored: true };
+    const g = this.ground(A.arrive, LEVEL.dock);
+    this.h.foot.restore({ x: A.arrive[0], y: g ?? 0.6, z: A.arrive[1], yaw: 0 });
+    this.mail = P.mailBoat();
+    this.mail.position.set(16, 0.2, 40);
+    this.mail.rotation.y = -0.5;
+    this.group.add(this.mail);
+    this.mailT = 0;
+    this.h.writeSave();
+    setTimeout(() => {
+      this.h.titleCard("Keeper's Cove", 'Thursday. The mail boat, and Gran\'s place');
+      this.say('The purser', "Keeper's Cove, end of the line! Your gran's place is up the steps. Mind how you go.");
+    }, 900);
+  }
+
+  // ------------------------------------------------------------------ props + interacts
+  /** Move the on-foot anchors onto open, walkable ground (the island survey is coarse; tides vary). */
+  private snapAnchors() {
+    const W = this.h.foot.world;
+    const open = (x: number, z: number, y: number) => {
+      const g = W.walkable(x, z, y);
+      if (!g || g.y < 0.25) return null;
+      for (const [ox, oz] of [[0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6]]) { const n = W.walkable(x + ox, z + oz, g.y); if (!n || n.y < 0.25 || Math.abs(n.y - g.y) > 0.35) return null; }
+      return g;
+    };
+    for (const k of ['table', 'rod', 'pool', 'clams', 'fire', 'chain'] as const) {
+      const [x0, z0] = A[k];
+      const y0 = this.lvl(k);
+      search: for (let r = 0; r <= 6; r += 0.5) {
+        for (let i = 0; i < (r ? 16 : 1); i++) {
+          const a = (i / 16) * Math.PI * 2, x = x0 + Math.cos(a) * r, z = z0 + Math.sin(a) * r;
+          if (open(x, z, y0 + 0.4)) { A[k] = [+x.toFixed(2), +z.toFixed(2)]; break search; }
+        }
+      }
+    }
+  }
+
+  /** Ground at an anchor, searched near its level (beach ~0.3, dock ~0.55, the porch ~3.3) so a cliff
+   *  top or an overhang never wins over the beach below it. */
+  private ground(p: V2, lvl = LEVEL.beach): number | null {
+    const g = this.h.foot.world.groundAt(p[0], p[1], lvl + 0.4, 1.0, 1.6);
+    return g ? g.y : null;
+  }
+  private lvl(k: string) { return k === 'table' ? LEVEL.porch : k === 'chain' || k === 'arrive' ? LEVEL.dock : LEVEL.beach; }
+
+  private place(obj: THREE.Object3D, p: V2, yaw = 0, lvl = LEVEL.beach) {
+    const y = this.ground(p, lvl) ?? lvl;
+    obj.position.set(p[0], y, p[1]);
+    obj.rotation.y = yaw;
+    obj.updateMatrixWorld(true);
+    this.group.add(obj);
+    return y;
+  }
+
+  private addItem(id: string, obj: THREE.Object3D, at: V2, root?: THREE.Object3D, lvl = LEVEL.beach) {
+    const gl = P.glint();
+    gl.position.set(at[0], (this.ground(at, lvl) ?? lvl) + 1.3, at[1]);
+    this.group.add(gl);
+    this.items[id] = { obj: root ?? obj, glint: gl, at };
+  }
+
+  private buildProps() {
+    const t = P.logbookTable();
+    this.place(t.group, A.table, 0.3, LEVEL.porch);
+    this.addItem('book', t.book, A.table, undefined, LEVEL.porch);
+    const d = P.driftwoodRod();
+    this.place(d.group, A.rod, 0.6);
+    this.addItem('rod', d.item, A.rod);
+    const p = P.rockPool();
+    this.place(p.group, A.pool, 0);
+    this.pool = p;
+    this.addItem('tin', p.item, A.pool);
+    const c = P.clamBucket();
+    this.place(c.group, A.clams, 0.2);
+    this.addItem('clams', c.item, A.clams);
+    this.rip = P.ripFoam(FENCE_R, 0.12 * Math.PI, 0.95 * Math.PI);
+    this.rip.position.set(A.fenceC[0], 0, A.fenceC[1]);
+    this.group.add(this.rip);
+    this.barrelObj = P.barrel();
+    this.barrelPos.set(52, 4);
+    this.group.add(this.barrelObj);
+    this.refreshVisibility();
+  }
+
+  private refreshVisibility() {
+    const o = this.o;
+    const taken = (id: string) => stepDone(o, id) || passed(o, id === 'book' ? 'q1' : 'q2');
+    for (const [id, it] of Object.entries(this.items)) {
+      const gone = id === 'book' ? passed(o, 'q1') : taken(id);
+      it.obj.visible = !gone;
+      const wanted = id === 'book' ? reached(o, 'q0') && !passed(o, 'q1') : o.q === 2 && !stepDone(o, id);
+      it.glint.visible = wanted;
+    }
+    if (this.rip) this.rip.visible = reached(o, 'q3') && !passed(o, 'q6');
+    if (this.barrelObj) this.barrelObj.visible = o.q === 6 && !hasFlag(o, 'barrel');
+  }
+
+  /** Keep exactly the interacts the current quest needs in the world's list. */
+  private syncInteracts() {
+    if (!this.world) return;
+    const o = this.o;
+    const want = new Map<string, { at: V2; prompt: string; boat?: boolean }>();
+    if (o.q <= 1) want.set('book', { at: A.table, prompt: "Gran's logbook" });
+    if (o.q === 2) {
+      if (!stepDone(o, 'rod')) want.set('rod', { at: A.rod, prompt: 'Pick up the rod' });
+      if (!stepDone(o, 'tin')) want.set('tin', { at: A.pool, prompt: 'Look in the pool' });
+      if (!stepDone(o, 'clams')) want.set('clams', { at: A.clams, prompt: 'Dig clams' });
+      if (['rod', 'tin', 'clams'].every((s) => stepDone(o, s))) want.set('rig', { at: A.fire, prompt: 'Rig the rod' });
+    }
+    if (o.q === 3) want.set(stepDone(o, 'chain') ? 'repair' : 'chain', { at: A.chain, prompt: stepDone(o, 'chain') ? 'See to the boat' : 'Unlock her chain' });
+    if (o.q === 6 && !hasFlag(o, 'barrel') && this.barrelObj) want.set('barrel', { at: [this.barrelPos.x, this.barrelPos.y], prompt: 'Grab the barrel', boat: true });
+    const list = this.world.gameplay.interacts;
+    for (const [id, it] of [...this.ints]) {
+      if (want.has(id)) continue;
+      const i = list.indexOf(it);
+      if (i >= 0) list.splice(i, 1);
+      this.ints.delete(id);
+    }
+    for (const [id, w] of want) {
+      let it = this.ints.get(id);
+      const lv = this.lvl(id === 'book' ? 'table' : id === 'repair' ? 'chain' : id === 'rig' ? 'fire' : id);
+      const y = w.boat ? 0.5 : (this.ground(w.at, lv) ?? lv) + 1.1;
+      if (!it) {
+        it = { name: `OPEN_${id}`, kind: 'opening', pos: [w.at[0], y, w.at[1]], props: { op: id, prompt: w.prompt } } as Interact;
+        this.ints.set(id, it);
+        list.push(it);
+      } else { it.pos[0] = w.at[0]; it.pos[2] = w.at[1]; }
+    }
+  }
+
+  // ------------------------------------------------------------------ interacts
+  /** main.doInteract: true when the opening handled it. */
+  interact(it: Interact): boolean {
+    if (it.kind === 'opening') { void this.runOp(String(it.props?.op)); return true; }
+    if (!this.active) {
+      if ((it.kind === 'buy_boat' || it.kind === 'upgrade_bench') && this.o.stage === 1) { void this.shipwright(it); return true; }
+      return false;
+    }
+    if (it.kind === 'buy_tackle' && this.o.q === 9) { void this.gransTab(it); return true; }
+    if ((it.kind === 'buy_boat' || it.kind === 'upgrade_bench') && this.o.stage === 1 && passed(this.o, 'q8')) { void this.shipwright(it); return true; }
+    return false;
+  }
+
+  private async runOp(op: string) {
+    const o = this.o;
+    switch (op) {
+      case 'book':
+        if (o.q === 0) this.complete('walk');
+        this.complete('book');
+        this.h.toast("Gran's logbook — keys ×2 tucked in the spine", 'log');
+        break;
+      case 'rod':
+        this.complete('rod');
+        this.h.toast("Gran's greenheart rod — heavy, honest, older than the pier", 'log');
+        break;
+      case 'tin': {
+        if (!hasFlag(o, 'crab')) {
+          setFlag(o, 'crab');
+          this.h.writeSave();
+          const v = await this.h.ask('A rock pool', 'Hooks and float in a tobacco tin… and a shore crab has moved in on top of it.', [
+            { label: 'Wait for it', value: 'wait' }, { label: 'Tip it out gently', value: 'tip' }]);
+          if (this.pool) {
+            const crab = this.pool.crab;
+            const from = crab.position.clone();
+            const t0 = performance.now();
+            const run = () => { const k = Math.min(1, (performance.now() - t0) / 900); crab.position.set(from.x - 1.1 * k, from.y - 0.12 * k, from.z + 0.6 * k); if (k < 1) requestAnimationFrame(run); else crab.visible = false; };
+            run();
+          }
+          this.h.toast(v === 'tip' ? 'The crab sidles off, offended' : 'The crab gets bored and sidles off', 'info');
+        }
+        this.complete('tin');
+        this.h.toast('Cotton handline, hooks and a cork float', 'log');
+        break;
+      }
+      case 'clams':
+        this.complete('clams');
+        this.h.toast('A pail of clam necks — everything nibbles', 'log');
+        break;
+      case 'rig':
+        await this.h.note('Gran', 'Line through the rings, hook on the end, float a forearm up. There. Now you\'re a fisher. Nearly.');
+        this.complete('rig');
+        break;
+      case 'chain':
+        this.complete('chain');
+        this.h.toast('The long key turns. The chain drops into the water with a sulk.', 'info');
+        break;
+      case 'repair': {
+        await repairBoat({ reduceMotion: this.h.reduceMotion() });
+        this.setStage(1);
+        this.complete('repair');
+        this.h.toast("Bailed, patched, the tarp lashed down and the stack back aboard. She floats — and she's yours.", 'good');
+        break;
+      }
+      case 'barrel':
+        setFlag(o, 'barrel');
+        this.h.save.shells += 6;
+        this.h.setShells(this.h.save.shells);
+        this.h.toast('Hauled aboard a barrel of oddments · +6 Shells', 'good');
+        this.h.writeSave();
+        this.refreshVisibility();
+        break;
+    }
+  }
+
+  private complete(step: string) {
+    const r = completeStep(this.o, step);
+    if (r) { this.h.writeSave(); this.refreshVisibility(); }
+    return r;
+  }
+
+  // ------------------------------------------------------------------ Gran's tab (Q9) and the shipwright
+  private async gransTab(it: Interact) {
+    await this.h.note('Old Tess', "So you're the one. Your gran paid ahead before she went up-coast. Said you'd turn up. Town's gone to seed since the cannery shut, but this counter's still open. One thing on her tab — your pick.");
+    const pick = await gransTab({ reduceMotion: this.h.reduceMotion() });
+    if (!pick) return; // closed: come back later
+    this.o.lure = pick.lure;
+    this.h.giveLure(pick.lure);
+    this.complete('tess');
+    await this.h.note(pick.pipName, pick.pipLine);
+    await this.h.note('Bosun Ade', "From the slipway: that engine of hers is seized, not dead — bring me Shells and I'll have her coughing. And when you've Shells to spare, the notice board by the market lists what this town needs mending. Half of it's mine to do and I can't do it alone.");
+    this.finish();
+    void it;
+  }
+
+  /** Bosun Ade: the engine (stage 1 → 2). Her look never changes; paint and flags stay the player's to choose. */
+  private async shipwright(it: Interact) {
+    const price = 300;
+    const v = await this.h.ask('Bosun Ade', "Rowing her about still? That engine's seized, not dead. Three hundred Shells and a dry week and I'll have her coughing. I'll not touch the rest — she suits you scruffy.", [
+      { label: `Get the engine going — ${price} Shells`, value: 'buy' }, { label: 'Other boat work', value: 'shop' }, { label: 'Not today', value: 'no' }]);
+    if (v === 'shop') { this.h.passThrough(it); return; }
+    if (v !== 'buy') return;
+    if (this.h.save.shells < price) { this.h.toast(`Not enough Shells yet (${price})`, 'warn'); return; }
+    this.h.save.shells -= price;
+    this.h.setShells(this.h.save.shells);
+    this.setStage(2);
+    this.h.toast('She coughs, she splutters… she runs. Smoke from a stack lying on the foredeck, but she runs.', 'good');
+  }
+
+  private finish() {
+    this.o.done = true;
+    this.h.writeSave();
+    this.h.drizzle(false);
+    this.refreshVisibility();
+    this.syncInteracts();
+    this.restoreErrands();
+    setFlag(this.o, 'town_hook');
+    this.h.writeSave();
+    this.h.toast("The Sound is yours to wander. The town's notice board wants mending hands; Gran's pages wait under the old stones.", 'log');
+    // hook for the town-restoration quest (docs/town_restoration_study.md, another branch): it starts here
+    window.dispatchEvent(new CustomEvent('opening:done', { detail: { lure: this.o.lure, stage: this.o.stage } }));
+  }
+
+  // ------------------------------------------------------------------ gates the rest of the game asks about
+  /** Cast only once the tackle is rigged (Q2). */
+  canCast() { return !this.active || passed(this.o, 'q2'); }
+
+  /** Compass target for the current step (falls back to main's own when null). */
+  compass(): { name: string; pos: number[] } | null {
+    if (!this.active || !this.world) return null;
+    const p3 = (p: V2, n: string) => ({ name: n, pos: [p[0], 0, p[1]] });
+    const o = this.o;
+    switch (QUESTS[o.q]?.id) {
+      case 'q4': return p3(A.gate, 'the channel buoys');
+      case 'q5': case 'q6': {
+        const hs = this.world.gameplay.hotspots.find((h) => h.name.includes('HS02')) ?? this.world.gameplay.hotspots[0];
+        return hs ? { name: 'the ripples', pos: hs.pos } : null;
+      }
+      case 'q7': case 'q8': {
+        const m = this.world.gameplay.interacts.find((i) => i.name === (o.q === 7 ? 'Interact_MoorBoat' : 'Interact_SellFish'));
+        return m ? { name: o.q === 7 ? 'Cedar Landing' : "Mae's market", pos: m.pos } : null;
+      }
+      case 'q9': { const m = this.world.gameplay.interacts.find((i) => i.name === 'Interact_BuyTackle'); return m ? { name: "Old Tess's chandlery", pos: m.pos } : null; }
+    }
+    return null;
+  }
+
+  /** "I know the way" (title screen): straight to Q7 with the tackle rigged and the boat patched. */
+  fastPath() {
+    const keep = this.o.flags ?? [];
+    Object.assign(this.o, fastPathOpening(), { flags: [...keep, 'arrived'] });
+    this.h.save.boat = { x: A.moor[0], z: A.moor[1], yaw: Math.PI, moored: true };
+    this.h.writeSave();
+    this.refreshVisibility();
+    this.applyStage(true);
+    this.lastQ = -1;
+  }
+
+  // ------------------------------------------------------------------ per frame
+  update(dt: number) {
+    this.t += dt;
+    if (!this.world) return;
+    if (this.mail) this.sailMailBoat(dt);
+    this.reveal(dt);
+    for (const it of Object.values(this.items)) if (it.glint.visible) { it.glint.rotation.y += dt * 1.6; it.glint.position.y += Math.sin(this.t * 3) * 0.004; }
+    if (!this.active) return;
+    const o = this.o;
+    const boat = this.h.boat();
+    const foot = this.h.foot;
+    // quest start: Gran's note (one at a time, never over another modal)
+    if (o.q !== this.lastQ) {
+      const q = QUESTS[o.q];
+      if (this.lastQ !== -1 && q && GRAN[q.id]) this.say('Gran', GRAN[q.id]!);
+      else if (this.lastQ === -1 && q && GRAN[q.id] && o.q >= 2 && !hasFlag(o, 'note_' + q.id)) this.say('Gran', GRAN[q.id]!);
+      if (q) setFlag(o, 'note_' + q.id);
+      this.lastQ = o.q;
+      this.refreshVisibility();
+      this.h.drizzle(o.q === 7);
+      this.drizzling = o.q === 7;
+    }
+    this.syncInteracts();
+    // laid up (S0): she isn't offered for boarding — the walker's "Board" needs her moored; she sits on her chain
+    if (o.stage < 1 && foot.active && boat.moored) { boat.moored = false; boat.speed = 0; }
+    // step conditions that are places or states rather than interacts
+    switch (QUESTS[o.q]?.id) {
+      case 'q0':
+        if (foot.active && Math.hypot(foot.feet.x - A.table[0], foot.feet.z - A.table[1]) < ARRIVE_R) this.complete('walk');
+        break;
+      case 'q4':
+        if (!foot.active && Math.hypot(boat.pos.x - A.gate[0], boat.pos.z - A.gate[1]) < 8) this.complete('gate');
+        break;
+      case 'q5':
+        if (Object.keys(this.h.save.records).length > 0) this.complete('fish');
+        break;
+      case 'q6':
+        if (this.h.save.cooler.length >= Math.min(2, this.h.save.coolerCap)) this.complete('two');
+        this.driftBarrel(dt);
+        break;
+      case 'q7': {
+        if (uiLog.dest === 'cedar_landing') this.complete('map');
+        const m = this.world.gameplay.interacts.find((i) => i.name === 'Interact_MoorBoat');
+        // arrived: tied up, stepped ashore, or stopped by the float (selling from the boat counts too —
+        // with fish aboard the market wins the context button at the float)
+        const near = m && Math.hypot(boat.pos.x - m.pos[0], boat.pos.z - m.pos[2]) < 30;
+        if (near && (boat.moored || foot.active || Math.abs(boat.speed) < 0.15 || (uiLog.sold ?? 0) > 0)) {
+          if (!stepDone(o, 'map')) this.complete('map');
+          this.complete('tie');
+        }
+        break;
+      }
+      case 'q8':
+        if ((uiLog.sold ?? 0) > 0 && !this.h.busy()) {
+          this.complete('sell');
+          this.say('Mae', "That's your gran's rod. Never thought I'd see it wet again. Fair price — fairer than this old market deserves, these days — and a bit extra for the look on my face. Now go and see Old Tess at the chandlery before she hears it from someone else.");
+        }
+        break;
+    }
+    if (reached(o, 'q4') && !passed(o, 'q6') && !foot.active) this.fence(boat);
+  }
+
+  /** The tide rip past the point: a rowed boat is set back toward the cove until the box is full. */
+  private fence(boat: Boat) {
+    const dx = boat.pos.x - A.fenceC[0], dz = boat.pos.z - A.fenceC[1];
+    const d = Math.hypot(dx, dz);
+    if (d < FENCE_R - 2) return;
+    const k = (d - (FENCE_R - 2)) / 6;
+    boat.pos.x -= (dx / d) * k * 0.35;
+    boat.pos.z -= (dz / d) * k * 0.35;
+    boat.speed *= 0.9;
+    const now = performance.now();
+    if (now - this.fenceToastAt > 8000) { this.fenceToastAt = now; this.h.toast("The rip past the point sets you back — not till the tide turns (fill the box first)", 'warn'); }
+  }
+
+  private driftBarrel(dt: number) {
+    if (!this.barrelObj || hasFlag(this.o, 'barrel')) return;
+    // drifts slowly across the east shelf, bobbing
+    this.barrelPos.x -= dt * 0.25;
+    if (this.barrelPos.x < 20) this.barrelPos.x = 52;
+    this.barrelObj.position.set(this.barrelPos.x, 0.1 + Math.sin(this.t * 1.7) * 0.08, this.barrelPos.y);
+    this.barrelObj.rotation.set(Math.sin(this.t * 1.3) * 0.15, this.t * 0.2, 0);
+  }
+
+  private sailMailBoat(dt: number) {
+    const m = this.mail!;
+    this.mailT += dt;
+    if (this.mailT < 4) return; // she lingers at the dock end while you step off
+    const v = Math.min(4, (this.mailT - 4) * 0.6);
+    m.position.x += Math.sin(-m.rotation.y + Math.PI / 2) * v * dt;
+    m.position.z += Math.cos(-m.rotation.y + Math.PI / 2) * v * dt;
+    m.position.y = 0.2 + Math.sin(this.mailT * 1.2) * 0.05;
+    if (this.mailT > 70) { this.group.remove(m); this.mail = null; }
+  }
+
+  /** Queue a note so dialogues never stack. */
+  private say(who: string, text: string) {
+    this.noteQueue = this.noteQueue.then(async () => {
+      for (let i = 0; i < 200 && this.h.busy(); i++) await new Promise((r) => setTimeout(r, 150));
+      await this.h.note(who, text);
+    });
+  }
+
+  // ------------------------------------------------------------------ Gran's list (the Errands tab while the opening runs)
+  private saved: Errand[] | null = null;
+  private savedTitle = '';
+  private useQuestErrands() {
+    if (this.saved) return;
+    this.saved = ERRANDS.slice();
+    this.savedTitle = errandsMeta.title;
+    const o = this.o;
+    const list: Errand[] = QUESTS.map((q, i) => ({
+      id: `op_${q.id}`, stamp: q.stamp,
+      get text() {
+        if (o.q !== i) return q.title;
+        const left = q.steps.filter((s) => !o.steps.includes(s.id));
+        return left.length ? `${q.title}: ${left[0].text}` : q.title;
+      },
+      done: () => passed(o, q.id),
+    }));
+    ERRANDS.splice(0, ERRANDS.length, ...list);
+    errandsMeta.title = "Gran's list";
+  }
+  private restoreErrands() {
+    if (!this.saved) return;
+    ERRANDS.splice(0, ERRANDS.length, ...this.saved);
+    errandsMeta.title = this.savedTitle;
+    this.saved = null;
+  }
+
+  /** Test hooks (window.__debug.opening). */
+  get debug() {
+    return {
+      state: () => ({ q: this.o.q, quest: QUESTS[this.o.q]?.id ?? 'done', steps: [...this.o.steps], done: this.o.done, stage: this.o.stage, lure: this.o.lure, flags: [...(this.o.flags ?? [])], interacts: [...this.ints.keys()] }),
+      anchors: A,
+      op: (id: string) => this.runOp(id),
+      complete: (id: string) => this.complete(id),
+      setStage: (s: Stage) => this.setStage(s),
+      fastPath: () => this.fastPath(),
+      /** jump to quest index q (tests): earlier steps count as done, the boat patched */
+      goto: (q: number) => { this.o.q = q; this.o.steps = []; this.o.done = false; if (this.o.stage < 1) this.setStage(1); this.h.writeSave(); this.refreshVisibility(); },
+      drizzling: () => this.drizzling,
+      hosted: () => this.hosted,
+    };
+  }
+}

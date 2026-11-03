@@ -13,6 +13,9 @@ const recs = () => ctx.save?.records ?? {};
 /** the boat you sail, by name ("the Little Troller") */
 const boatName = () => (ctx.save ? BOAT_TIERS[ensureUpg(ctx.save).boat]?.name : null) ?? 'your boat';
 
+/** The tab's heading; the opening (game/opening) shows its quests here as "Gran's list" and swaps ERRANDS in place. */
+export const errandsMeta = { title: "Today's errands" };
+
 export const ERRANDS: Errand[] = [
   { id: 'landing', text: 'Paddle over to Cedar Landing', stamp: 'LANDED', done: () => !!ctx.save?.reachedLanding },
   { id: 'first', text: 'Catch a fish at the ripples', stamp: 'FIRST FISH', done: () => Object.keys(recs()).length > 0 },

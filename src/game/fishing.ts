@@ -208,7 +208,7 @@ export class Fishing {
     const ang = Math.random() * Math.PI * 2;
     this.shadowFrom.set(this.bobberPos.x + Math.cos(ang) * 6, 0.01, this.bobberPos.z + Math.sin(ang) * 6);
     this.shadowPos.copy(this.shadowFrom);
-    const approach = rand(T.approachMin, T.approachMax);
+    const approach = rand(T.approachMin, T.approachMax) * gear.wait; // Gran's lures: the Ember is quick, the Mossback slow
     // 0–2 nibbles after the shadow arrives (rare+ fish are decisive: 0–1), then the bite
     const n = Math.floor(Math.random() * (this.species.rarity === 'rare' || this.species.rarity === 'legendary' ? 2 : 3));
     this.nibbles = [];

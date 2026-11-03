@@ -52,6 +52,8 @@ import { createUpgrades } from './game/progression/upgrades';
 import { gameAudio, renderOffline, composePiece, surfaceFromColor } from './audio';
 import { Tides } from './game/tides';
 import { WATER, tideAt, tideTurns } from './game/tide';
+import { Opening } from './game/opening/opening';
+import { applyGear } from './game/progression/gear';
 import { SWELL, SWELL_TUNE, snapSwell, swellStats, updateSwell, waterHeight } from './game/swell';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -330,6 +332,7 @@ function disposeWorld() {
 
 function installWorld(w: LoadedWorld) {
   disposeWorld();
+  opening.prepare(w); // opening: names the quests rely on (Mae)
   world = w;
   for (const c of w.chunks) worldRoot.add(c.object);
   tides.setWorld(w, worldRoot, worldVersion); // tides: intertidal bands on the chunks + tide-pool shelves
@@ -375,6 +378,7 @@ function installWorld(w: LoadedWorld) {
   tides.footWorld(foot.world, w.chunks); // tides: walk out on the tide-pool terraces
   setNpcRoster(w.gameplay.npcs ?? []);
   if (save.onfoot && boat.moored && save.worldTag === w.source && !foot.active) foot.restore(save.onfoot);
+  opening.install(w); // opening: quests, props, boat stage, arrival
 
   const ints = w.gameplay.interacts;
   landing = ints.find((i) => i.name === 'Interact_SellFish') ?? ints.find((i) => i.kind === 'sell_fish') ?? null;
@@ -600,6 +604,7 @@ function pickUpFlotsam(it: Interact) {
 }
 
 function doInteract(it: Interact) {
+  if (opening.interact(it)) return; // opening: its own interacts, Gran's tab, the boat's repair stages
   switch (it.kind) {
     case 'collect_flotsam':
       pickUpFlotsam(it);
@@ -707,6 +712,7 @@ function onAction() {
   if (Math.abs(boat.speed) > CAST_MAX_SPEED) { hud.refuse(); return; }
   // a full cooler doesn't stop the fishing (P3): the catch card offers a swap or a let-go
   if (!upg.canFish(near.hs)) { hud.refuse(); return; } // upgrades: rough water / line depth
+  if (!opening.canCast()) { hud.refuse(); hud.toast("Gran's tackle is still somewhere along the beach", 'warn'); return; }
   boat.speed = 0;
   fishing.cast(near.hs, rodTip(), boat.pos);
 }
@@ -876,6 +882,20 @@ const upg = createUpgrades({
   snapCamera: () => { if (!foot.active) chase.snap(boat); },
   modelChanged: () => skipper.attachTo(boat.modelObject),
 });
+// The opening (src/game/opening): mail-boat arrival → Gran's logbook → beach tackle → the fixer-upper → … → Gran's tab
+const opening = new Opening({
+  scene, save, writeSave: () => writeSave(save), boat: () => boat, foot,
+  restoreBoatModel: () => { const m = world ? upg.pickModel(world) : null; if (m) { boat.setModel(m); skipper.attachTo(boat.modelObject); } },
+  setBoatModel: (m) => { boat.setModel(m); skipper.attachTo(boat.modelObject); },
+  toast: (m, k) => hud.toast(m, k), note: (who, text) => hud.readNote(who, text),
+  ask: (who, text, choices) => hud.dialogue([{ who, text, choices }]),
+  titleCard: (t, s) => hud.titleCard(t, s), setShells: (n) => hud.setShells(n),
+  drizzle: (on) => { rainOverride = on ? 0.3 : dev.weather === 'auto' ? null : rainOverride; applyTOD(); },
+  setClock: (h) => { clockHour = wrapHour(h); save.clock = clockHour; applyTOD(); },
+  reduceMotion, busy: () => modalOpen || !!uiCtx.modal || uiCtx.title || chase.inShot || titleOpen || fishing.active,
+  passThrough: (it) => { upg.doInteract(it); },
+  giveLure: (id) => { const u = save.upg!; const g = `lure_${id}`; if (!u.baits.includes(g)) u.baits.push(g); u.bait = g; applyGear(save); writeSave(save); },
+});
 initTuneOverlay();
 // P6: a reload the player asked for (Log or update notice) keeps what they have
 window.addEventListener('ui:beforeupdate', () => writeSave(save));
@@ -914,7 +934,7 @@ function updateUI(dt: number) {
     action: null,
     interact: footCtx ? { label: footCtx.label, kind: footCtx.kind ?? (footCtx.name === 'step_ashore' ? 'step_ashore' : 'foot'), pos: null, tag: footCtx.pos ?? null } : currentInteract ? { label: boat.moored && currentInteract.kind === 'moor_boat' ? 'Untie' : labelFor(currentInteract), kind: currentInteract.kind, pos: currentInteract.pos } : null,
     interact2: footCtx2 ? { label: pillLabel(footCtx2), kind: footCtx2.kind ?? footCtx2.name, pos: footCtx2.pos ?? null } : null,
-    errand: landing && !save.reachedLanding ? { name: 'Cedar Landing', pos: landing.pos } : null,
+    errand: opening.compass() ?? (landing && !save.reachedLanding ? { name: 'Cedar Landing', pos: landing.pos } : null),
     throttle: input.throttle,
     inShot: chase.inShot,
   });
@@ -1092,6 +1112,7 @@ function frame(now: number) {
       foot.boatTick(boat);
     }
     tides.frame(dt, clockHour, save.day ?? 0); // tides (src/game/tides.ts): water level + everything afloat
+    opening.update(dt);
     maybeReveal();
     sky.follow(camera.position);
     sea.reduceMotion = reduceMotion();
@@ -1164,6 +1185,16 @@ async function boot() {
   const title = !qs.has('debug') || qs.has('title');
   if (title) beginTitle();
   requestAnimationFrame(frame);
+  // opening: "I know the way" on the title for a fresh start (skips to the crossing, Q7)
+  if (title && opening.active && opening.o.q === 0) {
+    const b = document.createElement('button');
+    b.className = 'ld-skip'; b.type = 'button'; b.textContent = 'I know the way';
+    const st = document.createElement('style');
+    st.textContent = '.ld-skip{display:none;margin:8px auto 0;pointer-events:auto;background:none;border:0;font:700 22px var(--f-hand);color:var(--ink);text-decoration:underline;opacity:.8;cursor:pointer}#loading.title .ld-skip{display:block}';
+    document.head.appendChild(st);
+    b.addEventListener('click', () => { opening.fastPath(); }, { capture: true });
+    $('ld-go').after(b);
+  }
   const shown = await hud.loadingDone(title);
   titleOpen = false;
   // the drawing comes to life with the camera swing; a tap during loading skipped the title: no bloom
@@ -1176,6 +1207,7 @@ boot();
 // ---------------------------------------------------------------- debug hook (automated tests)
 declare global { interface Window { __debug: unknown } }
 window.__debug = {
+  get opening() { return opening.debug; },
   get state() {
     return {
       world: world?.source, worldVersion, chunks: world?.chunks.length ?? 0, instances: instances?.count ?? 0,
