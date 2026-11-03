@@ -33,6 +33,8 @@ export interface LogData {
   path: number[];
   /** pinned errand id (stays as a chip while sailing) */
   pinned: string | null;
+  /** what the player had seen at the last Log open (the Log button's "n new" badge) */
+  seen: { opened: boolean; struck: number; pages: number; species: number };
 }
 
 const PREF_KEY = 'salish-sea-ui-v1';
@@ -43,7 +45,7 @@ const HINT_KEY = 'seenHints';
 const defPrefs = (): UIPrefs => ({
   textScale: 1, reduceMotion: false, vibration: true, sound: true, tensionHC: false, units: 'words', leftHanded: false,
 });
-const defLog = (): LogData => ({ first: {}, perfect: {}, pages: [], places: [], sold: 0, tiedUp: false, struck: [], dest: null, path: [], pinned: null });
+const defLog = (): LogData => ({ first: {}, perfect: {}, pages: [], places: [], sold: 0, tiedUp: false, struck: [], dest: null, path: [], pinned: null, seen: { opened: false, struck: 0, pages: 0, species: 0 } });
 
 function read<T>(k: string, def: T): T {
   try {

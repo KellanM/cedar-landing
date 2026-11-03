@@ -60,7 +60,7 @@ const LINES: Record<string, string[]> = {
     'If you find a bottle with a note in it, Pip will want to hear about it.',
     "Bit of rain keeps the tourists away. Not that we get tourists.",
     "Old Tess sold me a lure in '09. Still catching with it.",
-    "The village across the cove smokes the best fish on the coast. Don't tell Marlo I said so.",
+    "The village across the cove smokes the best fish on the coast. Don't tell Mae I said so.",
   ],
   town_kid: [
     'Did you catch a shark?! Can I see?',

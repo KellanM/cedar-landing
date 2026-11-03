@@ -8,6 +8,8 @@ export interface UIHandlers {
   setModal(open: boolean): void;
   keep(): void;
   release(): void;
+  /** full cooler (hud_flow_study P3): keep the new catch, let cooler[i] go */
+  swap(i: number): void;
   sellAll(): void;
   sellOne(i: number): void;
   closeSell(): void;
