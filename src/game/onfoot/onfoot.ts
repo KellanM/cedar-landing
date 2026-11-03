@@ -319,6 +319,7 @@ export class OnFoot {
     const k = this.talkCount.get(key) ?? 0;
     this.talkCount.set(key, k + 1);
     if (n.name) this.onTalk?.(n.name);
+    this.character.talkFace(4);
     const role = String(n.props?.npc_role ?? n.role ?? '');
     const line = npcLine(n, k);
     this.bubble.say(npcDisplayName(n), line, new THREE.Vector3(n.pos[0], n.pos[1] + (role === 'cat' ? 0.6 : 2.05), n.pos[2]));

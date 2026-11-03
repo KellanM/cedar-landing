@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { charMat, worldMat } from '../../render/materials';
+import { toonMat, worldMat } from '../../render/materials';
+import { FaceRig } from '../face';
+import { WOBBLE } from '../wobble';
 import type { Npc } from '../../world/types';
 import { BONES, type BoneName, Spring, addLocal, ease, hash01, npcLimb } from './rigpose';
 
@@ -19,6 +21,7 @@ import { BONES, type BoneName, Spring, addLocal, ease, hash01, npcLimb } from '.
 const NEAR = 22; // full rate within this many metres of the camera
 const FAR = 55; // frozen beyond
 const NOTICE = 7; // m: start watching the player
+const LOD_FAR = 40; // m: the decimated body (…_Mesh_LOD1) takes over beyond this
 const D = Math.PI / 180;
 
 type Kind = 'stand' | 'hands_hips' | 'lean' | 'read' | 'carry' | 'carry_back' | 'sit' | 'wave' | 'wave_kid' | 'cry' | 'mend' | 'carve' | 'stir'
@@ -49,7 +52,10 @@ interface Actor {
   greeted: boolean;
   armDown?: { shR: THREE.Quaternion; elR: THREE.Quaternion };
   pos: THREE.Vector3;
-  fwdYaw: number; // world yaw the NPC faces at rest (three: forward = (sin, 0, cos))
+  fwdYaw: number;
+  /** friendslop: expression overlays + LOD swap */
+  face: FaceRig | null;
+  lod0: THREE.Object3D | null; lod1: THREE.Object3D | null; lodOn: boolean; // world yaw the NPC faces at rest (three: forward = (sin, 0, cos))
 }
 
 const _v = new THREE.Vector3();
@@ -66,7 +72,7 @@ export class NpcCrowd {
   actors: Actor[] = [];
   private byName = new Map<string, Actor>();
   /** stats for tests / perf */
-  stats = { actors: 0, animated: 0, frozen: 0, ms: 0 };
+  stats = { actors: 0, animated: 0, frozen: 0, ms: 0, lod: 0 };
 
   constructor(scene: THREE.Object3D, npcs: Npc[]) {
     this.group.name = 'NPCs';
@@ -84,15 +90,21 @@ export class NpcCrowd {
   private makeActor(node: THREE.Object3D, n: Npc | undefined): Actor | null {
     const bones: Partial<Record<BoneName, THREE.Object3D>> = {};
     let skinned: THREE.SkinnedMesh | null = null;
+    let lod1: THREE.Object3D | null = null;
     node.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && /_LOD1(?:_\d+)?$/.test(o.name)) {
+        const lm = o as THREE.Mesh;
+        lm.material = lm.geometry.getAttribute('color') && lm.geometry.getAttribute('normal') ? toonMat : worldMat;
+        lod1 = o; o.visible = false; return;
+      }
       // GLTFLoader makes node names unique across the file: the 2nd NPC's hips is "hips_1", …
       const bn = o.name.replace(/_\d+$/, '');
       if ((o as THREE.Bone).isBone && (BONES as readonly string[]).includes(bn)) bones[bn as BoneName] = o;
       const m = o as THREE.SkinnedMesh;
       if (m.isMesh) {
-        // smooth characters when the export ships normals (direction A); older npcs.glb stay faceted
-        if (m.geometry.getAttribute('color')) m.material = m.geometry.getAttribute('normal') ? charMat : worldMat;
-        if (m.isSkinnedMesh) skinned = m;
+        // smooth toon characters when the export ships normals (friendslop); older npcs.glb stay faceted
+        if (m.geometry.getAttribute('color')) m.material = m.geometry.getAttribute('normal') ? toonMat : worldMat;
+        if (m.isSkinnedMesh && !/_LOD1/.test(m.name) && !skinned) skinned = m;
       }
     });
     if (!bones.hips || !bones.head) return null;
@@ -119,7 +131,11 @@ export class NpcCrowd {
       lookYaw: new Spring(0, 7, 0.9), lookPitch: new Spring(0, 7, 0.9), turn: new Spring(0, 4.5, 0.85), nod: new Spring(0, 14, 0.45), hop: new Spring(0, 18, 0.35),
       interest: 0, noticeDelay: 0.25 + hash01(name, 11) * 0.35, glanceT: 2 + hash01(name, 13) * 5, glanceYaw: 0,
       talkT: 99, waveW: new Spring(1, 6, 0.8), greeted: false, pos, fwdYaw: Math.atan2(f.x, f.z),
+      face: null, lod0: sm, lod1, lodOn: false,
     };
+    const fr = new FaceRig(node, seed);
+    if (fr.has) a.face = fr;
+    if (lod1) { const l = lod1 as THREE.SkinnedMesh; if (l.geometry) { l.geometry.computeBoundingSphere(); if (l.geometry.boundingSphere) l.geometry.boundingSphere.radius += 0.6; } }
     if (kind === 'wave' && bones.upper_arm_R && bones.forearm_R) {
       // greeters rest with the arm down and raise it to wave when you come near
       a.armDown = { shR: npcLimb(6, 10, -1, new THREE.Quaternion()), elR: npcLimb(14, 0, -1, new THREE.Quaternion()) };
@@ -132,7 +148,7 @@ export class NpcCrowd {
   setSmooth(on: boolean) {
     this.group.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh && m.geometry.getAttribute('color')) m.material = on && m.geometry.getAttribute('normal') ? charMat : worldMat;
+      if (m.isMesh && m.geometry.getAttribute('color')) m.material = on && m.geometry.getAttribute('normal') ? toonMat : worldMat;
     });
   }
 
@@ -149,9 +165,16 @@ export class NpcCrowd {
   update(dt: number, cam: THREE.Vector3, player: THREE.Vector3 | null) {
     const t0 = performance.now();
     let animated = 0, frozen = 0;
+    let lods = 0;
     for (const a of this.actors) {
       if (a.kind === 'static') continue;
       const dc = a.pos.distanceTo(cam);
+      // LOD: the decimated body beyond LOD_FAR (hysteresis 3 m)
+      if (a.lod1 && a.lod0) {
+        const want = a.lodOn ? dc > LOD_FAR - 3 : dc > LOD_FAR;
+        if (want !== a.lodOn) { a.lodOn = want; a.lod1.visible = want; a.lod0.visible = !want; }
+        if (a.lodOn) lods++;
+      }
       if (dc > FAR) { frozen++; continue; }
       // throttle: full rate near, ~15 Hz far
       a.acc += dt;
@@ -163,6 +186,7 @@ export class NpcCrowd {
       animated++;
     }
     this.stats.animated = animated;
+    this.stats.lod = lods;
     this.stats.frozen = frozen;
     this.stats.ms = performance.now() - t0;
   }
@@ -170,6 +194,7 @@ export class NpcCrowd {
   private animate(a: Actor, dt: number, player: THREE.Vector3 | null) {
     a.t += dt;
     a.talkT += dt;
+    if (a.face) { a.face.set(a.talkT < 6 ? 'happy' : 'neutral'); a.face.update(dt); }
     const t = a.t;
     const B = a.bones, R = a.rest;
 
@@ -213,8 +238,9 @@ export class NpcCrowd {
     const lp = a.lookPitch.x;
 
     // ---------------------------------------------------------- life: breathing + weight shift
-    const br = Math.sin((t / a.breath) * Math.PI * 2);
-    const sh = Math.sin((t / a.shiftT) * Math.PI * 2);
+    const wk = 0.6 + 0.4 * WOBBLE.k; // friendslop wobble scales the idle life
+    const br = Math.sin((t / a.breath) * Math.PI * 2) * wk;
+    const sh = Math.sin((t / a.shiftT) * Math.PI * 2) * wk;
     const sh2 = Math.sin((t / a.shiftT) * Math.PI * 4 + 1.3) * 0.3;
     const standing = !SEATED.has(a.kind) && a.kind !== 'dig' && a.kind !== 'carve' && a.kind !== 'gut' && a.kind !== 'stir';
     const shift = standing ? (sh + sh2) : 0;
