@@ -59,6 +59,8 @@ import { applyGear } from './game/progression/gear';
 import { SWELL, SWELL_TUNE, jacobianStats, snapSwell, swellStats, updateSwell, waterHeight } from './game/swell';
 import { OceanGPU } from './render/oceangpu';
 import { SprayFX } from './render/spray';
+import { HullSplash } from './render/hullsplash';
+import { HullFX } from './game/hullfx';
 import { RoughSea } from './game/roughsea';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -108,6 +110,9 @@ sea.setOcean(oceanMode);
 // Ocean pass 2: the cascades (GPU), spray, and the sea state (Log > Dev slider: Auto = weather, or 0–10)
 const oceanGpu = new OceanGPU();
 const spray = new SprayFX();
+// ocean pass 3: Wind Waker-style hull splashes (landing off a wave, bow slams, bow churn at speed)
+const hullSplash = new HullSplash();
+scene.add(hullSplash.mesh);
 scene.add(spray.mesh);
 const SEA_KEY = 'salish-seastate', LOOK_KEY = 'salish-sealook';
 try {
@@ -117,7 +122,7 @@ try {
 } catch { /* private mode */ }
 { const q = new URLSearchParams(location.search).get('sea_state'); if (q !== null) SWELL.mode = q === 'auto' ? 'auto' : Number(q); }
 { const q = new URLSearchParams(location.search).get('sea_look'); if (q) SWELL.facet = q === 'faceted' ? 1 : 0; }
-function setSeaQuality(q: 'high' | 'low') { oceanGpu.low = q === 'low'; spray.enabled = q === 'high'; }
+function setSeaQuality(q: 'high' | 'low') { oceanGpu.low = q === 'low'; spray.enabled = q === 'high'; hullSplash.low = q === 'low'; }
 setSeaQuality(save.settings.quality);
 /** title screen only: the harbour as a sepia drawing, colour blooming in on "set out" (off after) */
 const sepia = new SepiaTitle();
@@ -288,6 +293,13 @@ const rough = new RoughSea({
   toast: (m) => hud.toast(m, 'warn', 3600),
   crash: (g) => gameAudio.seaCrash(g), creak: () => gameAudio.hullCreak(),
   shake: (t) => chase.shake(t), wind: () => LIGHT_U.uWindDir.value,
+});
+const hullFx = new HullFX({
+  boat: () => boat, fx: hullSplash,
+  active: () => !!boat && !foot.active && !chase.inShot && !boat.moored && !titleOpen,
+  sound: (k, heavy) => gameAudio.hullSplash(k, heavy),
+  haptic: (ms) => hud.haptic(ms),
+  bump: (t) => chase.shake(t), // no-op under Reduce motion (chase.motion); shake never rolls
 });
 let landing: Interact | null = null; // Cedar Landing fish market (compass + reveal)
 let todKeys: string[] = [];
@@ -1162,6 +1174,8 @@ function frame(now: number) {
     oceanGpu.render(renderer, dt, LIGHT_U.uWindDir.value);
     boat.update(dt, throttle, steer, land);
     rough.update(dt);
+    hullFx.update(dt);
+    hullSplash.update(dt, sea.uniforms.uFoam.value as THREE.Color, sea.uniforms.uBeadCol.value as THREE.Color);
     spray.update(dt, sea.uniforms.uFoam.value as THREE.Color);
     cameraFrame({ chase, foot, boat, world, tides, reduce: reduceMotion() });
     lastThrottle = throttle;
@@ -1457,6 +1471,9 @@ window.__debug = {
   /** camera check (ocean pass 2): height, roll (rad, + = right side up) and the boat's swell heave */
   camInfo: () => { const r = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); return { y: +camera.position.y.toFixed(3), roll: +Math.asin(Math.max(-1, Math.min(1, r.y))).toFixed(4), heave: +(boat.root.position.y - WATER.y).toFixed(3), camY: +SWELL.camY.toFixed(3) }; },
   seaLook: (v?: 'smooth' | 'faceted') => { if (v) SWELL.facet = v === 'faceted' ? 1 : 0; return SWELL.facet; },
+  /** ocean pass 3: hull splash stats; splash(k, kind) fires a landing / bow slam at the boat now (captures) */
+  hullStats: () => ({ ...hullFx.last, landings: hullFx.landings, slams: hullFx.slams, live: hullSplash.count, spawned: hullSplash.spawned, air: +boat.buoyancy.air.toFixed(2), airT: +boat.buoyancy.airT.toFixed(2), ms: +hullFx.cost.toFixed(3), fxMs: +hullSplash.cost.toFixed(3) }),
+  splash: (k = 0.7, kind: 'landing' | 'slam' = 'landing') => { const sea = Math.min(1, Math.max(0.35, SWELL.state / 6)); if (kind === 'slam') hullFx.bowSlam(boat, k, sea, boat.steady); else hullFx.landing(boat, k, sea, boat.steady); return hullSplash.count; },
   roughStats: () => ({ danger: +rough.danger.toFixed(2), exposure: +rough.exposure.toFixed(2), tooRough: rough.tooRough, spray: spray.count, push: [+boat.push.x.toFixed(2), +boat.push.y.toFixed(2)], gpuMs: +oceanGpu.cost.toFixed(3), roughMs: +rough.cost.toFixed(3) }),
   hotspotStats: () => hotspotFX?.stats(),
   hotspotObj: () => hotspotFX,

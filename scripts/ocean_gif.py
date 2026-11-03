@@ -14,7 +14,7 @@ for case in sorted(os.listdir(src)):
     d = os.path.join(src, case)
     if not os.path.isdir(d):
         continue
-    oceans = [o for o in ('classic', 'swell', 'old', 'new') if os.path.exists(os.path.join(d, f'{o}_times.json'))]
+    oceans = [o for o in ('classic', 'swell', 'old', 'new', 'before', 'after') if os.path.exists(os.path.join(d, f'{o}_times.json'))]
     if not oceans:
         continue
     seqs, times = {}, []
@@ -37,7 +37,7 @@ for case in sorted(os.listdir(src)):
         dr = ImageDraw.Draw(f)
         for k, (o, im) in enumerate(zip(oceans, ims)):
             f.paste(im, (k * (W + 6), 20))
-            name = {'old': 'Swell v0.10.1', 'new': 'Ocean pass 2'}.get(o, o.capitalize())
+            name = {'old': 'Swell v0.10.1', 'new': 'Ocean pass 2', 'before': 'Before', 'after': 'Hull splashes'}.get(o, o.capitalize())
             dr.text((k * (W + 6) + 6, 4), f'{name} - {case}', fill=(40, 40, 40))
         frames.append(f.quantize(colors=200, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE))
     dur = int(sum(times) / len(times)) if times else 120

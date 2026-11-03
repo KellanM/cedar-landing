@@ -71,11 +71,11 @@ export class RoughSea {
       const fx = -Math.sin(boat.yaw), fz = -Math.cos(boat.yaw);
       const L = boat.halfLen * 0.85, k = Math.min(1, b.slam / 0.8);
       const bx = boat.pos.x + fx * L, bz = boat.pos.z + fz * L, by = waterHeight(bx, bz) + 0.3;
-      h.spray?.burst(bx, by, bz, boat.vel.x * 0.5 - fx * 1.5, 3 + 3 * k, boat.vel.y * 0.5 - fz * 1.5, Math.round(8 + 22 * k * (0.4 + d)), 2.2, 0.14, 1, 1.0);
+      // the splash, its sound and the camera bump are the hull FX's (src/game/hullfx.ts, pass 3); here:
+      // the flecks of green water over the deck in a dangerous sea, a crash, and the kick to the heading
       if (d > 0.4 && k > 0.5) h.spray?.burst(boat.pos.x, by + 1.2, boat.pos.z, -fx * 3, 1.5, -fz * 3, Math.round(16 * d), 2.5, 0.16, 1, 0.8); // green water over the deck
-      h.crash(0.35 + 0.65 * k * Math.max(0.3, d));
+      if (d > 0.3) h.crash(0.35 + 0.65 * k * d);
       boat.yawKick += (Math.random() - 0.5) * 1.2 * d;
-      h.shake(0.12 + 0.25 * d * k);
     }
 
     // breaking crests and spindrift, near the camera

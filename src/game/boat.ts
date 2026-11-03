@@ -199,7 +199,7 @@ export class Boat {
     // storms (docs/rain_study.md): a heavier swell rocks and rolls her more (the Packer rides it better)
     // Swell (ocean experiment): the waves carry the heave / pitch / roll, the sines stay as a small idle life
     const sw = SWELL.on && !(this.floor > WATER.y - 0.05);
-    if (sw) this.buoy.update(dt, this.pos.x, this.pos.z, this.yaw, this.halfLen, this.halfBeam, this.steady); else this.buoy.reset();
+    if (sw) this.buoy.update(dt, this.pos.x, this.pos.z, this.yaw, this.halfLen, this.halfBeam, this.steady, Math.max(0, this.speed)); else this.buoy.reset();
     const R = sw ? 0.45 : 1 + this.rough * (this.steady ? 1.6 : 2.6);
     const bob = (Math.sin(this.t * 1.3) * 0.04 + Math.sin(this.t * 2.1 + 1) * 0.02) * R;
     let roll = -this.yawRate * 0.18 + (Math.sin(this.t * 0.9) * 0.025 + (sw ? 0 : this.rough * 0.03 * Math.sin(this.t * 0.53 + 2))) * R;
