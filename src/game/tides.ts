@@ -89,6 +89,29 @@ export class Tides {
     }
     this.npcRest.clear();
   }
+  /** On foot on a float or gangway: the deck carries you (also through a sudden jump, e.g. the Dev tab's tide buttons). */
+  private riding: { it: { kind: string; dy: number; box: THREE.Box3 }; dy: number } | null = null;
+  private carryFeet() {
+    const f = this.host.foot, fl = this.host.floaters();
+    if (!f.active || !fl) { this.riding = null; return; }
+    const p = f.feet;
+    if (this.riding) {
+      const b = this.riding.it.box;
+      if (p.x < b.min.x - 0.4 || p.x > b.max.x + 0.4 || p.z < b.min.z - 0.4 || p.z > b.max.z + 0.4) this.riding = null;
+    }
+    if (!this.riding) {
+      // only when the ground under your feet is itself a float / gangway (not a pier above one)
+      if (!f.world.groundAt(p.x, p.z, p.y, 0.25, 0.25)?.moving) return;
+      const it = fl.tidalItems.find((it) => { const b = it.box, dy = fl.offsetOf(it, p.x, p.z); return p.x > b.min.x - 0.2 && p.x < b.max.x + 0.2 && p.z > b.min.z - 0.2 && p.z < b.max.z + 0.2 && p.y > Math.max(b.min.y, -0.6) + dy - 0.1 && p.y < b.max.y + dy + 0.3; });
+      if (it) this.riding = { it, dy: fl.offsetOf(it, p.x, p.z) };
+      return;
+    }
+    const dy = fl.offsetOf(this.riding.it as never, p.x, p.z);
+    const d = dy - this.riding.dy;
+    this.riding.dy = dy;
+    if (Math.abs(d) > 1e-4) p.y += d;
+  }
+
   /** NPCs standing on floats: rest height, keyed by actor root */
   private npcRest = new Map<THREE.Object3D, { y: number; onFloat: boolean | null }>();
   private floatNpcs() {
@@ -140,6 +163,7 @@ export class Tides {
     setWalkWater(Math.min(y + 0.3, feet - 0.05)); // + 0.3: as before at high water
     this.boat(dt);
     this.floatNpcs();
+    this.carryFeet();
     this.pools?.update(dt, h.camera.position, h.reduceMotion());
     this.chipT -= dt;
     if (this.chipT <= 0) {

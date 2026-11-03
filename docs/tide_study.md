@@ -215,3 +215,16 @@ How the floats move:
 - A gangway is **sheared**: its pier end stays put and its float end follows the float, so it hinges instead of detaching.
 - Walking: `FootWorld.addMoving` keeps each float's BVH in its rest pose and offsets rays by the float's current rise (a gangway's offset varies along its length). The deck under your feet moves with the tide.
 - NPCs standing on a float deck ride it (none are placed on one today).
+- The deck carries you, even through a sudden jump of the water level (for example the Dev tab's tide buttons). This only applies while the ground under your feet is itself a float.
+
+**Verification.**
+- `scripts/tide2_shots.mjs`: before/after stills.
+- `scripts/tide2_float_gif.mjs`: you stand on the Seapost's deck while the tide falls 1.76 m, and your feet stay on the deck.
+- `scripts/tide2_gangway.mjs`: you walk from the canoe float up the hinged gangway to the pier and back, at high and low water.
+- `tide_strand` and `arch_pass` (also at −1.72) pass.
+
+**Weak spots.**
+- The canoe float's own guide posts are part of the float, so they ride down with it instead of the float sliding on them.
+- At the lowest water the gangway is steep (about 35°); it is still walkable.
+- Fog banks keep their height.
+- The decals keep their high-water outline (a shallows plate does not shrink as the island grows).

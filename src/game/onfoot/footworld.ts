@@ -19,7 +19,7 @@ interface Entry {
   off?: (x: number, z: number) => number;
 }
 
-export interface GroundHit { y: number; ny: number }
+export interface GroundHit { y: number; ny: number; /** tides: the surface rides the water (a float / gangway) */ moving?: boolean }
 export interface Surface { c: [number, number, number]; hollow: boolean; y: number }
 
 const _ray = new THREE.Ray();
@@ -145,7 +145,7 @@ export class FootWorld {
         if (!h.face) continue;
         const ny = Math.abs(h.face.normal.y);
         if (ny < WALKABLE_NY) continue;
-        if (!best || h.point.y + d > best.y) best = { y: h.point.y + d, ny };
+        if (!best || h.point.y + d > best.y) best = { y: h.point.y + d, ny, moving: !!e.off };
       }
     }
     return best;
