@@ -4,6 +4,8 @@
  * 0 = rigid-ish, 1 = default gentle, 2 = full friendslop. Dev tab → Wobble.
  */
 export const WOBBLE = { k: 1 };
+/** Settings > Reduce motion (set by main each frame): no face pops / googly wobble / emote hops */
+export const MOTION = { reduced: false };
 const KEY = 'cedar-wobble';
 try { const v = Number(localStorage.getItem(KEY)); if (Number.isFinite(v) && localStorage.getItem(KEY) !== null) WOBBLE.k = Math.max(0, Math.min(2, v)); } catch { /* ignore */ }
 export function setWobble(k: number) {
