@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { TimeOfDay } from '../world/types';
-import type { ShoreField } from './shorefield';
+import { levelMix, type ShoreField } from './shorefield';
+import { WATER } from '../game/tide';
 import { LIGHT_U } from './lighting';
 import { WindLines } from './windlines';
 import { CrestSprites, CREST_GLSL, CREST_TUNE } from './crests';
@@ -105,6 +106,8 @@ uniform sampler2D uNoise;
 uniform sampler2D uField;
 uniform vec4 uFieldRect; // min.xy, 1/size.xy
 uniform float uHasField;
+uniform vec3 uTideMix; // tides: weights of the field's three waterline channels (r, b, a) for the current level
+uniform float uTideY;  // tides: water level (world y); the field's depth is below y 0
 uniform vec2 uWind; // unit, blows toward
 uniform vec4 uScroll; // layer A offset (xy), layer B offset (zw), in cells
 uniform vec3 uSunDir;
@@ -203,7 +206,8 @@ vec2 crestCells(vec2 wp, vec2 wdir, float seed) {
     vec2 cxz = wper * cw.x + wdir * cw.y;
     vec2 fuv = (cxz - uFieldRect.xy) * uFieldRect.zw;
     if (all(greaterThan(fuv, vec2(0.0))) && all(lessThan(fuv, vec2(1.0)))) {
-      vec2 fs = texture2D(uField, fuv).rg;
+      vec4 f4 = texture2D(uField, fuv);
+      vec2 fs = vec2(dot(f4.rba, uTideMix), f4.g < 0.0 ? f4.g - uTideY : f4.g + uTideY);
       if (smoothstep(5.0, uCrestShelter, fs.r) * smoothstep(1.5, 5.0, fs.g) < hash12(id + 5.0)) return vec2(1e3);
     }
   }
@@ -229,8 +233,9 @@ void main() {
   if (uHasField > 0.5) {
     vec2 fuv = (wp.xz - uFieldRect.xy) * uFieldRect.zw;
     if (all(greaterThan(fuv, vec2(0.0))) && all(lessThan(fuv, vec2(1.0)))) {
-      vec2 fs = texture2D(uField, fuv).rg;
-      sd = fs.r; depth = fs.g < 0.0 ? max(-fs.g - 1.0, 0.0) : fs.g;
+      vec4 f4 = texture2D(uField, fuv);
+      vec2 fs = vec2(dot(f4.rba, uTideMix), f4.g);
+      sd = fs.r; depth = max((fs.g < 0.0 ? max(-fs.g - 1.0, 0.0) : fs.g) + uTideY, 0.0);
       under = clamp(-fs.g * 2.0, 0.0, 1.0);
     }
   }
@@ -368,7 +373,7 @@ export class Sea {
       uTime: { value: 0 }, uWave: { value: 1 },
       uDeep: { value: new THREE.Color(0x4e6670) }, uMid: { value: new THREE.Color(0x4e6670) }, uShallow: { value: new THREE.Color(0x6f8a7e) },
       uFoam: { value: new THREE.Color(0xeef1ec) }, uCrestCol: { value: new THREE.Color(0xe6ebe8) }, uGlintCol: { value: new THREE.Color(0xffffff) },
-      uNoise: { value: null }, uField: { value: null }, uFieldRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uHasField: { value: 0 },
+      uNoise: { value: null }, uField: { value: null }, uFieldRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uHasField: { value: 0 }, uTideMix: { value: new THREE.Vector3(1, 0, 0) }, uTideY: { value: 0 },
       uWind: { value: new THREE.Vector2(0.62, -0.78).normalize() }, uScroll: { value: new THREE.Vector4() },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uGlint: { value: 0 }, uGlintCone: { value: 0.86 },
       uCrest: { value: 1 }, uCrestDensity: { value: 0.5 }, uCrestScale: { value: 1 }, uCrestFar: { value: 95 },
@@ -510,7 +515,7 @@ export class Sea {
     const out = cx.createImageData(img.width, img.height);
     const fh = THREE.DataUtils.fromHalfFloat;
     for (let p = 0; p < img.width * img.height; p++) {
-      const sd = fh(img.data[p * 2]), dp = fh(img.data[p * 2 + 1]);
+      const sd = fh(img.data[p * 4]), dp = fh(img.data[p * 4 + 1]);
       out.data[p * 4] = sd > 0 ? ((sd / 4) % 1) * 160 : 0;
       out.data[p * 4 + 1] = Math.max(0, 1 - dp / 8) * 255;
       out.data[p * 4 + 2] = sd <= 0 ? 255 : 0;
@@ -549,5 +554,9 @@ export class Sea {
     const sx = Math.round(focus.x / 5) * 5, sz = Math.round(focus.z / 5) * 5;
     this.near.position.x = sx; this.near.position.z = sz;
     this.far.position.x = sx; this.far.position.z = sz;
+    // ---- tides (src/game/tide.ts): the surface sits at the water level; the field blends its waterlines
+    this.near.position.y = WATER.y - 0.06; this.far.position.y = WATER.y - 0.08;
+    u.uTideY.value = WATER.y;
+    if (this.field) (u.uTideMix.value as THREE.Vector3).fromArray(levelMix(this.field.levels, WATER.y));
   }
 }

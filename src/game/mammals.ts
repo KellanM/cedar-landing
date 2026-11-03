@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WATER as TIDE } from './tide';
 import type { LoadedChunk, MammalSpawn } from '../world/types';
 import type { LandCollision } from './collision';
 import type { SplashFX } from './splash';
@@ -755,7 +756,7 @@ export class MammalField {
     }
     s.t += dt;
     const bd = Math.hypot(s.x - boat.x, s.z - boat.z);
-    const restY = s.hy + 0.105 * s.len;
+    const restY = s.hy + 0.105 * s.len - TIDE.y; // the rock does not move with the tide (the group does)
     let x = s.x, y = s.y, z = s.z, pitch = 0, roll = 0;
     let yawT = s.hyaw;
     s.headT = s.lion ? 0.5 : 0.05;

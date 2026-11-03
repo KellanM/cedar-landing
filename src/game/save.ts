@@ -25,6 +25,8 @@ export interface SaveData {
   upg?: UpgSave;
   /** flotsam picked up: id → game day collected (-1 = for good, e.g. read bottles) */
   flotsam?: Record<string, number>;
+  /** tide pools: critter id → times seen (src/game/tidepools.ts) */
+  tidepools?: Record<string, number>;
   /** days passed on the game clock (sets each day's sea mist) */
   day?: number;
   /** game clock, hours 0..24 (game/clock.ts) */

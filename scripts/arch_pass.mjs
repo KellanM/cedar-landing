@@ -1,4 +1,4 @@
-// node scripts/arch_pass.mjs [base] — sail the boat under the welcome arch (bell) at Cedar Landing; it must pass through
+// node scripts/arch_pass.mjs [base] [tideLevel] — sail the boat under the welcome arch (bell) at Cedar Landing; it must pass through
 import { chromium } from 'playwright';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 const BASE = process.argv[2] ?? 'http://localhost:5196/cedar-landing/';
@@ -11,6 +11,8 @@ const errs = []; page.on('pageerror', (e) => errs.push(String(e)));
 await page.goto(BASE + '?debug'); await page.evaluate(() => localStorage.clear()); await page.reload();
 await page.waitForFunction(() => window.__debug && window.__debug.state.chunks > 0, null, { timeout: 120000 });
 await page.evaluate(() => window.__debug.markRevealSeen?.());
+const TIDE = process.argv[3];
+if (TIDE !== undefined) console.log('tide pinned', JSON.stringify(await page.evaluate((y) => window.__debug.tide(y), Number(TIDE))));
 // arch centre (three) 9.52, 164.53; posts at (6.8,160) and (12.1,169.2) -> pass along the perpendicular (0.866,-0.5)
 let fail = 0;
 for (const dir of [1, -1]) {

@@ -4,6 +4,8 @@ import type { Collider, Gameplay, LandGrid } from '../world/types';
 export class LandCollision {
   private grid: (LandGrid & { bytes: Uint8Array }) | null = null;
   private colliders: Collider[];
+  /** Tides (src/game/tidegrid.ts): extra land while the water is low. */
+  extra: ((x: number, z: number) => boolean) | null = null;
 
   constructor(g: Gameplay) {
     if (g.landgrid) {
@@ -25,6 +27,7 @@ export class LandCollision {
       const c = Math.floor((x - gr.originX) / gr.cell), r = Math.floor((z - gr.originZ) / gr.cell);
       if (c >= 0 && r >= 0 && c < gr.w && r < gr.h && gr.bytes[r * gr.w + c] === 1) return true;
     }
+    if (this.extra?.(x, z)) return true;
     for (const col of this.colliders) {
       if (col.type === 'circle') {
         if (Math.hypot(x - col.pos[0], z - col.pos[2]) < col.r) return true;
@@ -55,7 +58,7 @@ export class LandCollision {
     if (!this.hitsCircle(x, nz, r)) return { x, z: nz, hit: true };
     // Wedged (or started inside): nudge toward the nearest free direction.
     if (this.hitsCircle(x, z, r)) {
-      for (let rad = 0.5; rad <= 6; rad += 0.5) {
+      for (let rad = 0.15; rad <= 6; rad += rad < 1 ? 0.15 : 0.5) {
         for (let i = 0; i < 16; i++) {
           const a = (i / 16) * Math.PI * 2;
           const tx = x + Math.cos(a) * rad, tz = z + Math.sin(a) * rad;

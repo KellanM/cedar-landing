@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { ShoreField } from './shorefield';
+import { sampleField, type ShoreField } from './shorefield';
+import { WATER } from '../game/tide';
 
 /**
  * Wave crests, second pass (docs/crest_study.md). Each crest is one mark with a life:
@@ -82,6 +83,7 @@ attribute vec4 iA; // x, z, angle, half length
 attribute vec4 iB; // t (life 0..1), seed, side, strength
 uniform float uTime;
 uniform vec2 uWind;
+uniform float uTideY;
 varying vec2 vP;
 varying vec4 vB;
 #include <fog_pars_vertex>
@@ -94,7 +96,7 @@ void main() {
   vec2 xz = iA.xy + (across * position.x + down * position.y) * iA.w;
   // ride the sea's vertex ripple (same formula as sea.ts) a few cm above it
   float w = sin(xz.x * 0.21 + uTime * 0.9) * 0.5 + sin(xz.y * 0.17 - uTime * 0.7) * 0.35 + sin((xz.x + xz.y) * 0.43 + uTime * 1.6) * 0.15;
-  vec4 wp = vec4(xz.x, w * 0.07 + 0.03, xz.y, 1.0);
+  vec4 wp = vec4(xz.x, w * 0.07 + 0.03 + uTideY, xz.y, 1.0);
   if (iB.w <= 0.0) wp = vec4(0.0, -1e4, 0.0, 1.0);
   vec4 mvPosition = viewMatrix * wp;
   gl_Position = projectionMatrix * mvPosition;
@@ -160,7 +162,7 @@ export class CrestSprites {
   /** studio captures: no automatic spawns */
   debugMode = false;
 
-  constructor(uniforms: { uTime: THREE.IUniform; uWind: THREE.IUniform; uCrestCol: THREE.IUniform; uBeadCol: THREE.IUniform }) {
+  constructor(uniforms: { uTime: THREE.IUniform; uWind: THREE.IUniform; uCrestCol: THREE.IUniform; uBeadCol: THREE.IUniform; uTideY: THREE.IUniform }) {
     const g = new THREE.InstancedBufferGeometry();
     // local quad: x across (-1.35..1.35), y downwind (-0.45..1.75), in half lengths
     const pos = new Float32Array([-1.35, -0.45, 0, 1.35, -0.45, 0, 1.35, 1.75, 0, -1.35, 1.75, 0]);
@@ -178,7 +180,7 @@ export class CrestSprites {
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     });
     // share the sea's live uniforms (colours follow the time of day, ripple follows the sea clock)
-    Object.assign(this.mat.uniforms, { uTime: uniforms.uTime, uWind: uniforms.uWind, uCrestCol: uniforms.uCrestCol, uFoamCol: uniforms.uBeadCol });
+    Object.assign(this.mat.uniforms, { uTime: uniforms.uTime, uWind: uniforms.uWind, uCrestCol: uniforms.uCrestCol, uFoamCol: uniforms.uBeadCol, uTideY: uniforms.uTideY });
     this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = -1;
@@ -195,13 +197,10 @@ export class CrestSprites {
   private openness(x: number, z: number) {
     const f = this.field, data = this.fieldData;
     if (!f || !data) return 1;
-    const [w, h] = f.res;
-    const u = (x - f.min.x) / f.size.x, v = (z - f.min.y) / f.size.y;
-    if (u <= 0 || v <= 0 || u >= 1 || v >= 1) return 1;
-    const p = Math.floor(v * h) * w + Math.floor(u * w);
-    const sd = THREE.DataUtils.fromHalfFloat(data[p * 2]);
-    const dpRaw = THREE.DataUtils.fromHalfFloat(data[p * 2 + 1]);
-    if (dpRaw < 0) return 0; // under a deck
+    const sf = sampleField(f, x, z, WATER.y); // tides: the waterline and depth at the current level
+    if (!sf) return 1;
+    const sd = sf.sd, dpRaw = sf.depth;
+    if (sf.under) return 0; // under a deck
     const ss = (a: number, b: number, t: number) => { const k = Math.min(1, Math.max(0, (t - a) / (b - a))); return k * k * (3 - 2 * k); };
     return ss(5, CREST_TUNE.shelter, sd) * ss(1.5, 5, dpRaw);
   }
@@ -220,7 +219,7 @@ export class CrestSprites {
       this.v.set(Math.random() * 2.2 - 1.1, Math.random() * 2.2 - 1.1, 0.5).unproject(cam);
       this.ray.copy(this.v).sub(cam.position).normalize();
       if (this.ray.y > -0.02) continue;
-      const k = -cam.position.y / this.ray.y;
+      const k = (WATER.y - cam.position.y) / this.ray.y;
       const x = cam.position.x + this.ray.x * k, z = cam.position.z + this.ray.z * k;
       const dist = Math.hypot(x - cam.position.x, z - cam.position.z);
       if (dist > this.far) continue;

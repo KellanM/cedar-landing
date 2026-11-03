@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WATER } from './tide';
 import type { LandCollision } from './collision';
 import { boatMat } from '../render/materials';
 
@@ -60,6 +61,8 @@ export class Boat {
   vel = new THREE.Vector2();
   private t = 0;
   moored = false;
+  /** Tides: ground under the hull (world y; the boat never sinks below it). Set by main. */
+  floor = -99;
   private tmpF = new THREE.Vector3();
   /** Hull half-length / half-beam (m) from the model bounds, for wake placement. */
   halfLen = 2.4;
@@ -163,7 +166,8 @@ export class Boat {
     this.speed = vf;
 
     // Move with land sliding
-    const res = land.move(this.pos.x, this.pos.z, this.vel.x * dt, this.vel.y * dt, P.radius);
+    // moored: tied up, never nudged (a berth that dries at low tide just sits the boat on the mud)
+    const res = this.moored ? { x: this.pos.x, z: this.pos.z, hit: false } : land.move(this.pos.x, this.pos.z, this.vel.x * dt, this.vel.y * dt, P.radius);
     if (res.hit && dt > 0) {
       // Pushing into the shore: report the speed we actually made (sliding along the coast), not the
       // throttle's wish — the wake, funnel smoke and "Slow down" all read boat.speed.
@@ -179,7 +183,7 @@ export class Boat {
     const bob = Math.sin(this.t * 1.3) * 0.04 + Math.sin(this.t * 2.1 + 1) * 0.02;
     const roll = -this.yawRate * 0.18 + Math.sin(this.t * 0.9) * 0.025;
     const pitch = Math.sin(this.t * 1.1 + 0.5) * 0.015 + (this.speed / P.maxSpeed) * 0.04;
-    this.root.position.set(this.pos.x, bob, this.pos.z);
+    this.root.position.set(this.pos.x, Math.max(WATER.y, this.floor) + bob, this.pos.z); // rides the tide (or sits on the mud)
     this.root.rotation.set(0, this.yaw, 0);
     this.visual.rotation.set(pitch, 0, roll);
   }

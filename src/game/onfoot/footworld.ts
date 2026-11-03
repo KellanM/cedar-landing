@@ -8,8 +8,9 @@ export const WALKABLE_NY = 0.7;
 export const STEP_UP = 0.45;
 /** Max drop we allow walking off (m). Anything deeper is a ledge you can't walk off. */
 export const MAX_DROP = 1.1;
-/** Ground below this is water / wet shoreline: not walkable. */
-export const WATER_Y = 0.3;
+/** Ground below this is water / wet shoreline: not walkable. Follows the tide (src/game/tides.ts). */
+export let WATER_Y = 0.3;
+export function setWalkWater(y: number) { WATER_Y = y; }
 
 interface Entry { chunk: LoadedChunk; bvh: MeshBVH | null; box: THREE.Box3; col?: Uint8Array | null }
 
