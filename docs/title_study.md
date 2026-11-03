@@ -75,6 +75,6 @@ Screens: `screenshots/title_after_*`, `screenshots/title_compare.png`.
 - **Every cold launch** shows the title, which is one extra tap. A tap during loading skips it.
 - **The title camera** is chosen procedurally by the open-water search. It has only been checked at the current spawn.
 
-## Later: sepia drawing (v0.8.7 branch `sepia`)
+## Later: sepia drawing (branch `sepia`)
 
 The live title view is now drawn as a sepia pen-and-wash sketch and colour blooms in from the boat on "Tap to set out" — see `docs/sepia_title_study.md`.
