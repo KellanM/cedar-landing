@@ -19,6 +19,7 @@ import { CAMERA_TUNING, ChaseCamera } from './game/camera';
 import { cameraFrame, cameraSubject, smallThingCull } from './game/camerahooks';
 import { updateSeeThrough } from './render/seethrough';
 import { PhotoMode } from './ui/photo';
+import { StrikeCloseup, type CloseupMode } from './game/closeup';
 import { chart } from './ui/chart';
 import { Fishing } from './game/fishing';
 import { HotspotFX, hideBakedHotspotMarkers } from './game/hotspots';
@@ -780,12 +781,23 @@ function rodTip() {
 const headPosV = new THREE.Vector3();
 const fishFace = new THREE.Vector3(), handsV = new THREE.Vector3(), headV = new THREE.Vector3(), fwdV = new THREE.Vector3(), leanV = new THREE.Vector3();
 let landingShot = false, reframed = false;
+// strike / miss close-up (game/closeup.ts): a 1 s cut to the skipper's face on the hook-set and on a miss
+const closeup = new StrikeCloseup();
+let lastPh: string = 'idle';
 let reelT = 0;
 let dbgExpr: Expr | null = null; // debug: hold an expression (captures)
 const landFwd = new THREE.Vector3();
 /** Skipper pose + camera layers that follow the fishing state (runs after fishing.update). */
 function fishingDirector(adt: number) {
   const ph = fishing.phase;
+  const prevPh = lastPh;
+  lastPh = ph;
+  if (ph !== prevPh && skipper.attached && !foot.active && !photo.active) {
+    if (ph === 'reeling' && prevPh !== 'reeling') {
+      if (closeup.decide('strike', fishing.species?.rarity, reduceMotion())) { closeup.start('strike'); fishing.grace = closeup.holdFor; }
+    } else if (ph === 'missed' && closeup.decide('miss', fishing.species?.rarity, reduceMotion())) closeup.start('miss');
+  }
+  if (closeup.active && (!fishing.active || ph === 'landed' || foot.active || photo.active)) closeup.stop(chase);
   chase.motion = !reduceMotion();
   // on deck only for the fishing minigame (cast → fight → hold-up); the boat sails unmanned otherwise
   skipper.root.visible = skipper.ready && !foot.active && !!skipper.root.parent && (fishing.active || !!pendingCatch);
@@ -809,7 +821,7 @@ function fishingDirector(adt: number) {
   reelT = ph === 'reeling' ? reelT + adt : 0;
   let ex: Expr = 'neutral';
   if (fishing.active) {
-    if (ph === 'bite' || (ph === 'reeling' && reelT < 0.7)) ex = 'surprised'; // Strike!
+    if (ph === 'bite' || (ph === 'reeling' && (reelT < 0.7 || (closeup.active && closeup.kind === 'strike')))) ex = 'surprised'; // Strike! (held through the close-up)
     else if (ph === 'reeling') ex = fishing.tension > 0.82 ? 'worried' : 'effort';
     else if (ph === 'missed') ex = 'sad'; // it got away
     else if (ph === 'landed') ex = fishing.species && (fishing.species.rarity === 'legendary' || fishing.species.rarity === 'rare') ? 'joy' : 'happy';
@@ -858,6 +870,7 @@ function fishingDirector(adt: number) {
     landingShot = true; // no rig: keep the chase view
   }
   if (!fishing.active) { landingShot = false; reframed = false; swingSide = 0; }
+  closeup.update(adt, skipper, boat?.modelObject ?? null, chase, camera.aspect);
 }
 let fishingCastT = 0;
 /** While fishing, the boat slowly swings so the float sits abaft the beam (≈105° off the bow):
@@ -920,7 +933,7 @@ hud.init({
         weather: dev.weather, mist: dev.mist, tide: dev.tide, clock: clockText(clockHour), day: save.day ?? 0,
         weatherWords: weatherWords(weatherNow) ?? lookWords(look.key), tideLevel: +WATER.y.toFixed(2), tideTrend: WATER.rate >= 0 ? 'rising' : 'falling', mistNow: +mistNow.toFixed(2),
         sunShading: sunShadingEnabled(), wind: windOn(), fps: save.settings.showFps,
-        ocean: sea.ocean, seaState: +SWELL.state.toFixed(1), seaMode: SWELL.mode, seaLook: SWELL.facet ? 'faceted' : 'smooth', wobble: WOBBLE.k,
+        ocean: sea.ocean, seaState: +SWELL.state.toFixed(1), seaMode: SWELL.mode, seaLook: SWELL.facet ? 'faceted' : 'smooth', wobble: WOBBLE.k, closeup: closeup.mode,
       }),
       weather: (v) => {
         dev.weather = v;
@@ -940,6 +953,7 @@ hud.init({
       wind: (on) => setWind(on),
       shells: (n) => { save.shells += n; writeSave(save); hud.setShells(save.shells); },
       wobble: (k) => setWobble(k),
+      closeup: (m) => closeup.setMode(m),
     },
     volume: (which, v) => { save.settings[which] = Math.min(1, Math.max(0, v)); writeSave(save); gameAudio.setVolumes(save.settings.music, save.settings.sound); },
     reset: () => { clearSave(); location.reload(); },
@@ -1482,6 +1496,8 @@ window.__debug = {
   skipperObj: () => skipper,
   skipperExpr: (e: Expr | null) => { dbgExpr = e; },
   wobble: (k: number) => setWobble(k),
+  /** strike / miss close-up: mode, stats */
+  closeup: (m?: CloseupMode) => { if (m) closeup.setMode(m); return { mode: closeup.mode, active: closeup.active, kind: closeup.kind, shown: closeup.shown, grace: +fishing.grace.toFixed(2) }; },
   npcEmote: (name: string, e: Expr, sec = 3) => crowd?.emote(name, e, sec, 5),
   npcReact: (ev: 'catch' | 'catch_big' | 'legendary' | 'thunder' | 'thunder_near', x?: number, z?: number) => crowd?.reactAt(x ?? camera.position.x, z ?? camera.position.z, ev),
   /** test probe: world position of an NPC's (or the skipper's, name 'skipper') face overlay + which one shows */
