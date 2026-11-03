@@ -66,8 +66,8 @@ class Builder {
   }
 }
 
-const WOOD = '#8A6A4A', WOOD_DK = '#5E4632', DRIFT = '#B9AE9C', DRIFT_DK = '#8F8676', ROCK = '#6E7472', ROCK_DK = '#565C5B';
-const RED = '#A23A2C', CREAM = '#E6D3A3', TIN = '#9C9E9A', BLACK = '#24221F', WHITE = '#EEE8DA', BUFF = '#D9A441', WEED = '#55703F';
+const WOOD = '#8A6A4A', WOOD_DK = '#5E4632', ROCK = '#6E7472', ROCK_DK = '#565C5B';
+const RED = '#A23A2C', CREAM = '#E6D3A3', BLACK = '#24221F', WHITE = '#EEE8DA', BUFF = '#D9A441', WEED = '#55703F';
 
 /** Gran's porch table with the logbook (its ribbon + the keys' brass ring peeking out of the spine). */
 export function logbookTable() {
@@ -88,17 +88,23 @@ export function logbookTable() {
   return { group: g, book: bk };
 }
 
-/** A silvered driftwood log with Gran's greenheart rod wedged into it. */
+/** A pale, silvered driftwood log on open sand with Gran's old rod laid across it — readable at a glance
+ *  from the porch steps: red-wrapped cork handle, brass reel, a yellow float on the line (a bit oversized). */
 export function driftwoodRod() {
   const b = new Builder();
-  b.cyl(0.32, 4.2, [0, 0.28, 0], DRIFT, [0, 0, Math.PI / 2 - 0.05], 7, 0.24, DRIFT_DK);
-  b.cyl(0.18, 1.4, [1.4, 0.35, 0.5], DRIFT_DK, [0.4, 0.6, Math.PI / 2], 6);
+  b.cyl(0.36, 4.4, [0, 0.3, 0], '#D9D2C2', [0, 0, Math.PI / 2 - 0.05], 7, 0.27, '#B9AE9C');
+  b.cyl(0.2, 1.4, [1.5, 0.36, 0.5], '#C9C0AE', [0.4, 0.6, Math.PI / 2], 6);
   const rod = new Builder();
-  rod.cyl(0.035, 2.6, [-0.4, 0.95, 0.15], '#5A3A26', [0.0, 0, 0.9], 5, 0.018);
-  rod.cyl(0.07, 0.12, [-0.85, 0.62, 0.15], '#8C6A3A', [0, 0, 0.9], 6);
+  // blank lying across the log, butt on the sand
+  rod.cyl(0.045, 3.0, [-0.2, 0.62, 0.42], '#5A3A26', [Math.PI / 2 - 0.12, 0, 0.35], 6, 0.022);
+  rod.cyl(0.085, 0.5, [-0.55, 0.42, -0.42], '#D9A25E', [Math.PI / 2 - 0.12, 0, 0.35], 7, 0.08); // cork grip
+  rod.cyl(0.09, 0.12, [-0.47, 0.44, -0.2], '#B23A2A', [Math.PI / 2 - 0.12, 0, 0.35], 7); // red whipping
+  rod.cyl(0.16, 0.1, [-0.5, 0.58, -0.05], '#C8A04A', [0, 0, Math.PI / 2], 9); // brass reel
+  rod.cyl(0.11, 0.24, [0.55, 0.12, 1.6], '#F2C230', [0.3, 0, 0], 7, 0.03, '#B23A2A'); // yellow float on the sand
   const g = new THREE.Group(); g.name = 'OPEN_Driftwood';
   g.add(b.mesh('OPEN_DriftLog'));
   const r = rod.mesh('OPEN_Rod'); g.add(r);
+  g.scale.setScalar(1.25);
   return { group: g, item: r };
 }
 
@@ -112,8 +118,9 @@ export function rockPool() {
   }
   b.box(0.5, 0.05, 0.2, [-0.6, 0.08, 0.35], WEED, [0, 0.6, 0]);
   const tin = new Builder();
-  tin.box(0.34, 0.1, 0.24, [0.15, 0.1, -0.05], TIN, [0, 0.4, 0]);
-  tin.box(0.3, 0.012, 0.2, [0.15, 0.156, -0.05], '#B5643C', [0, 0.4, 0]);
+  tin.box(0.5, 0.14, 0.34, [0.15, 0.12, -0.05], '#D3D6D8', [0, 0.4, 0]); // bright tin, a matchbox of hooks
+  tin.box(0.46, 0.014, 0.3, [0.15, 0.196, -0.05], '#C23A2A', [0, 0.4, 0]); // red label
+  tin.box(0.2, 0.016, 0.1, [0.15, 0.2, -0.05], '#F2E6C4', [0, 0.4, 0]);
   const crab = new Builder();
   crab.box(0.26, 0.08, 0.2, [0, 0, 0], '#B0603E', [0, 0, 0], 0.8);
   for (const s of [-1, 1]) {
@@ -132,7 +139,7 @@ export function clamBucket() {
   const b = new Builder();
   for (let i = 0; i < 6; i++) b.disc(0.06, [Math.cos(i * 2.3) * 0.9, 0.03, Math.sin(i * 1.7) * 0.7], '#3A3330', 6);
   const it = new Builder();
-  it.cyl(0.2, 0.32, [0, 0.16, 0], '#7E8A8A', [0, 0, 0], 8, 0.24, '#C9B9A0');
+  it.cyl(0.26, 0.4, [0, 0.2, 0], '#3E7F86', [0, 0, 0], 8, 0.3, '#EDE3CC'); // teal pail of clam necks
   it.cyl(0.025, 1.0, [0.35, 0.4, 0.1], WOOD, [0.2, 0, 0.5], 5);
   const g = new THREE.Group(); g.name = 'OPEN_Clams';
   g.add(b.mesh('OPEN_ClamHoles'));
@@ -180,10 +187,42 @@ export function ripFoam(radius: number, from: number, to: number) {
   return b.mesh('OPEN_RipFoam');
 }
 
-/** A soft pick-up glint (a small paper-white diamond that bobs above the item). */
+/** Clam-show bubbles: little white domes that rise and pop over the holes (animated by the opening). */
+export function clamBubbles() {
+  const g = new THREE.Group(); g.name = 'OPEN_ClamBubbles';
+  const mat = new THREE.MeshBasicMaterial({ color: '#F4F1E8' });
+  for (let i = 0; i < 6; i++) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4), mat);
+    m.position.set(Math.cos(i * 2.3) * 0.9, 0.05, Math.sin(i * 1.7) * 0.7);
+    m.userData.phase = i * 0.9;
+    g.add(m);
+  }
+  return g;
+}
+
+/** The pick-up sparkle: a warm four-point star with a halo, drawn over foliage (no depth test), pulsing.
+ *  ~0.8 m across so it reads from ~25 m on a phone. */
 export function glint() {
-  const b = new Builder();
-  b.box(0.22, 0.22, 0.22, [0, 0, 0], '#FFF6DC', [Math.PI / 4, 0, Math.PI / 4]);
-  const m = b.mesh('OPEN_Glint');
-  return m;
+  const g = new THREE.Group(); g.name = 'OPEN_Glint';
+  const mat = new THREE.MeshBasicMaterial({ color: '#FFE9A8', transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+  const star = new THREE.Shape();
+  const P = 4, ro = 0.42, ri = 0.1;
+  for (let i = 0; i < P * 2; i++) { const a = (i / (P * 2)) * Math.PI * 2, r = i % 2 ? ri : ro; const x = Math.sin(a) * r, y = Math.cos(a) * r; if (i) star.lineTo(x, y); else star.moveTo(x, y); }
+  const s = new THREE.Mesh(new THREE.ShapeGeometry(star), mat);
+  const halo = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.36, 20), new THREE.MeshBasicMaterial({ color: '#FFF6DC', transparent: true, opacity: 0.55, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+  s.renderOrder = halo.renderOrder = 998;
+  g.add(halo, s);
+  g.userData.star = s; g.userData.halo = halo;
+  return g;
+}
+
+/** The current-target marker: an ochre chevron bobbing over the next thing on Gran's list (within ~30 m). */
+export function targetMarker() {
+  const mat = new THREE.MeshBasicMaterial({ color: '#E3A43A', depthTest: false, depthWrite: false, transparent: true, opacity: 0.95 });
+  const edge = new THREE.MeshBasicMaterial({ color: '#2B2622', depthTest: false, depthWrite: false });
+  const g = new THREE.Group(); g.name = 'OPEN_Marker';
+  const c = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.6, 4), mat); c.rotation.x = Math.PI; c.renderOrder = 999;
+  const o = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.72, 4), edge); o.rotation.x = Math.PI; o.renderOrder = 998;
+  g.add(o, c);
+  return g;
 }

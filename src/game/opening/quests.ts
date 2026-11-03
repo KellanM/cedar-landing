@@ -13,9 +13,9 @@ export const QUESTS: Quest[] = [
   { id: 'q1', title: "Gran's Logbook", stamp: 'LOGBOOK', steps: [{ id: 'book', text: 'find my logbook on the porch' }] },
   {
     id: 'q2', title: 'Beachcombing', stamp: 'TACKLE', steps: [
-      { id: 'rod', text: 'my greenheart rod (in the driftwood)' },
-      { id: 'tin', text: 'my line and hook tin (in a rock pool)' },
-      { id: 'clams', text: 'clam necks for bait' },
+      { id: 'rod', text: 'my old rod (by the pale log)' },
+      { id: 'tin', text: 'my hook tin (in the rock pool)' },
+      { id: 'clams', text: 'clam necks (the bubbling holes)' },
       { id: 'rig', text: 'rig it all at the campfire' },
     ],
   },

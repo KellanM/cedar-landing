@@ -958,7 +958,7 @@ const upg = createUpgrades({
 });
 // The opening (src/game/opening): mail-boat arrival → Gran's logbook → beach tackle → the fixer-upper → … → Gran's tab
 const opening = new Opening({
-  scene, save, writeSave: () => writeSave(save), boat: () => boat, foot,
+  scene, camera, save, writeSave: () => writeSave(save), boat: () => boat, foot,
   restoreBoatModel: () => { const m = world ? upg.pickModel(world) : null; if (m) { boat.setModel(m); skipper.attachTo(boat.modelObject); } },
   setBoatModel: (m) => { boat.setModel(m); skipper.attachTo(boat.modelObject); },
   toast: (m, k) => hud.toast(m, k), note: (who, text) => { crowd?.speak(who, text, 6); return hud.readNote(who, text); },

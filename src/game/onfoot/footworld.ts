@@ -6,8 +6,15 @@ import type { LoadedChunk } from '../../world/types';
 export const WALKABLE_NY = 0.7;
 /** Max step-up onto a higher surface (m). */
 export const STEP_UP = 0.45;
+/** Step-up the walker may take onto a wide tread (walkable()): Kiln Point's porch stairs rise ~0.6 m per
+ *  half-metre run. Walls (pushOut) still start at STEP_UP, so counters and rails stay solid. */
+export const STAIR_UP = 0.62;
 /** Max drop we allow walking off (m). Anything deeper is a ledge you can't walk off. */
 export const MAX_DROP = 1.1;
+/** Plank-gap bridging offsets for walkable() (a foot is ~0.25 m wide). */
+const GAP_CROSS = [[0.13, 0], [-0.13, 0], [0, 0.13], [0, -0.13]] as const;
+/** A/B switches (?footoff=gap,stair): compare against the old walk. Read once. */
+const off = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('footoff') ?? '' : '';
 /** Ground below this is water / wet shoreline: not walkable. Follows the tide (src/game/tides.ts). */
 export let WATER_Y = 0.3;
 export function setWalkWater(y: number) { WATER_Y = y; }
@@ -152,8 +159,23 @@ export class FootWorld {
   }
 
   /** Is there a solid (any-angle) surface at (x,z) within the column? Used for "blocked edge" checks. */
-  walkable(x: number, z: number, feetY: number): GroundHit | null {
-    const g = this.groundAt(x, z, feetY);
+  walkable(x: number, z: number, feetY: number, bridge = false): GroundHit | null {
+    let g = this.groundAt(x, z, feetY, off.includes('stair') ? STEP_UP : STAIR_UP);
+    // A foot is wider than a ray: boardwalks are separate planks with gaps between them (the mail-boat
+    // dock has a gap right across it at z≈26.25 that stopped the walker dead). Bridge gaps narrower than
+    // ~0.25 m by also sampling a small cross and keeping the highest hit.
+    // (also when the centre ray dropped THROUGH a gap onto something lower — a beam or float under the deck:
+    // if the boards either side are at our level, we're standing on the boards, not on what's under them)
+    if (bridge && (!g || g.y < WATER_Y || g.y < feetY - 0.12) && !off.includes('gap')) {
+      const centre = g && g.y >= WATER_Y ? g : null;
+      g = null;
+      for (const [ox, oz] of GAP_CROSS) {
+        const h = this.groundAt(x + ox, z + oz, feetY, STAIR_UP);
+        // a gap is bridged only at the level we're on (never to reach a different deck or a stringer)
+        if (h && h.y >= WATER_Y && Math.abs(h.y - feetY) < 0.12 && (!g || h.y > g.y)) g = h;
+      }
+      g ??= centre;
+    }
     if (!g || g.y < WATER_Y) return null;
     return g;
   }

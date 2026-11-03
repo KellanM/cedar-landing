@@ -188,8 +188,17 @@ await clearDialogue();
 await shot('q3_she_floats');
 
 // Q4: board, row out between the buoys
-await D(() => window.__debug.board());
-await sleep(1500);
+// v0.11.0 bug (Kellan): after the repair the walker was never offered the boat. Stand by her and check.
+await walkTo(A.chain[0], A.chain[1] - 0.6, 15000, 0.6);
+await sleep(500);
+const bctx = await D(() => ({ ctx: window.__debug.state.foot.ctx, name: window.__debug.state.interact, boat: window.__debug.state.boat, feet: window.__debug.state.foot.feet }));
+const bd = Math.hypot(bctx.boat.x - bctx.feet.x, bctx.boat.z - bctx.feet.z);
+check('Q3', /board/i.test(bctx.ctx ?? '') || bctx.name === 'board', `after the repair the context offers Board (${bctx.ctx}; boat moored ${bctx.boat.moored}, ${bd.toFixed(1)} m from her centre)`);
+await interact(); // the context button, as a tap would
+await sleep(1600);
+const bm = (await D(() => window.__debug.state.foot)).mode;
+check('Q3', bm === 'boat', `tapping it boards (${bm})`);
+if (bm !== 'boat') { await D(() => window.__debug.board()); await sleep(1500); }
 const before = (await D(() => window.__debug.state)).boat;
 await gif('q4_oars_between_buoys', async () => {
   await D(() => window.__debug.key('w', true));

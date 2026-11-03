@@ -33,6 +33,7 @@ export interface OpeningHost {
   writeSave(): void;
   boat(): Boat;
   foot: OnFoot;
+  camera: THREE.Camera;
   /** put the boat's model back to the tier model (upgrades), re-attaching the skipper */
   restoreBoatModel(): void;
   setBoatModel(m: THREE.Object3D): void;
@@ -54,11 +55,11 @@ export interface OpeningHost {
 type V2 = [number, number];
 /** Kiln Point anchors (three x, z), from a walkable-ground survey of the island (scripts/_probe_kiln.mjs). */
 const A = {
-  arrive: [8.4, 26.6] as V2,
+  arrive: [7.5, 26.4] as V2, // the middle of the mail-boat dock (it is 1.5 m wide: x 6.75–8.25)
   table: [6.5, 12] as V2,
-  rod: [-16, -8] as V2,
-  pool: [17, -4] as V2,
-  clams: [14, 14] as V2,
+  rod: [15.8, 0.0] as V2, // Kellan: the FRONT beach below the porch, same patch as the tin — on the sea side of the long driftwood line
+  pool: [17.6, -2.8] as V2, // the rock pool at the water's edge (the 'matchbox' tin)
+  clams: [16.0, 3.4] as V2, // the clam holes, between the campfire and the rod: one sweep
   fire: [18, 7] as V2,
   chain: [8.2, 28.0] as V2,
   moor: [8.5, 33.2] as V2,
@@ -71,13 +72,21 @@ const ARRIVE_R = 5;
 
 /** Gran's voice at the start of each quest (docs/opening_study.md §5). */
 const GRAN: Partial<Record<QuestId, string>> = {
-  q1: "If you're reading this, the mail boat got you here and the kettle's still where I left it. The keys are in the spine. The long one is her chain; the brass one is hers. She's been sulking under a tarp since spring. Be kind to her and she'll be kind back. Go gently. Take only what you need. — G.",
-  q2: "My tackle went down the beach in the October blow. The tide brings everything home in the end. Rod first: greenheart doesn't float far, so look in the driftwood on the west side. The line and hooks are in the tobacco tin — try the rock pools east. And dig a few clam necks for bait. Rig it all at my campfire.",
-  q3: "She takes a little water. Everything old does. Unlock her chain, bail till you see the boards, then put a patch on that seam by the stern. Don't bother with the engine. It's sulking. Oars are under the tarp.",
-  q4: 'Out between the green buoy and the red. Not past the point till the tide turns; the rip there has opinions.',
-  q5: "Look for the water wrinkling in rings — that's fish. Off the east shelf, most mornings. Stop by the rings and cast; wait for the bob, then strike quick.",
-  q6: 'The box holds two. Two is plenty for a first day.',
-  q7: "The tide's turned; you'll have an easy row to town now. Mark Cedar Landing on my chart and the compass will mind it for you. Tie up at the float. Mae pays fair. Mostly.",
+  // short pages, one idea each (the dialogue box pages on sentence breaks; Kellan: "make the messages a lot shorter")
+  q1: "The keys are in the spine. The long one's for her chain. She's been sulking under a tarp since spring. Be kind to her. — G.",
+  q2: "My tackle went down the beach in the October blow. The beach below the porch: my old rod's by the pale log. Hooks are in a tin in the rock pool. Dig a few clams, then rig up at my campfire.",
+  q3: "She takes a little water. Everything old does. Unlock her chain, bail her out, patch the stern seam. Leave the engine. It's sulking.",
+  q4: 'Row out between the green buoy and the red. Not past the point till the tide turns.',
+  q5: "Water wrinkling in rings — that's fish. Stop by the rings and cast. Wait for the bob, then strike.",
+  q6: 'The box holds two. Plenty for a first day.',
+  q7: "The tide's turned. An easy row to town now. Mark Cedar Landing on my chart. Tie up at the float.",
+};
+/** Q2 nudges if a pickup stays unfound for a minute (Kellan couldn't find the rod). */
+const NUDGE: Record<string, string> = {
+  rod: 'Try the beach below the porch, by the big pale log.',
+  tin: 'The tin is in the rock pool at the end of that beach.',
+  clams: "Look for the little bubbling holes in the sand. That's clams.",
+  rig: 'Got it all? My campfire is just up the beach.',
 };
 
 export class Opening {
@@ -85,7 +94,11 @@ export class Opening {
   private group = new THREE.Group();
   private world: LoadedWorld | null = null;
   private ints = new Map<string, Interact>();
-  private items: Record<string, { obj: THREE.Object3D; glint: THREE.Mesh; at: V2 }> = {};
+  private items: Record<string, { obj: THREE.Object3D; glint: THREE.Object3D; at: V2 }> = {};
+  private marker = P.targetMarker();
+  private bubbles: THREE.Group | null = null;
+  private q2Since = 0;
+  private q2Steps = -1;
   private pool: ReturnType<typeof P.rockPool> | null = null;
   private mail: THREE.Mesh | null = null;
   private mailT = 0;
@@ -121,7 +134,7 @@ export class Opening {
     const foot = h.foot as OnFoot & { board: () => boolean };
     const board = foot.board.bind(foot);
     foot.board = () => {
-      if (this.active && this.o.stage < 1) { this.h.toast("She's half full of rainwater — see to her first", 'warn'); return false; }
+      if (this.active && this.o.stage < 1) { this.h.toast("Half full of rainwater. See to her first.", 'warn'); return false; }
       return board();
     };
   }
@@ -148,6 +161,14 @@ export class Opening {
     this.buildProps();
     this.applyStage(true);
     if (this.o.q === 0 && !this.o.steps.length && !hasFlag(this.o, 'arrived')) this.arrive();
+    else if (this.o.stage < 1 && !this.h.foot.active) {
+      // a world (re)load put the player back in the boat, but she's a wreck until Q3: back on the dock
+      const boat = this.h.boat();
+      boat.place(A.moor[0], A.moor[1], Math.PI);
+      const sv = this.h.save.onfoot;
+      const at = sv ?? { x: A.arrive[0], y: this.ground(A.arrive, LEVEL.dock) ?? 0.6, z: A.arrive[1], yaw: 0 };
+      this.h.foot.restore(at);
+    }
     this.lastQ = -1;
   }
 
@@ -224,7 +245,7 @@ export class Opening {
     this.h.writeSave();
     setTimeout(() => {
       this.h.titleCard("Keeper's Cove", 'Thursday. The mail boat, and Gran\'s place');
-      this.say('The purser', "Keeper's Cove, end of the line! Your gran's place is up the steps. Mind how you go.");
+      this.say('The purser', "Keeper's Cove, end of the line! Your gran's place is up the steps.");
     }, 900);
   }
 
@@ -238,7 +259,7 @@ export class Opening {
       for (const [ox, oz] of [[0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6]]) { const n = W.walkable(x + ox, z + oz, g.y); if (!n || n.y < 0.25 || Math.abs(n.y - g.y) > 0.35) return null; }
       return g;
     };
-    for (const k of ['table', 'rod', 'pool', 'clams', 'fire', 'chain'] as const) {
+    for (const k of ['table', 'chain'] as const) { // the beach patch is hand-placed on open sand (scripts/_probe_front.mjs) // the pool brings its own rocks
       const [x0, z0] = A[k];
       const y0 = this.lvl(k);
       search: for (let r = 0; r <= 6; r += 0.5) {
@@ -269,7 +290,8 @@ export class Opening {
 
   private addItem(id: string, obj: THREE.Object3D, at: V2, root?: THREE.Object3D, lvl = LEVEL.beach) {
     const gl = P.glint();
-    gl.position.set(at[0], (this.ground(at, lvl) ?? lvl) + 1.3, at[1]);
+    gl.position.set(at[0], (this.ground(at, lvl) ?? lvl) + 1.5, at[1]);
+    gl.userData.y0 = gl.position.y;
     this.group.add(gl);
     this.items[id] = { obj: root ?? obj, glint: gl, at };
   }
@@ -288,6 +310,11 @@ export class Opening {
     const c = P.clamBucket();
     this.place(c.group, A.clams, 0.2);
     this.addItem('clams', c.item, A.clams);
+    this.bubbles = P.clamBubbles();
+    this.bubbles.position.copy(c.group.position);
+    this.group.add(this.bubbles);
+    this.group.add(this.marker);
+    this.marker.visible = false;
     this.rip = P.ripFoam(FENCE_R, 0.12 * Math.PI, 0.95 * Math.PI);
     this.rip.position.set(A.fenceC[0], 0, A.fenceC[1]);
     this.group.add(this.rip);
@@ -362,17 +389,17 @@ export class Opening {
       case 'book':
         if (o.q === 0) this.complete('walk');
         this.complete('book');
-        this.h.toast("Gran's logbook — keys ×2 tucked in the spine", 'log');
+        this.h.toast("Gran's logbook — two keys in the spine", 'log');
         break;
       case 'rod':
         this.complete('rod');
-        this.h.toast("Gran's greenheart rod — heavy, honest, older than the pier", 'log');
+        this.h.toast("Gran's old rod — cork handle, brass reel", 'log');
         break;
       case 'tin': {
         if (!hasFlag(o, 'crab')) {
           setFlag(o, 'crab');
           this.h.writeSave();
-          const v = await this.h.ask('A rock pool', 'Hooks and float in a tobacco tin… and a shore crab has moved in on top of it.', [
+          const v = await this.h.ask('A rock pool', 'The hook tin… with a crab sitting on it.', [
             { label: 'Wait for it', value: 'wait' }, { label: 'Tip it out gently', value: 'tip' }]);
           if (this.pool) {
             const crab = this.pool.crab;
@@ -381,36 +408,36 @@ export class Opening {
             const run = () => { const k = Math.min(1, (performance.now() - t0) / 900); crab.position.set(from.x - 1.1 * k, from.y - 0.12 * k, from.z + 0.6 * k); if (k < 1) requestAnimationFrame(run); else crab.visible = false; };
             run();
           }
-          this.h.toast(v === 'tip' ? 'The crab sidles off, offended' : 'The crab gets bored and sidles off', 'info');
+          this.h.toast(v === 'tip' ? 'The crab sidles off, offended' : 'The crab gets bored and leaves', 'info');
         }
         this.complete('tin');
-        this.h.toast('Cotton handline, hooks and a cork float', 'log');
+        this.h.toast('Handline, hooks and a float', 'log');
         break;
       }
       case 'clams':
         this.complete('clams');
-        this.h.toast('A pail of clam necks — everything nibbles', 'log');
+        this.h.toast('Clam necks — everything nibbles', 'log');
         break;
       case 'rig':
-        await this.h.note('Gran', 'Line through the rings, hook on the end, float a forearm up. There. Now you\'re a fisher. Nearly.');
+        await this.h.note('Gran', "Line through the rings, hook on, float a forearm up. There. Now you're a fisher. Nearly.");
         this.complete('rig');
         break;
       case 'chain':
         this.complete('chain');
-        this.h.toast('The long key turns. The chain drops into the water with a sulk.', 'info');
+        this.h.toast('The chain drops with a sulk', 'info');
         break;
       case 'repair': {
         await repairBoat({ reduceMotion: this.h.reduceMotion() });
         this.setStage(1);
         this.complete('repair');
-        this.h.toast("Bailed, patched, the tarp lashed down and the stack back aboard. She floats — and she's yours.", 'good');
+        this.h.toast("She floats — and she's yours", 'good');
         break;
       }
       case 'barrel':
         setFlag(o, 'barrel');
         this.h.save.shells += 6;
         this.h.setShells(this.h.save.shells);
-        this.h.toast('Hauled aboard a barrel of oddments · +6 Shells', 'good');
+        this.h.toast('A barrel of oddments · +6 Shells', 'good');
         this.h.writeSave();
         this.refreshVisibility();
         break;
@@ -425,14 +452,14 @@ export class Opening {
 
   // ------------------------------------------------------------------ Gran's tab (Q9) and the shipwright
   private async gransTab(it: Interact) {
-    await this.h.note('Old Tess', "So you're the one. Your gran paid ahead before she went up-coast. Said you'd turn up. Town's gone to seed since the cannery shut, but this counter's still open. One thing on her tab — your pick.");
+    await this.h.note('Old Tess', "So you're the one. Your gran paid ahead. Town's gone to seed, but this counter's open. One thing on her tab. Your pick.");
     const pick = await gransTab({ reduceMotion: this.h.reduceMotion() });
     if (!pick) return; // closed: come back later
     this.o.lure = pick.lure;
     this.h.giveLure(pick.lure);
     this.complete('tess');
     await this.h.note(pick.pipName, pick.pipLine);
-    await this.h.note('Bosun Ade', "From the slipway: that engine of hers is seized, not dead — bring me Shells and I'll have her coughing. And when you've Shells to spare, the notice board by the market lists what this town needs mending. Half of it's mine to do and I can't do it alone.");
+    await this.h.note('Bosun Ade', "That engine of hers is seized, not dead. Bring me Shells. Got more to spare? The notice board by the market says what needs mending.");
     this.finish();
     void it;
   }
@@ -440,7 +467,7 @@ export class Opening {
   /** Bosun Ade: the engine (stage 1 → 2). Her look never changes; paint and flags stay the player's to choose. */
   private async shipwright(it: Interact) {
     const price = 300;
-    const v = await this.h.ask('Bosun Ade', "Rowing her about still? That engine's seized, not dead. Three hundred Shells and a dry week and I'll have her coughing. I'll not touch the rest — she suits you scruffy.", [
+    const v = await this.h.ask('Bosun Ade', "Rowing her still? The engine's seized, not dead. Three hundred Shells and she'll cough. The rest stays scruffy. Suits you.", [
       { label: `Get the engine going — ${price} Shells`, value: 'buy' }, { label: 'Other boat work', value: 'shop' }, { label: 'Not today', value: 'no' }]);
     if (v === 'shop') { this.h.passThrough(it); return; }
     if (v !== 'buy') return;
@@ -448,7 +475,7 @@ export class Opening {
     this.h.save.shells -= price;
     this.h.setShells(this.h.save.shells);
     this.setStage(2);
-    this.h.toast('She coughs, she splutters… she runs. Smoke from a stack lying on the foredeck, but she runs.', 'good');
+    this.h.toast('She coughs… she runs!', 'good');
   }
 
   private finish() {
@@ -460,7 +487,7 @@ export class Opening {
     this.restoreErrands();
     setFlag(this.o, 'town_hook');
     this.h.writeSave();
-    this.h.toast("The Sound is yours to wander. The town's notice board wants mending hands; Gran's pages wait under the old stones.", 'log');
+    this.h.toast("The Sound is yours. Try the town notice board.", 'log');
     // hook for the town-restoration quest (docs/town_restoration_study.md, another branch): it starts here
     window.dispatchEvent(new CustomEvent('opening:done', { detail: { lure: this.o.lure, stage: this.o.stage } }));
   }
@@ -475,6 +502,8 @@ export class Opening {
     const p3 = (p: V2, n: string) => ({ name: n, pos: [p[0], 0, p[1]] });
     const o = this.o;
     switch (QUESTS[o.q]?.id) {
+      case 'q0': case 'q1': return p3(A.table, "Gran's logbook — the porch");
+      case 'q2': case 'q3': { const t = this.target(); return t ? p3(t.at, t.label) : null; }
       case 'q4': return p3(A.gate, 'the channel buoys');
       case 'q5': case 'q6': {
         const hs = this.world.gameplay.hotspots.find((h) => h.name.includes('HS02')) ?? this.world.gameplay.hotspots[0];
@@ -506,7 +535,17 @@ export class Opening {
     if (!this.world) return;
     if (this.mail) this.sailMailBoat(dt);
     this.reveal(dt);
-    for (const it of Object.values(this.items)) if (it.glint.visible) { it.glint.rotation.y += dt * 1.6; it.glint.position.y += Math.sin(this.t * 3) * 0.004; }
+    const cam = this.h.camera;
+    for (const it of Object.values(this.items)) {
+      if (!it.glint.visible) continue;
+      it.glint.quaternion.copy(cam.quaternion); // billboard
+      const pulse = 1 + 0.22 * Math.sin(this.t * 3.4);
+      it.glint.scale.setScalar(pulse * (1 + Math.min(1.2, cam.position.distanceTo(it.glint.position) / 25))); // a little bigger with distance
+      it.glint.position.y = it.glint.userData.y0 + Math.sin(this.t * 2) * 0.08;
+      (it.glint.userData.star as THREE.Mesh).rotation.z += dt * 0.6;
+    }
+    if (this.bubbles?.visible) for (const b of this.bubbles.children) { const k = ((this.t * 0.9 + b.userData.phase) % 1.6) / 1.6; b.position.y = 0.04 + k * 0.12; b.scale.setScalar(k < 0.85 ? 0.5 + k : 0.01); }
+    this.updateMarker();
     if (!this.active) return;
     const o = this.o;
     const boat = this.h.boat();
@@ -557,11 +596,51 @@ export class Opening {
       case 'q8':
         if ((uiLog.sold ?? 0) > 0 && !this.h.busy()) {
           this.complete('sell');
-          this.say('Mae', "That's your gran's rod. Never thought I'd see it wet again. Fair price — fairer than this old market deserves, these days — and a bit extra for the look on my face. Now go and see Old Tess at the chandlery before she hears it from someone else.");
+          this.say('Mae', "That's your gran's rod! Never thought I'd see it wet again. Fair price, and a bit extra. Now go and see Old Tess at the chandlery.");
         }
         break;
     }
     if (reached(o, 'q4') && !passed(o, 'q6') && !foot.active) this.fence(boat);
+  }
+
+  /** The next thing on Gran's list near Kiln Point (nearest unfound Q2 pickup, then the fire, then the boat). */
+  private target(): { id: string; at: V2; label: string } | null {
+    const o = this.o, f = this.h.foot.active ? this.h.foot.feet : this.h.boat().pos;
+    const LABEL: Record<string, string> = { rod: "Gran's old rod — the pale log", tin: 'The hook tin — the rock pool', clams: 'Clam necks — the bubbling holes', rig: 'Her campfire', chain: 'The boat', repair: 'The boat', book: "Gran's logbook — the porch" };
+    let ids: string[] = [];
+    if (o.q <= 1) ids = ['book'];
+    else if (o.q === 2) { ids = ['rod', 'tin', 'clams'].filter((k) => !stepDone(o, k)); if (!ids.length) ids = ['rig']; }
+    else if (o.q === 3) ids = [stepDone(o, 'chain') ? 'repair' : 'chain'];
+    let best: { id: string; at: V2; label: string } | null = null, bd = Infinity;
+    for (const id of ids) {
+      const at = id === 'book' ? A.table : id === 'rig' ? A.fire : id === 'chain' || id === 'repair' ? A.chain : id === 'tin' ? A.pool : id === 'rod' ? A.rod : A.clams;
+      const d = Math.hypot(at[0] - f.x, at[1] - f.z);
+      if (d < bd) { bd = d; best = { id, at, label: LABEL[id] }; }
+    }
+    return best;
+  }
+
+  /** Ochre chevron over the current target when it's within ~30 m (on foot), and the Q2 nudge. */
+  private updateMarker() {
+    const o = this.o;
+    const t = this.active && o.q <= 3 ? this.target() : null;
+    const foot = this.h.foot;
+    const d = t && foot.active ? Math.hypot(t.at[0] - foot.feet.x, t.at[1] - foot.feet.z) : Infinity;
+    this.marker.visible = !!t && d < 30 && d > 1.6 && !this.h.busy();
+    if (this.marker.visible && t) {
+      const lv = this.lvl(t.id === 'book' ? 'table' : t.id === 'chain' || t.id === 'repair' ? 'chain' : 'beach');
+      this.marker.position.set(t.at[0], (this.ground(t.at, lv) ?? lv) + 2.6 + Math.sin(this.t * 3) * 0.15, t.at[1]);
+      this.marker.rotation.y += 0.02;
+      this.marker.scale.setScalar(1 + Math.min(1.2, d / 20));
+    }
+    // a minute on the beach without a find: Gran points the way (once per item)
+    if (o.q === 2) {
+      if (o.steps.length !== this.q2Steps) { this.q2Steps = o.steps.length; this.q2Since = this.t; }
+      if (this.t - this.q2Since > 60 && t && !hasFlag(o, 'nudge_' + t.id) && !this.h.busy()) {
+        setFlag(o, 'nudge_' + t.id); this.q2Since = this.t;
+        this.say('Gran', NUDGE[t.id] ?? NUDGE.rod);
+      }
+    }
   }
 
   /** The tide rip past the point: a rowed boat is set back toward the cove until the box is full. */
@@ -574,7 +653,7 @@ export class Opening {
     boat.pos.z -= (dz / d) * k * 0.35;
     boat.speed *= 0.9;
     const now = performance.now();
-    if (now - this.fenceToastAt > 8000) { this.fenceToastAt = now; this.h.toast("The rip past the point sets you back — not till the tide turns (fill the box first)", 'warn'); }
+    if (now - this.fenceToastAt > 8000) { this.fenceToastAt = now; this.h.toast("The rip sets you back. Fill the box first.", 'warn'); }
   }
 
   private driftBarrel(dt: number) {

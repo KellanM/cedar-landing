@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Interact, LoadedWorld, Npc } from '../../world/types';
 import type { Boat } from '../boat';
 import type { Input } from '../input';
-import { FootWorld, WATER_Y, type Surface } from './footworld';
+import { FootWorld, STEP_UP, WATER_Y, type Surface } from './footworld';
 import { PlayerCharacter } from './character';
 import { FootCamera } from './footcamera';
 import { DustPuffs, SpeechBubble, injectFootCss } from './fx';
@@ -25,6 +25,18 @@ export const FOOT = {
   hopTime: 0.62,
   edgeLook: 0.22, // keep this far back from a drop-off / water edge
 };
+
+/** A/B switches for the walk fixes (?footoff=slide,magnet,ledge,narrow): tests compare against the old walk. */
+export const FOOT_OFF = new Set((new URLSearchParams(location.search).get('footoff') ?? '').split(','));
+/** Slide directions tried when the straight step is blocked: [cos, sin] of ±25°, ±50°, ±75°. */
+const _back = new THREE.Vector3();
+const SLIDE = [25, -25, 50, -50, 75, -75].map((d) => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)] as const);
+/** Boardwalk magnet: probe this far either side; drift toward the open side at this speed (m/s). */
+export const MAGNET = { reach: 0.62, speed: 0.9 };
+/** Biggest drop the walker steps down in one go (stairs are ~0.6); anything deeper is an edge. */
+const LEDGE_DROP = 0.45;
+/** Below this the ground is beach mud between the tides (the dock stands over it). */
+const MUD_Y = 0.25;
 
 /** Interacts that only make sense from the boat. */
 /** Interact kinds that actually do something today (everything else toasts "not open yet"). */
@@ -340,29 +352,79 @@ export class OnFoot {
     return path.map((q) => [+q.x.toFixed(1), +q.z.toFixed(1)]);
   }
 
+  /** why the last step was refused (debug) */
+  block = '';
   private tryMove(nx: number, nz: number, dirx: number, dirz: number): { y: number } | null {
     // Test walls at the height we'd stand at (so stepping up onto a deck isn't blocked by its kerb).
-    const g0 = this.world.walkable(nx, nz, this.feet.y);
-    if (!g0) return null;
+    // the ground under the foot bridges plank gaps; the lip / footing checks below do not (they must see edges)
+    const g0 = this.world.walkable(nx, nz, this.feet.y, true);
+    if (!g0) { this.block += `|noground ${nx.toFixed(2)},${nz.toFixed(2)}`; return null; }
     const p = _v.set(nx, Math.max(this.feet.y, g0.y), nz);
     this.world.pushOut(p, FOOT.radius, FOOT.height);
-    const g = this.world.walkable(p.x, p.z, this.feet.y);
-    if (!g) return null;
+    const g = this.world.walkable(p.x, p.z, this.feet.y, true);
+    if (!g) { this.block += `|pushed ${p.x.toFixed(2)},${p.z.toFixed(2)}`; return null; }
     // Only step DOWN onto something with open footing all round (stairs, lower decks) — never onto
     // a narrow stringer / beam lip below a deck edge.
-    if (g.y < this.feet.y - 0.2) {
-      for (const [ox, oz] of [[0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]]) {
-        if (!this.world.walkable(p.x + ox, p.z + oz, g.y)) return null;
-      }
+    // Only step UP onto something wide across the way we're walking (a stair tread, a deck), never onto a
+    // rail cap / stringer / bollard top (the higher STEP_UP for the porch stairs would otherwise let it).
+    // (Only above the old 0.45 m limit's comfort zone, and one level side is enough: a stair taken on the
+    // diagonal still has tread on one side; a rail cap has none.)
+    if (!FOOT_OFF.has('narrow') && g.y > this.feet.y + STEP_UP) { // only the extra stair allowance (STEP_UP..STAIR_UP) is checked
+      const L0 = Math.hypot(dirx, dirz) || 1, qx = -dirz / L0 * 0.3, qz = dirx / L0 * 0.3;
+      const a = this.world.walkable(p.x + qx, p.z + qz, g.y), b = this.world.walkable(p.x - qx, p.z - qz, g.y);
+      const level = (h: typeof a) => !!h && Math.abs(h.y - g.y) <= 0.12;
+      if (!level(a) && !level(b)) { this.block += '|narrow step'; return null; }
+    }
+    // Never walk off a ledge: a dock or deck edge drops onto the tidal mud (and then you're stranded).
+    // (town stairs drop ~0.7 m a step, so the hard rule is only for drops onto the intertidal mud)
+    if (!FOOT_OFF.has('ledge') && g.y < this.feet.y - LEDGE_DROP && g.y < MUD_Y) { this.block += '|ledge'; return null; }
+    if (g.y < this.feet.y - 0.3) { // (a sill or a 0.2 m step down needs no open-footing test)
+      // Fixed ground: the way ahead plus at least one more side must carry on (a stair-top landing beside
+      // a drop is fine; a lone stringer crossed sideways is not). A tide float (moving) keeps the strict
+      // all-round test, so you never step down onto a float corner you can't climb back from.
+      const L1 = Math.hypot(dirx, dirz) || 1;
+      const ahead = this.world.walkable(p.x + (dirx / L1) * 0.3, p.z + (dirz / L1) * 0.3, g.y, true);
+      let n = 0;
+      for (const [ox, oz] of [[0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]]) if (this.world.walkable(p.x + ox, p.z + oz, g.y, true)) n++;
+      if (g.moving ? n < 4 : !ahead || n < 2) { this.block += '|footing'; return null; }
+      // …and only where you could climb straight back: from the lower level, the spot you're leaving must
+      // be clear of walls (Cedar Landing has a low float under a counter you'd be trapped beside)
+      if (this.world.pushOut(_back.set(this.feet.x, g.y, this.feet.z), FOOT.radius, FOOT.height) > 0.12) { this.block += '|no way back'; return null; }
     }
     // Keep a lip back from drop-offs / water so the body never hangs over the edge.
     const L = Math.hypot(dirx, dirz);
     if (L > 1e-4) {
       const ax = p.x + (dirx / L) * FOOT.edgeLook, az = p.z + (dirz / L) * FOOT.edgeLook;
-      if (!this.world.walkable(ax, az, g.y)) return null;
+      if (!this.world.walkable(ax, az, g.y)) {
+        // a plank gap, not an edge, if the boards carry on just beyond it at the same level
+        const bx = p.x + (dirx / L) * (FOOT.edgeLook + 0.3), bz = p.z + (dirz / L) * (FOOT.edgeLook + 0.3);
+        const beyond = this.world.walkable(bx, bz, g.y);
+        if (!beyond || Math.abs(beyond.y - g.y) > 0.12) { this.block += `|lip ${nx.toFixed(2)},${nz.toFixed(2)}`; return null; }
+      }
     }
     this.feet.x = p.x; this.feet.z = p.z;
     return g;
+  }
+
+  /** Narrow-walkway centring: probe the boards either side of the walking line; if one side drops away
+   *  within MAGNET.reach and the other doesn't, drift toward the open side (never off the deck). */
+  private centreOnNarrow(wx: number, wz: number, dt: number) {
+    const px = -wz, pz = wx; // perpendicular to the walking direction
+    const y = this.feet.y, R = MAGNET.reach;
+    // only while walking ALONG the boards: if the way ahead changes level (a step onto a wharf, a ramp)
+    // or ends, the walker is turning off the walkway — don't fight it
+    const ahead = this.world.walkable(this.feet.x + wx * 0.6, this.feet.z + wz * 0.6, y);
+    if (!ahead || Math.abs(ahead.y - y) > 0.12) return;
+    const L = this.world.walkable(this.feet.x + px * R, this.feet.z + pz * R, y);
+    const Rr = this.world.walkable(this.feet.x - px * R, this.feet.z - pz * R, y);
+    if ((!!L) === (!!Rr)) return; // open (or a plank too narrow to matter) both sides: leave it
+    const side = L ? 1 : -1;
+    // only on a genuinely narrow walkway (< ~2 m across): beside a wall in an open plaza, leave it alone
+    if (this.world.walkable(this.feet.x + px * side * R * 3, this.feet.z + pz * side * R * 3, y)) return;
+    const step = MAGNET.speed * dt * side;
+    const nx = this.feet.x + px * step, nz = this.feet.z + pz * step;
+    const g = this.world.walkable(nx, nz, y);
+    if (g && Math.abs(g.y - y) < 0.2) { this.feet.x = nx; this.feet.z = nz; }
   }
 
   update(dt: number, frozen: boolean) {
@@ -398,6 +460,7 @@ export class OnFoot {
     const dl = Math.hypot(dvx, dvz), maxDv = FOOT.accel * dt;
     if (dl > maxDv) { this.vel.x += (dvx / dl) * maxDv; this.vel.z += (dvz / dl) * maxDv; } else { this.vel.x = tvx; this.vel.z = tvz; }
 
+    this.block = '';
     // ---- move with sliding, in small substeps
     const sx = this.feet.x, sz = this.feet.z;
     const stepX = this.vel.x * dt, stepZ = this.vel.z * dt;
@@ -407,11 +470,24 @@ export class OnFoot {
       const ox = this.feet.x, oz = this.feet.z;
       const ix = stepX / n, iz = stepZ / n;
       let g = this.tryMove(ox + ix, oz + iz, ix, iz);
+      // Slide along whatever stopped us (a plank edge, a railing, a diagonal boardwalk): try the step
+      // turned ±25°/±50°/±75° (shortened by the cosine) before the old axis-only fallback.
+      for (let k = 0; !g && !FOOT_OFF.has('slide') && k < SLIDE.length; k++) {
+        this.feet.x = ox; this.feet.z = oz;
+        const c = SLIDE[k][0], sn = SLIDE[k][1];
+        const rx = (ix * c - iz * sn) * c, rz = (ix * sn + iz * c) * c;
+        g = this.tryMove(ox + rx, oz + rz, rx, rz);
+        // a slide stays on the level you're on (it must never find you a way down off the boards)
+        if (g && Math.abs(g.y - this.feet.y) > 0.12) { g = null; this.feet.x = ox; this.feet.z = oz; }
+      }
       if (!g) { this.feet.x = ox; this.feet.z = oz; g = this.tryMove(ox + ix, oz, ix, 0); }
       if (!g) { this.feet.x = ox; this.feet.z = oz; g = this.tryMove(ox, oz + iz, 0, iz); }
       if (!g) { this.feet.x = ox; this.feet.z = oz; break; }
       groundY = g.y;
     }
+    // Boardwalk magnet: on a narrow deck / plank run, ease the walker toward the middle of the boards
+    // (sideways to the stick), so a thumb that's a few degrees off doesn't walk you into the lip.
+    if (mag > 0.2 && !FOOT_OFF.has('magnet')) this.centreOnNarrow(wx, wz, dt);
     if (groundY === null) {
       // standing still (or blocked): keep resolving overlaps + ground
       const p = _v.copy(this.feet);
@@ -501,7 +577,7 @@ export class OnFoot {
     return {
       mode: this.mode, feet: this.saved(), speed: +this.lastSpeed.toFixed(2), ctx: this.ctx?.prompt ?? null,
       bvhChunks: this.world.built, bvhMs: Math.round(this.world.buildMs), steps: this.steps,
-      bubble: this.bubble.text, model: this.character.source, autoWalk: !!this.autoWalk,
+      bubble: this.bubble.text, model: this.character.source, autoWalk: !!this.autoWalk, camYaw: +this.cam.viewYaw.toFixed(3), block: this.block,
     };
   }
 }

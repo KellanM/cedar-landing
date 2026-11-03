@@ -145,7 +145,7 @@ export function gransTab(opts: { reduceMotion?: boolean } = {}): Promise<{ lure:
           fx('stamp');
           const pip = BEATS[k], lark = ORDER.find((x) => x !== k && x !== pip)!;
           el.remove(); setModal(null);
-          resolve({ lure: k, lark, pipName: 'Pip, Mae\'s kid', pipLine: `Then I'm having ${LURES[pip].name}! ${PIP_WHY[k]} Saturday derby at the float — you'll see! (Lark from across the cove took ${LURES[lark].name}.)` });
+          resolve({ lure: k, lark, pipName: 'Pip, Mae\'s kid', pipLine: `Then I'm having ${LURES[pip].name}! ${PIP_WHY[k]} Saturday derby at the float. You'll see! Lark took ${LURES[lark].name}.` });
         };
       }
     }
