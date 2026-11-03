@@ -315,3 +315,33 @@ export function npcLine(n: Npc, visit: number): string {
   }
   return list[(rr.rank * step + visit) % list.length];
 }
+
+
+/** Emotion a line is said with (docs/character_study.md, Friendslop: NPC expressions). Hand tags first, then
+ *  keywords; a speaker with no strong cue falls back to their temperament (npcs.ts TEMPER). */
+export type LineEmo = 'neutral' | 'happy' | 'laugh' | 'surprised' | 'worried' | 'sad' | 'joy' | 'grumpy';
+const HAND: [RegExp, LineEmo][] = [
+  [/Hear ye!.*STOP|kindly STOP/i, 'grumpy'],
+  [/Hear ye!.*Do not try it on a whale/i, 'laugh'],
+  [/Hear ye!/i, 'joy'],
+  [/Did you catch a shark|Do whales sleep|TWO chimneys|found a bottle|feather this big/i, 'joy'],
+  [/crab caught Biscuit back|bites you gently|Not that we get tourists|Peace at last|Charmingly wrong|outlived two/i, 'laugh'],
+  [/Mind the slipway\. And my legs|sulks in the cold|swearing|count every one|feel like hands|about to be fixed/i, 'grumpy'],
+  [/seized|gone to seed|cannery shut|went up-coast|never thought I'd see it wet|Her hands were faster/i, 'sad'],
+  [/Stay off the open water|Count the seconds|slick as a fish|Mind your step|scary|not scared of thunder/i, 'worried'],
+  [/Stopped me in my tracks|Seen the seals|orca|lanternfish come up|whirlpools/i, 'surprised'],
+  [/Welcome|Lovely day|Grand weather|good eye|Fresh off the water|favourite hour|Sit a while|enough for one more|Nothing better/i, 'happy'],
+];
+const KEYS: [RegExp, LineEmo][] = [
+  [/\?!|!\?|\bwow\b|\bwhoa\b/i, 'surprised'],
+  [/\bstorm|thunder|fog\b|slick|careful|mind (your|how)/i, 'worried'],
+  [/\brain\b|drizzle|cold|wet\b|soggy/i, 'grumpy'],
+  [/\blost\b|got away|gone\b|miss\b|shut\b/i, 'sad'],
+  [/\bha\b|probably\.|mostly\.|don't tell/i, 'laugh'],
+  [/!$/, 'happy'],
+];
+export function lineEmotion(line: string): LineEmo | null {
+  for (const [re, e] of HAND) if (re.test(line)) return e;
+  for (const [re, e] of KEYS) if (re.test(line.trim())) return e;
+  return null;
+}

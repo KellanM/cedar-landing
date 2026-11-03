@@ -24,7 +24,7 @@ import { Fishing } from './game/fishing';
 import { HotspotFX, hideBakedHotspotMarkers } from './game/hotspots';
 import { Skipper } from './game/skipper';
 import type { Expr } from './game/face';
-import { WOBBLE, setWobble } from './game/wobble';
+import { MOTION, WOBBLE, setWobble } from './game/wobble';
 import { CatchShow, planCatch, type CatchPlan } from './game/catchshow';
 import { CatchFX } from './game/catchfx';
 import { reduceMotion, type DevWeather, type DevMist, type DevTide } from './ui/ctx';
@@ -258,6 +258,7 @@ let stormOverride: number | null = null;
 const SMOKE_WIND_BASE = SMOKE_WIND.clone();
 rain.onStrike = (s) => {
   gameAudio.thunder(s.dist, s.near, s.x, s.z);
+  crowd?.reactAt(camera.position.x, camera.position.z, s.near ? 'thunder_near' : 'thunder');
   if (s.near && !reduceMotion()) chase.shake(0.06);
 };
 const stackPos = new THREE.Vector3();
@@ -288,7 +289,7 @@ const foot = new OnFoot({
 });
 foot.onTalk = (name) => crowd?.react(name);
 foot.onFootstep = (sp, feet, surf) => gameAudio.step(surfaceFromColor(surf, feet.y), sp);
-foot.onSay = (name, text, role, x, z) => gameAudio.talk(name, text, role, x, z);
+foot.onSay = (name, text, role, x, z) => { gameAudio.talk(name, text, role, x, z); crowd?.speak(name, text); };
 let footCtx: FootContext | null = null;
 // Photo mode (src/ui/photo.ts): HUD hidden, world held still, orbit / pinch, filters + frames, PNG out
 const photo = new PhotoMode({
@@ -644,16 +645,22 @@ function openSell() {
   hud.showSell(save.cooler, (i) => sellFish([i]), currentInteract);
 }
 function sellFish(idx: number[]) {
-  let total = 0;
+  let total = 0, best = 0;
+  const RANK: Record<string, number> = { common: 0, uncommon: 1, rare: 2, legendary: 3 };
   for (const i of [...idx].sort((a, b) => b - a)) {
     const f = save.cooler[i];
     if (!f) continue;
+    best = Math.max(best, RANK[f.rarity] ?? 0);
     total += f.price;
     save.cooler.splice(i, 1);
   }
   if (!total) return;
   save.shells += total;
   writeSave(save);
+  // fishing happens out at the hotspots, so the town sees the catch when it's laid out at the
+  // fish buyer: the folk on the dock react to the best fish in the sale (NPC expressions)
+  const at = foot.active ? foot.feet : boat.pos;
+  crowd?.reactAt(at.x, at.z, best >= 3 ? 'legendary' : best >= 1 ? 'catch_big' : 'catch');
   // money never toasts: the SOLD stamp, flying Shells and the counter roll carry it
   hud.onSold(idx, total, save.cooler, () => { hud.setShells(save.shells); hud.renderCooler(save.cooler, save.coolerCap, true); });
 }
@@ -673,6 +680,9 @@ let debugPerfect: boolean | null = null;
 
 function onLanded(fish: CaughtFish, _sp: ReturnType<typeof lookupSpecies>, perfect: boolean) {
   pendingCatch = fish;
+  // NPCs within earshot react to the catch (docs/character_study.md, Friendslop: NPC expressions)
+  const rar = _sp?.rarity ?? 'common';
+  crowd?.reactAt(boat.pos.x, boat.pos.z, rar === 'legendary' ? 'legendary' : rar === 'common' ? 'catch' : 'catch_big');
   const hs = fishing.hotspot;
   if (hs) wildlife?.onCatch(hs.pos[0], hs.pos[2]);
   pendingPerfect = debugPerfect ?? perfect;
@@ -904,8 +914,8 @@ const opening = new Opening({
   scene, save, writeSave: () => writeSave(save), boat: () => boat, foot,
   restoreBoatModel: () => { const m = world ? upg.pickModel(world) : null; if (m) { boat.setModel(m); skipper.attachTo(boat.modelObject); } },
   setBoatModel: (m) => { boat.setModel(m); skipper.attachTo(boat.modelObject); },
-  toast: (m, k) => hud.toast(m, k), note: (who, text) => hud.readNote(who, text),
-  ask: (who, text, choices) => hud.dialogue([{ who, text, choices }]),
+  toast: (m, k) => hud.toast(m, k), note: (who, text) => { crowd?.speak(who, text, 6); return hud.readNote(who, text); },
+  ask: (who, text, choices) => { crowd?.speak(who, text, 6); return hud.dialogue([{ who, text, choices }]); },
   titleCard: (t, s) => hud.titleCard(t, s), setShells: (n) => hud.setShells(n),
   drizzle: (on) => { rainOverride = on ? 0.3 : dev.weather === 'auto' ? null : rainOverride; applyTOD(); },
   setClock: (h) => { clockHour = wrapHour(h); save.clock = clockHour; applyTOD(); },
@@ -1144,6 +1154,8 @@ function frame(now: number) {
     rain.onFoot = foot.active;
     rain.update(dt, camera, reduceMotion());
     floaters?.update(dt, camera.position);
+    MOTION.reduced = reduceMotion();
+    if (crowd) { crowd.ambient.rain = weatherNow.rain; crowd.ambient.storm = weatherNow.storm; crowd.ambient.rough = SWELL.state > 0.7; }
     crowd?.update(dt, camera.position, foot.active ? foot.feet : null);
     titleCamera(dt);
     photo.update(realDt);
@@ -1407,6 +1419,9 @@ window.__debug = {
   skipperObj: () => skipper,
   skipperExpr: (e: Expr | null) => { dbgExpr = e; },
   wobble: (k: number) => setWobble(k),
+  npcEmote: (name: string, e: Expr, sec = 3) => crowd?.emote(name, e, sec, 5),
+  npcReact: (ev: 'catch' | 'catch_big' | 'legendary' | 'thunder' | 'thunder_near', x?: number, z?: number) => crowd?.reactAt(x ?? camera.position.x, z ?? camera.position.z, ev),
+  npcFaces: () => crowd?.actors.filter((a) => a.face).map((a) => ({ name: a.name, want: a.want, shown: a.face!.current, temper: a.temper, d: +a.dist.toFixed(1) })),
   faces: () => ({ skipper: skipper.expr?.current, npcs: crowd?.actors.filter((a) => a.face?.has).length ?? 0, lod: crowd?.stats.lod ?? 0 }),
   /** the fish shadow vs the float: nose gap (m) — 0 means the mouth is on the float */
   shadowNose: () => fishing.shadowNoseGap(),

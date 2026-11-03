@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WOBBLE } from './wobble';
+import { MOTION, WOBBLE } from './wobble';
 
 /**
  * Expression overlays shared by the skipper and the NPCs (docs/character_study.md, Friendslop phase 2).
@@ -13,9 +13,9 @@ import { WOBBLE } from './wobble';
  * A swap "pops" the overlay (a quick scale spring) and the googly eyes wobble a little while they are up.
  * Neutral blinks every 2.5–6 s.
  */
-export type Expr = 'neutral' | 'blink' | 'happy' | 'surprised' | 'effort' | 'worried' | 'sad' | 'joy';
+export type Expr = 'neutral' | 'blink' | 'happy' | 'laugh' | 'surprised' | 'effort' | 'worried' | 'sad' | 'joy' | 'grumpy';
 const FALLBACK: Record<Expr, Expr[]> = {
-  neutral: [], blink: [], happy: [], surprised: ['happy'], effort: ['surprised'], worried: ['surprised'], sad: ['surprised'], joy: ['happy'],
+  neutral: [], blink: [], happy: [], laugh: ['happy'], surprised: ['happy'], effort: ['surprised'], worried: ['surprised'], sad: ['surprised'], joy: ['happy'], grumpy: ['worried'],
 };
 
 export class FaceRig {
@@ -56,7 +56,7 @@ export class FaceRig {
     if (e !== this.shown) {
       const prev = this.sets.get(this.shown); if (prev) prev.visible = false;
       const next = this.sets.get(e); if (next) next.visible = true;
-      if (e !== 'blink' && this.shown !== 'blink') this.popV += 9 * WOBBLE.k; // the swap pops (not for blinks)
+      if (e !== 'blink' && this.shown !== 'blink' && !MOTION.reduced) this.popV += 9 * WOBBLE.k; // the swap pops (not for blinks; not with Reduce motion)
       this.shown = e;
     }
     // pop spring + googly wobble, on the visible overlay only
@@ -64,8 +64,8 @@ export class FaceRig {
     this.pop += this.popV * Math.min(dt, 1 / 30);
     const o = this.sets.get(this.shown);
     if (o) {
-      const googly = this.shown !== 'blink' && this.shown !== 'happy';
-      const wob = googly ? Math.sin(this.t * 13) * 0.025 * WOBBLE.k : 0;
+      const googly = this.shown !== 'blink' && this.shown !== 'happy' && this.shown !== 'laugh';
+      const wob = googly && !MOTION.reduced ? Math.sin(this.t * 13) * 0.025 * WOBBLE.k : 0;
       const s = 1 + this.pop * 0.12;
       o.scale.set(s + wob, s - wob, s);
     }
