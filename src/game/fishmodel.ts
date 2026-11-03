@@ -1,3 +1,4 @@
+import { bust } from '../assetver';
 import * as THREE from 'three';
 import { register } from '../render/materials';
 
@@ -62,7 +63,7 @@ export const fishSlug = (id: string) => id.replace(/_/g, '-');
 export function loadFishModel(slug: string): Promise<Built | null> {
   let p = cache.get(slug);
   if (!p) {
-    p = fetch(`${BASE}${slug}.json`)
+    p = fetch(bust(`${BASE}${slug}.json`))
       .then((r) => (r.ok ? (r.json() as Promise<FishModelData>) : Promise.reject(new Error(String(r.status)))))
       .then(build)
       .catch(() => (slug === 'unknown-fish' ? null : loadFishModel('unknown-fish')));

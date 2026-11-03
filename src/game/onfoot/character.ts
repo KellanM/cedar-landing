@@ -1,3 +1,4 @@
+import { bust } from '../../assetver';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { toonMat, worldMat } from '../../render/materials';
@@ -169,7 +170,7 @@ export class PlayerCharacter {
       if (!r.ok || (r.headers.get('content-type') ?? '').includes('text/html')) return;
       const m = await r.json();
       if (!m?.skipper) return;
-      const gltf = await new GLTFLoader().loadAsync(`${base}models/${m.skipper}`);
+      const gltf = await new GLTFLoader().loadAsync(bust(`${base}models/${m.skipper}`));
       const scene = gltf.scene;
       const body: THREE.Object3D[] = [];
       scene.traverse((o) => {

@@ -1,3 +1,4 @@
+import { bust } from '../assetver';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
@@ -41,13 +42,13 @@ export async function checkReady(): Promise<string | null> {
 }
 
 async function getJSON<T>(path: string, v: string): Promise<T> {
-  const r = await fetch(`${WORLD}${path}?v=${encodeURIComponent(v)}`, { cache: 'no-store' });
+  const r = await fetch(bust(`${WORLD}${path}?v=${encodeURIComponent(v)}`), { cache: 'no-store' });
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
   return (await r.json()) as T;
 }
 
 function loadGLB(path: string, v: string) {
-  return loader().loadAsync(`${WORLD}${path}?v=${encodeURIComponent(v)}`);
+  return loader().loadAsync(bust(`${WORLD}${path}?v=${encodeURIComponent(v)}`));
 }
 
 /** Bake every mesh under `node` into one geometry in node-local space (position + color only). */

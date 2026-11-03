@@ -9,6 +9,7 @@
  * Both variants come from public/models/boat_t0_fixer.glb (art/boats/_scripts/export_stages.py) with
  * the T0 sockets in their extras; FIXED carries the troller's paint groups so the shipwright's paint works.
  */
+import { bust } from '../../assetver';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BOAT_TUNING, BOAT_T0, type BoatTuning } from '../boat';
@@ -25,7 +26,7 @@ let stackTop: number[] | undefined;
 let loading: Promise<void> | null = null;
 
 export function loadFixer(base = import.meta.env.BASE_URL): Promise<void> {
-  loading ??= new GLTFLoader().loadAsync(`${base}models/boat_t0_fixer.glb`).then((g) => {
+  loading ??= new GLTFLoader().loadAsync(bust(`${base}models/boat_t0_fixer.glb`)).then((g) => {
     const w = g.scene.getObjectByName('BOAT_T0_WRECK');
     const f = g.scene.getObjectByName('BOAT_T0_FIXED');
     wreck = w ? bakeBoat(w) : null;

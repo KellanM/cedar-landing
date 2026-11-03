@@ -1,3 +1,4 @@
+import { bust } from '../assetver';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { toonMat, worldMat } from '../render/materials';
@@ -80,7 +81,7 @@ export class Skipper {
       const m = await r.json();
       const file = (variant === 'skinned' ? m?.skipper_skinned : null) ?? m?.skipper;
       if (!file) return;
-      const gltf = await new GLTFLoader().loadAsync(`${base}models/${file}`);
+      const gltf = await new GLTFLoader().loadAsync(bust(`${base}models/${file}`));
       // swap: drop the previous model, keep attachment / yaw
       this.mixer?.stopAllAction();
       while (this.turn.children.length) this.turn.remove(this.turn.children[0]);
