@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { worldMat } from '../../render/materials';
+import { charMat, worldMat } from '../../render/materials';
 import { Spring } from '../npcs/rigpose';
 
 /**
@@ -173,7 +173,7 @@ export class PlayerCharacter {
       scene.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (mesh.isMesh) {
-          if (mesh.geometry.getAttribute('color')) mesh.material = worldMat;
+          if (mesh.geometry.getAttribute('color')) mesh.material = mesh.geometry.getAttribute('normal') ? charMat : worldMat;
           mesh.frustumCulled = false;
           if (/rod/i.test(mesh.name)) mesh.visible = false; // the rod stays on the boat
           else body.push(mesh);

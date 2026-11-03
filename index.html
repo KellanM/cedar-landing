@@ -35,10 +35,6 @@
           </div>
         </div>
         <div class="hud-top-center">
-          <div id="compass" class="ribbon compass hidden" aria-live="polite">
-            <svg viewBox="0 0 24 24" class="arrow" id="compass-arrow"><path d="M12 2.5 18.5 20 12 16.2 5.5 20z" fill="#B5643C" stroke="#2B2622" stroke-width="1.8" stroke-linejoin="round"/></svg>
-            <span id="compass-label">Cedar Landing</span>
-          </div>
           <div id="clock" class="tab clock">
             <span class="ico" id="clock-ico" data-icon="cloud"></span>
             <span id="clock-time" class="num">10:40</span>
@@ -48,19 +44,33 @@
           <button class="tab log-btn" id="btn-log" aria-label="Open the Log">
             <span class="ico" data-icon="log"></span><span>Log</span>
             <b id="log-badge" class="badge num hidden">0</b>
-            <b id="log-stamps" class="stamp-count num hidden" title="Stamps on the cover">0</b>
           </button>
         </div>
+      </div>
+
+      <!-- notice lane (hud_flow_study P1): one queued slot; rests on the compass or the pinned errand -->
+      <div id="lane">
+        <div id="compass" class="ribbon compass hidden" aria-live="polite">
+            <svg viewBox="0 0 24 24" class="arrow" id="compass-arrow"><path d="M12 2.5 18.5 20 12 16.2 5.5 20z" fill="#B5643C" stroke="#2B2622" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            <span id="compass-label">Cedar Landing</span>
+          </div>
       </div>
 
       <div id="fps" class="hidden"></div>
       <div id="world-badge" class="hidden"></div>
 
       <div id="joy-base"><div id="joy-knob"></div></div>
+      <div id="target-tag" class="wtag hidden"></div>
+      <div id="target-tag2" class="wtag hidden"></div>
       <div id="target-marker" class="hidden"><svg viewBox="0 0 24 30"><path d="M12 28 3 14h5V3h8v11h5z" fill="#F4EFE3" stroke="#2B2622" stroke-width="2.2" stroke-linejoin="round"/></svg></div>
       <div id="strike" class="hidden"><div class="splat"><span>Strike!</span></div><svg class="window" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46"/></svg></div>
 
       <div class="hud-controls">
+        <button id="btn-interact2" class="ctx2 hidden" aria-label="Second action">
+          <span class="ico" id="interact2-ico" data-icon="cleat"></span>
+          <span id="interact2-label">Ashore</span>
+          <kbd>Q</kbd>
+        </button>
         <button id="btn-interact" class="ctx hidden" aria-label="Interact">
           <span class="ico" id="interact-ico" data-icon="cleat"></span>
           <span id="interact-label">Tie up</span>
@@ -83,7 +93,6 @@
 
       <div id="tension" class="tension hidden"></div>
 
-      <div id="toasts"></div>
       <div id="hints"></div>
       <div id="skip-hint" class="hidden">Tap to skip</div>
     </div>

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Hotspot } from '../world/types';
 import { register } from '../render/materials';
+import { SWELL_GLSL, SWELL_U } from './swell';
 
 /**
  * Fishing-spot markers, second pass (docs/hotspot_study.md; first pass docs/study/fishing_polish.md).
@@ -69,6 +70,7 @@ varying vec2 vP;
 varying vec4 vB;
 varying float vR;
 varying vec2 vW;
+${SWELL_GLSL}
 #include <fog_pars_vertex>
 void main() {
   float c = cos(iA.w), s = sin(iA.w);
@@ -82,6 +84,7 @@ void main() {
   float w = sin(xz.x * 0.21 + uTime * 0.9) * 0.5 + sin(xz.y * 0.17 - uTime * 0.7) * 0.35 + sin((xz.x + xz.y) * 0.43 + uTime * 1.6) * 0.15;
   float fade = 1.0 - smoothstep(60.0, 140.0, length(xz - cameraPosition.xz));
   vec4 wp = vec4(xz.x, uTideY + w * 0.07 * fade * uWave + 0.035, xz.y, 1.0);
+  if (uSwOn > 0.5) wp.y = uSwTideY + swellEval(xz).x + 0.05; // ocean experiment: the mark lies on the tide + swell
   // a leaping baitfish: a low arc, about three body lengths high at the top
   if (type > 6.5) wp.y += 4.0 * iB.x * (1.0 - iB.x) * 1.5 * iA.z;
   if (iB.w <= 0.0) wp = vec4(0.0, -1e4, 0.0, 1.0);
@@ -304,6 +307,7 @@ export class HotspotFX {
       vertexShader: VERT, fragmentShader: FRAG, fog: true, transparent: true, depthWrite: false,
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
+    Object.assign(this.mat.uniforms, SWELL_U); // ocean experiment
     this.marks = new THREE.Mesh(g, this.mat);
     this.marks.frustumCulled = false;
     this.marks.renderOrder = 1;

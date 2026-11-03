@@ -27,15 +27,19 @@ export function buildMarket() {
     <div class="label-band"><div class="inset">
       <h2 id="market-title"><span class="town">Cedar Landing</span><span class="what">Fish Market</span></h2>
     </div></div>
-    <p class="quote" id="market-quote">“Fresh off the water?” <span>— Mae</span></p>`;
+    <p class="quote" id="market-quote">“Fresh off the water?” <span>— Mae</span></p>
+    <nav class="market-tabs" role="tablist"><button role="tab" id="market-tab-cooler" class="mtab">Your cooler</button><button role="tab" id="market-board" class="mtab">Today's prices</button></nav>`;
   sheet.body.innerHTML = `<ul id="sell-list" class="sell-list"></ul><div id="price-board" class="price-board hidden"></div>`;
+  // P5: Done on the left, Sell all on the thumb side
   sheet.foot.innerHTML = `
-    <button id="market-board" class="btn ghost">Prices</button>
-    <button id="sell-all" class="btn kelp"></button>
-    <button id="sell-close" class="btn ghost done">Done</button>`;
+    <button id="sell-close" class="btn ghost done">Done</button>
+    <button id="sell-all" class="btn kelp"></button>`;
   $('sell-all').addEventListener('click', () => { if (!busy) ctx.h?.sellAll(); });
   $('sell-close').addEventListener('click', () => ctx.h?.closeSell());
+  // Prices is a tab (P5); tapping it again goes back to the cooler
   $('market-board').addEventListener('click', () => { view = view === 'board' ? 'cooler' : 'board'; fx('page'); render(); });
+  $('market-tab-cooler').addEventListener('click', () => { if (view !== 'cooler') { view = 'cooler'; fx('page'); render(); } });
+  sheet.header.querySelector('.market-tabs')!.addEventListener('pointerdown', (e) => e.stopPropagation());
 }
 
 export const marketOpen = () => sheet?.isOpen ?? false;
@@ -54,7 +58,7 @@ export function showSell(cooler: CaughtFish[], sellOne: (i: number) => void, whe
   render();
   const wasOpen = sheet.isOpen;
   sheet.open();
-  if (!wasOpen) sheet.setSnap(rows.length <= 2 ? 40 : 70); // few rows: keep the facade in view
+  if (!wasOpen) sheet.setSnap(70); // P5: every row of the cooler in view; the facade still shows above
 }
 
 function render() {
@@ -63,7 +67,9 @@ function render() {
   const board = $('price-board');
   ul.classList.toggle('hidden', view !== 'cooler');
   board.classList.toggle('hidden', view !== 'board');
-  $('market-board').textContent = view === 'board' ? 'Cooler' : 'Prices';
+  $('market-board').setAttribute('aria-selected', String(view === 'board'));
+  $('market-tab-cooler').setAttribute('aria-selected', String(view === 'cooler'));
+  $('market-tab-cooler').innerHTML = `Your cooler <b class="num">${rows.length}</b>`;
   ul.innerHTML = '';
   if (!rows.length) ul.innerHTML = `<li class="empty">Nothing in the cooler yet.<br><span>The ripples off the point are biting.</span></li>`;
   rows.forEach((f, i) => {

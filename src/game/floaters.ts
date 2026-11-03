@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WATER } from './tide';
+import { SWELL, swellAt } from './swell';
 
 const NEAR = 260; // m: objects further than this from the camera hold still
 
@@ -172,11 +173,15 @@ export class Floaters {
         continue;
       }
       const a = it.a, w = a.freq;
-      it.o.position.set(b.x, b.y + ty + Math.sin(t * w * 1.3 + it.ph) * a.bob + Math.sin(t * w * 2.1 + it.ph2) * a.bob * 0.4, b.z);
+      // ocean experiment (src/game/swell.ts): afloat items ride the swell and lean with its slope
+      const sw = SWELL.on && it.floats && ty <= WATER.y + 1e-6 ? swellAt(b.x, b.z) : 0;
+      let sx = 0, sz = 0;
+      if (sw !== 0) { const e = 0.5; sx = (swellAt(b.x + e, b.z) - swellAt(b.x - e, b.z)) / (2 * e); sz = (swellAt(b.x, b.z + e) - swellAt(b.x, b.z - e)) / (2 * e); }
+      it.o.position.set(b.x, b.y + ty + sw + Math.sin(t * w * 1.3 + it.ph) * a.bob + Math.sin(t * w * 2.1 + it.ph2) * a.bob * 0.4, b.z);
       this.e.set(
-        Math.sin(t * w + it.ph) * a.tilt,
+        Math.sin(t * w + it.ph) * a.tilt + Math.atan(sz) * 0.8,
         Math.sin(t * w * 0.3 + it.ph2) * a.yaw,
-        Math.sin(t * w * 0.83 + it.ph2) * a.tilt * 0.8,
+        Math.sin(t * w * 0.83 + it.ph2) * a.tilt * 0.8 - Math.atan(sx) * 0.8,
       );
       this.q.setFromEuler(this.e);
       it.o.quaternion.copy(it.q0).multiply(this.q);

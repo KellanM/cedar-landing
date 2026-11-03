@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WATER } from './tide';
+import { SWELL, Buoyancy } from './swell';
 import type { LandCollision } from './collision';
 import { boatMat } from '../render/materials';
 
@@ -74,6 +75,8 @@ export class Boat {
   /** Smoke-stack position in the model's own space (export troller only). */
   private stackLocal: THREE.Vector3 | null = null;
   private model: THREE.Object3D | null = null;
+  /** ocean experiment (src/game/swell.ts): the hull riding the real swell */
+  private buoy = new Buoyancy();
 
   constructor(model: THREE.Object3D) {
     this.setModel(model);
@@ -185,11 +188,15 @@ export class Boat {
 
     // Visual: gentle bob, roll into turns, slight bow rise with speed
     // storms (docs/rain_study.md): a heavier swell rocks and rolls her more (the Packer rides it better)
-    const R = 1 + this.rough * (this.steady ? 1.6 : 2.6);
+    // Swell (ocean experiment): the waves carry the heave / pitch / roll, the sines stay as a small idle life
+    const sw = SWELL.on && !(this.floor > WATER.y - 0.05);
+    if (sw) this.buoy.update(dt, this.pos.x, this.pos.z, this.yaw, this.halfLen, this.halfBeam, this.steady); else this.buoy.reset();
+    const R = sw ? 0.45 : 1 + this.rough * (this.steady ? 1.6 : 2.6);
     const bob = (Math.sin(this.t * 1.3) * 0.04 + Math.sin(this.t * 2.1 + 1) * 0.02) * R;
-    const roll = -this.yawRate * 0.18 + (Math.sin(this.t * 0.9) * 0.025 + this.rough * 0.03 * Math.sin(this.t * 0.53 + 2)) * R;
-    const pitch = (Math.sin(this.t * 1.1 + 0.5) * 0.015) * R + (this.speed / P.maxSpeed) * 0.04;
-    this.root.position.set(this.pos.x, Math.max(WATER.y, this.floor) + bob, this.pos.z); // rides the tide (or sits on the mud)
+    let roll = -this.yawRate * 0.18 + (Math.sin(this.t * 0.9) * 0.025 + (sw ? 0 : this.rough * 0.03 * Math.sin(this.t * 0.53 + 2))) * R;
+    let pitch = (Math.sin(this.t * 1.1 + 0.5) * 0.015) * R + (this.speed / P.maxSpeed) * 0.04;
+    if (sw) { roll += this.buoy.roll; pitch += this.buoy.pitch; }
+    this.root.position.set(this.pos.x, Math.max(WATER.y + (sw ? this.buoy.heave : 0), this.floor) + bob, this.pos.z); // rides the tide (or sits on the mud)
     this.root.rotation.set(0, this.yaw, 0);
     this.visual.rotation.set(pitch, 0, roll);
   }

@@ -16,6 +16,7 @@ import { ERRANDS, stamps } from './errands';
 import { pinChip } from './chip';
 import { SPECIES, type Species } from '../game/fishdata';
 import { tideTableHtml, shoreNotesHtml, critterPlate } from './tidelog';
+import { VERSION_LABEL, updatePending, applyUpdate, checkForUpdate } from '../version';
 
 export type Tab = 'errands' | 'fish' | 'map' | 'pages' | 'settings' | 'dev';
 type Filter = 'all' | 'caught' | 'missing' | 'here' | 'cooler';
@@ -76,6 +77,7 @@ export function openLog(t?: Tab, opts: { species?: string; filter?: Filter } = {
   if (!reduceMotion()) { root.classList.remove('rise'); void root.offsetWidth; root.classList.add('rise'); }
   setModal('log');
   show(t ?? tab);
+  window.dispatchEvent(new Event('ui:logopened'));
   if (opts.species && ctx.layout === 'portrait') root.classList.add('detail-open');
 }
 
@@ -272,7 +274,7 @@ const GROUPS: [string, (g: Glyph) => boolean][] = [
 ];
 function mapTab(L: HTMLElement, R: HTMLElement) {
   L.innerHTML = `<div class="chart-wrap"><canvas id="chart-canvas" aria-label="Chart of the islands"></canvas>
-    <div class="map-ctl"><button data-z="1.4" aria-label="Zoom in">+</button><button data-z="0.7" aria-label="Zoom out">−</button><button data-c aria-label="Centre on the canoe">${ICONS.boat}</button></div>
+    <div class="map-ctl"><button data-z="1.4" aria-label="Zoom in">+</button><button data-z="0.7" aria-label="Zoom out">−</button><button data-c aria-label="Centre on the troller">${ICONS.boat}</button></div>
     <p class="map-note hand" id="map-note"></p></div>`;
   const items = mapItems();
   const destItem = items.find((i) => i.keys.includes(log.dest ?? ''));
@@ -332,7 +334,7 @@ function pagesTab(L: HTMLElement, R: HTMLElement) {
     R.innerHTML = shoreNotesHtml(critterPlate);
   } else if (selPage === 0) {
     R.innerHTML = `<article class="gran-page">
-      <h3>If you've found this, you've found my canoe.</h3>
+      <h3>If you've found this, you've found my troller.</h3>
       <p>Put your thumb down on the left and paddle. Look for the water wrinkling in rings — that's fish.</p>
       <p>Stop by the rings and cast. Wait for the bob, then <u>strike</u> quick.</p>
       <p>Hold to reel. When the ring goes stripy, <u>ease off</u> — let it tire. If you stay under my notch, that's a perfect reel.</p>
@@ -382,7 +384,21 @@ function settingsTab(L: HTMLElement, R: HTMLElement) {
     <div class="set-row"><span>Reset progress</span><button class="btn ghost danger" id="set-reset">Reset…</button></div>
   </div>`;
   R.innerHTML = `<h3 class="page-title">About this logbook</h3>
-    <p class="hand">Kept by Gran, found by you.</p>`;
+    <p class="hand">Kept by Gran, found by you.</p>
+    <div class="about-ver"><p class="num" id="set-version">${esc(VERSION_LABEL)}</p>
+      <button class="btn ghost" id="set-update">${updatePending() ? `Reload into v${esc(updatePending()!.version)}` : 'Check for updates'}</button>
+      <p class="hand small" id="set-update-msg">${updatePending() ? 'A new version is ready. Reloading takes you back to your last mooring.' : ''}</p></div>`;
+  // P6: checking never reloads by itself; a ready update needs this second, deliberate tap
+  $('set-update').onclick = async () => {
+    const msg = $('set-update-msg'), btn = $<HTMLButtonElement>('set-update');
+    if (updatePending()) { applyUpdate(); return; }
+    btn.disabled = true; msg.textContent = 'Checking…';
+    const r = await checkForUpdate();
+    btn.disabled = false;
+    if (r === 'none') msg.textContent = 'Up to date.';
+    else if (r === 'offline') msg.textContent = 'Couldn’t check (offline?)';
+    else { btn.textContent = `Reload into v${updatePending()!.version}`; msg.textContent = 'A new version is ready. Reloading takes you back to your last mooring.'; }
+  };
 
   const sw = (id: string, f: () => void) => { const b = document.getElementById(id); if (b) b.onclick = () => { f(); savePrefs(); applyPrefsCb(); show('settings', true); }; };
   const sg = (id: string, f: (v: string) => void) => document.getElementById(id)?.querySelectorAll<HTMLButtonElement>('button').forEach((b) => (b.onclick = () => { f(b.dataset.v!); savePrefs(); applyPrefsCb(); show('settings', true); }));
@@ -429,6 +445,7 @@ function devTab(L: HTMLElement, R: HTMLElement) {
   R.innerHTML = `<h3 class="page-title">Tide &amp; rendering</h3>
   <div class="settings">
     ${stack(seg('dev-tide', [['auto', 'Auto'], ['high', 'High'], ['mid', 'Mid'], ['low', 'Low'], ['lowest', 'Lowest']], st.tide, `Tide (${st.tideLevel.toFixed(2)} m, ${st.tideTrend})`))}
+    ${stack(seg('dev-ocean', [['classic', 'Classic'], ['swell', 'Swell']], st.ocean, `Ocean (experiment${st.ocean === 'swell' ? `, sea ${Math.round(st.seaState * 100)}%` : ''})`))}
     ${toggle('dev-sun', st.sunShading, 'Sun shading')}
     ${toggle('dev-wind', st.wind, 'Wind in trees')}
     ${toggle('dev-fps', st.fps, 'Show FPS')}
@@ -442,6 +459,7 @@ function devTab(L: HTMLElement, R: HTMLElement) {
   sg('dev-weather', (v) => d.weather(v as DevWeather));
   sg('dev-mist', (v) => d.mist(v as DevMist));
   sg('dev-tide', (v) => d.tide(v as DevTide));
+  sg('dev-ocean', (v) => d.ocean(v as 'classic' | 'swell'));
   bt('dev-nextday', () => d.nextDay());
   bt('dev-bolt-far', () => d.lightning(false));
   bt('dev-bolt-near', () => d.lightning(true));
