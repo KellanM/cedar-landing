@@ -320,6 +320,8 @@ export class OnFoot {
     const role = String(n.props?.npc_role ?? n.role ?? '');
     const line = npcLine(n, k);
     this.bubble.say(npcDisplayName(n), line, new THREE.Vector3(n.pos[0], n.pos[1] + (role === 'cat' ? 0.6 : 2.05), n.pos[2]));
+    // eased two-shot while the line is up (docs/camera_study.md F7); walking away ends it
+    this.cam.talk(new THREE.Vector3(n.pos[0], n.pos[1] + (role === 'cat' ? 0.35 : 1.5), n.pos[2]), () => this.bubble.visible && this.lastSpeed < 0.8 && this.mode === 'foot');
     this.onSay?.(n.name ?? npcDisplayName(n), line, role, n.pos[0], n.pos[2]);
   }
 

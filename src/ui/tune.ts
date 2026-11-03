@@ -64,9 +64,11 @@ const SPOT_RANGES: Record<keyof typeof HOTSPOT_FX, [number, number, number]> = {
 const CAM_DEFAULT = { ...CAMERA_TUNING };
 const CAM_KEY = 'salish-cam-tune-v1';
 const CAM_RANGES: Record<keyof typeof CAMERA_TUNING, [number, number, number]> = {
-  distance: [6, 30, 0.5], distSpeed: [0, 8, 0.25], pitchDeg: [15, 75, 1], sideDeg: [-60, 60, 1], frameAhead: [0, 10, 0.25],
-  followSlow: [0, 2, 0.05], followTurn: [0.1, 3, 0.05], turnPersist: [0, 2, 0.05], idleReturn: [0.5, 8, 0.25],
-  fovPortrait: [35, 80, 1], fovLandscape: [30, 70, 1], fishZoom: [0.5, 1, 0.02], minDistance: [0.3, 1, 0.02],
+  distance: [6, 30, 0.5], distanceL: [6, 30, 0.5], distSpeed: [0, 8, 0.25], pitchDeg: [10, 75, 1], pitchDegL: [10, 75, 1],
+  sideDeg: [-60, 60, 1], sideDegL: [-60, 60, 1], frameAhead: [0, 10, 0.25],
+  followSlow: [0, 2, 0.05], followTurn: [0.1, 3, 0.05], followGap: [0, 3, 0.05], turnPersist: [0, 2, 0.05],
+  fovPortrait: [35, 80, 1], fovLandscape: [30, 70, 1], fishZoom: [0.5, 1, 0.02], fishPitch: [0, 20, 0.5],
+  castSwing: [0, 90, 1], castTime: [0.3, 3, 0.05], minDistance: [0.3, 1, 0.02], harbourPitch: [0, 20, 0.5], harbourPull: [0, 0.6, 0.01],
 };
 
 const KEY = 'salish-boat-tune-v1';

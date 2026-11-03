@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SEE_U, SEE_GLSL, SEE_GLSL_HEAD } from './seethrough';
 
 /**
  * Stylized "sun-plane" shading for the unlit, flat vertex-coloured world.
@@ -292,9 +293,10 @@ export function addSunShading(m: THREE.MeshBasicMaterial, strength = 1, wind: Wi
   m.userData.windScale = uWindScale;
   const prev = m.onBeforeCompile;
   const prevKey = m.customProgramCacheKey.bind(m);
+  const uSeeMat = (m.userData.seeMat ??= { value: 1 }) as { value: number };
   m.onBeforeCompile = (shader, renderer) => {
     prev.call(m, shader, renderer);
-    Object.assign(shader.uniforms, U, { uLightStrength: uStrength, uLeaf, uWindScale });
+    Object.assign(shader.uniforms, U, SEE_U, { uLightStrength: uStrength, uLeaf, uWindScale, uSeeMat });
     const smooth = normals === 'smooth';
     const head = `varying vec3 vSunViewPos;
 ${smooth ? 'varying vec3 vSunN;\n' : ''}uniform float uWindTime;
@@ -329,7 +331,7 @@ uniform float uSky;
 uniform float uAmbient;
 uniform float uShadeOn;
 uniform float uLightStrength;
-void main() {`,
+${SEE_GLSL_HEAD}void main() {${SEE_GLSL}`,
       )
       .replace(
         '#include <color_fragment>',
