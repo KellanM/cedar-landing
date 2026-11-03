@@ -6,6 +6,7 @@
  */
 import { $, ctx, esc, h, setModal, reduceMotion, type DevWeather, type DevMist, type DevTide } from './ctx';
 import { fx, canVibrate } from './fx';
+import { gameAudio } from '../audio';
 import { ICONS, hydrateIcons } from './icons';
 import { fishSketch, fishSilhouette, starsSvg } from './fishart';
 import { prefs, savePrefs, log, saveLog, resetUIProgress, type Units } from './prefs';
@@ -319,6 +320,8 @@ const PAGE_TEXT: Record<number, { title: string; body: string }> = {
   7: { title: 'Marigold Deep', body: 'Something very old lives below the Marigold. I have only ever seen its shadow.' },
 };
 const TOTAL_PAGES = 7;
+let granAt = -1e9;
+function granMotif() { const now = performance.now(); if (now - granAt < 60000) return; granAt = now; gameAudio.motif('gran'); }
 
 function pagesTab(L: HTMLElement, R: HTMLElement) {
   const found = new Set(log.pages);
@@ -329,7 +332,12 @@ function pagesTab(L: HTMLElement, R: HTMLElement) {
       <li><button data-pg="99" class="${selPage === 99 ? 'on' : ''}"><span class="ico">${ICONS.tide}</span>Shore notes · tide pools</button></li>
     </ul>
     <p class="hand small">${found.size} of ${TOTAL_PAGES} found. Each sunstone keeps one.</p>`;
-  L.querySelectorAll<HTMLButtonElement>('[data-pg]').forEach((b) => (b.onclick = () => { selPage = Number(b.dataset.pg); fx('page'); show('pages', true); openDetail(); }));
+  L.querySelectorAll<HTMLButtonElement>('[data-pg]').forEach((b) => (b.onclick = () => {
+    selPage = Number(b.dataset.pg); fx('page');
+    // a found page of Gran's: the Cedar Landing motif on harp, slow (at most once a minute)
+    if (found.has(selPage) || selPage === 0) granMotif();
+    show('pages', true); openDetail();
+  }));
   if (selPage === 99) {
     R.innerHTML = shoreNotesHtml(critterPlate);
   } else if (selPage === 0) {
