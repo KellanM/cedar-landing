@@ -6,10 +6,11 @@
  */
 import { mtof } from './dsp';
 import type { AudioEngine, Bus } from './engine';
+import { padNote, type PadInst } from './pads';
 
-export type Inst = 'guitar' | 'harp' | 'bass' | 'marimba' | 'celesta' | 'vibes' | 'bell' | 'harmonium' | 'accordion' | 'mute' | 'mandolin';
+export type Inst = 'guitar' | 'harp' | 'bass' | 'marimba' | 'celesta' | 'vibes' | 'bell' | 'harmonium' | 'accordion' | 'mute' | 'mandolin' | 'log' | PadInst;
 
-export interface NoteOpts { pan?: number; wet?: number; bus?: Bus; lp?: number; dest?: AudioNode; /** voice pool (default: music / sfx by bus) */ pool?: string }
+export interface NoteOpts { pan?: number; wet?: number; bus?: Bus; lp?: number; dest?: AudioNode; /** voice pool (default: music / sfx by bus) */ pool?: string; /** sustained voices report their sources (so a cue can stop them early) */ track?: (src: AudioScheduledSourceNode) => void }
 
 let reedWave: PeriodicWave | null = null;
 let reedCtx: BaseAudioContext | null = null;
@@ -103,8 +104,17 @@ export function note(e: AudioEngine, inst: Inst, at: number, midi: number, dur: 
       e.play(b, at, { bus, pool, dest: o.dest, gain: g * vel, pan: o.pan, wet: o.wet ?? (inst === 'marimba' ? 0.25 : 0.4), lp: o.lp });
       break;
     }
+    case 'log': {
+      // soft wooden log / slit-drum tap (village texture): short marimba-like bar, dark, dry-ish
+      const b = e.modalBuf('log', midi, 1.0, [{ ratio: 1, amp: 1, t60: 0.45 }, { ratio: 2.76, amp: 0.18, t60: 0.12 }, { ratio: 5.1, amp: 0.05, t60: 0.05 }], 0.3);
+      e.play(b, at, { bus, pool, dest: o.dest, gain: 0.4 * vel, pan: o.pan, wet: o.wet ?? 0.2, lp: o.lp ?? 1800 });
+      break;
+    }
     case 'harmonium': case 'accordion':
       reedNote(e, at, midi, dur, vel, o, inst);
+      break;
+    case 'strings': case 'lowstr': case 'choir': case 'violin': case 'fiddle': case 'flute': case 'timp':
+      padNote(e, inst, at, midi, dur, vel, { pan: o.pan, wet: o.wet, dest: o.dest, track: o.track });
       break;
   }
 }
