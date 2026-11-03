@@ -12,14 +12,14 @@ import type { LandCollision } from './collision';
  * portrait frame). Edited live by the ?tune overlay and __debug.camTune.
  */
 export const CAMERA_TUNING = {
-  distance: 16, // m from the boat at rest (portrait)
-  distanceL: 12, // ... landscape
+  distance: 12, // m from the boat at rest (portrait) — lower + tighter (Kellan, v0.10.2)
+  distanceL: 9.5, // ... landscape
   distSpeed: 2, // extra m at full speed
-  pitchDeg: 27, // looking down at the boat (portrait): horizon in the top ~15 %
-  pitchDegL: 24, // ... landscape
+  pitchDeg: 20, // looking down at the boat (portrait): horizon in the top ~25 %
+  pitchDegL: 17, // ... landscape
   sideDeg: 12, // offset from straight-behind, toward starboard (+) / port (−), portrait
   sideDegL: 22, // ... landscape
-  frameAhead: 5, // m the aim point sits ahead of the boat ALONG THE VIEW → the boat sits low in frame
+  frameAhead: 4, // m the aim point sits ahead of the boat ALONG THE VIEW → the boat sits low in frame
   followSlow: 0.5, // 1/s heading re-align when going straight (lazy)
   followTurn: 0.9, // 1/s re-align once turning persistently
   followGap: 0.8, // 1/s extra re-align while the heading gap is large (20°→70°): finishes the job after a turn
