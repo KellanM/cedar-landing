@@ -11,7 +11,7 @@ import './hud.css';
 import './screens.css';
 import './log.css';
 import './opening.css';
-import { ctx, $, h, esc, T, reduceMotion, type UIHandlers, type ChartSource, type Layout } from './ctx';
+import { ctx, $, h, T, reduceMotion, type UIHandlers, type ChartSource, type Layout } from './ctx';
 import { prefs, log, saveLog, debugMode } from './prefs';
 import { fx } from './fx';
 import { ICONS, hydrateIcons, iconForKind } from './icons';
@@ -23,13 +23,15 @@ import { bubble, updateBubbles } from './bubble';
 import { buildCard, showCard as presentCatch } from './catchcard';
 import { buildMarket, marketOpen, hideSell, marketPos } from './market';
 import { buildLog, openLog, closeLog, refreshLog, setApplyPrefs, chartDebug } from './log';
-import { chip, pinChip, setLogBadge } from './chip';
+import { chip, pinChip, setLogBadge, errandTucked } from './chip';
+import { initLane, lanePush, setCompassWanted, laneState } from './lane';
 import { titleCard, endTitle } from './title';
 import { dialogue } from './dialogue';
 import { initPause } from './pause';
 import { initLoading, loadingDone, setLoadProgress } from './loading';
 import { ERRANDS, openErrands, stamps, newlyDone } from './errands';
 import { DiveHUD } from './dive';
+import { onUpdateReady, applyUpdate } from '../version';
 import { SPECIES, type CaughtFish, type Species } from '../game/fishdata';
 import type { LoadedWorld } from '../world/types';
 
@@ -52,9 +54,11 @@ export interface FrameState {
   slowEnough: boolean;
   coolerFull: boolean;
   /** context button; pos null = no world marker (on-foot contexts) */
-  interact: { label: string; kind: string; pos: number[] | null } | null;
-  /** overrides the idle Cast button (e.g. "Ashore" when stepping off the boat is offered) */
+  interact: { label: string; kind: string; pos: number[] | null; /** world point for the name tag (on-foot targets have no marker) */ tag?: number[] | null } | null;
+  /** overrides the idle Cast button (unused since P8: Ashore is a context action now) */
   action?: string | null;
+  /** second thing in reach (hud_flow_study P2): a smaller pill beside the context button */
+  interact2?: { label: string; kind: string; pos: number[] | null } | null;
   errand: { name: string; pos: number[] } | null;
   throttle: number;
   inShot: boolean;
@@ -91,7 +95,25 @@ export function init(opts: { save: NonNullable<typeof ctx.save>; input: InputLik
   buildLog();
   setApplyPrefs(applyPrefs);
   hints.init();
+  initLane({ onErrandTuck: errandTucked });
+  // players from before the badge change: start "seen" at what they already have (no flood of "new")
+  try { const raw = localStorage.getItem('salish-sea-log-v1'); if (raw && !JSON.parse(raw).seen) { log.seen = { opened: true, struck: stamps().length, pages: log.pages.length, species: Object.keys(ctx.save?.records ?? {}).length }; saveLog(); } } catch { /* private mode */ }
+  // P6: an update that lands mid-play asks first; it never reloads on its own
+  onUpdateReady((v) => lanePush(`A new version (v${v.version}) is ready`, 'notice', {
+    key: 'update', sticky: true,
+    actions: [{ label: 'Later', run: () => {} }, { label: 'Reload', primary: true, run: () => applyUpdate() }],
+  }));
   initPause();
+  window.addEventListener('ui:logopened', () => {
+    log.seen = { opened: true, struck: stamps().length, pages: log.pages.length, species: Object.keys(ctx.save?.records ?? {}).length };
+    saveLog();
+    updateBadges();
+  });
+  $('btn-interact2').addEventListener('click', () => { if (!ctx.modal) secondaryRun?.(); });
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat || e.key.toLowerCase() !== 'q' || ctx.modal || ctx.pausedSlip) return;
+    if (!$('btn-interact2').classList.contains('hidden')) secondaryRun?.();
+  });
   window.addEventListener('ui:modal', endTitle);
 
   $('btn-log').addEventListener('click', () => { openLog(); });
@@ -172,12 +194,8 @@ function applyLayout() {
 export const paused = () => ctx.modal === 'log' || ctx.pausedSlip;
 export const modalOpen = () => !!ctx.modal;
 
-// ------------------------------------------------------------------ toasts (one lane, max 2, queued)
-const TOAST_ICON: Record<string, string> = { good: 'check', warn: 'warn', log: 'pencil' };
+// ------------------------------------------------------------------ toasts → the notice lane (hud_flow_study P1)
 type Kind = 'info' | 'good' | 'warn' | 'log';
-const queue: { msg: string; kind: Kind; ms: number; at: number }[] = [];
-
-const toastSuppressed = () => ctx.fishing || ctx.modal === 'card' || ctx.modal === 'dialogue' || ctx.title;
 
 export function toast(msg: string, kind: Kind = 'info', ms = 2600) {
   // From Cast to Land the lane is closed; short fishing feedback speaks from the bobber instead.
@@ -185,31 +203,12 @@ export function toast(msg: string, kind: Kind = 'info', ms = 2600) {
     bubble(msg, () => bobberPos.clone(), { ms: 1800, cls: kind, key: 'fish-say', lift: 1.6 });
     return;
   }
-  if (toastSuppressed()) { queue.push({ msg, kind, ms, at: performance.now() }); return; }
-  showToast(msg, kind, ms);
+  lanePush(msg, kind, { ms });
 }
 
-function showToast(msg: string, kind: Kind, ms: number) {
-  const box = $('toasts');
-  for (const el of Array.from(box.children) as HTMLElement[]) if (el.dataset.msg === msg) el.remove();
-  const el = h('div', `toast ${kind}`);
-  el.dataset.msg = msg;
-  const ico = TOAST_ICON[kind];
-  el.innerHTML = `${ico ? `<span class="ico">${ICONS[ico]}</span>` : ''}<span>${esc(msg)}</span>`;
-  box.appendChild(el);
-  while (box.children.length > 2) box.firstElementChild!.remove();
-  setTimeout(() => el.classList.add('out'), ms);
-  setTimeout(() => el.remove(), ms + 400);
-}
-
-function flushToasts() {
-  if (!queue.length || toastSuppressed()) return;
-  const now = performance.now();
-  while (queue.length) {
-    const t = queue.shift()!;
-    if (now - t.at <= T.toastMaxAge) { showToast(t.msg, t.kind, t.ms); break; }
-  }
-}
+/** Secondary context action (hud_flow_study P2): main.ts sets what it runs each frame. */
+let secondaryRun: (() => void) | null = null;
+export function setSecondary(run: (() => void) | null) { secondaryRun = run; }
 
 // ------------------------------------------------------------------ HUD visibility (hidden / peek / pinned)
 function peek(...ids: string[]) {
@@ -307,9 +306,8 @@ export function setTOD(key: string, time?: string, words?: string, icon?: string
   document.body.dataset.tod = key;
   if (changed) {
     $('clock').dataset.words = t.words;
-    $('clock').classList.add('pop');
-    clearTimeout(clockPop);
-    clockPop = window.setTimeout(() => $('clock').classList.remove('pop'), T.peek);
+    // portrait hides the clock: the change reads once in the notice lane instead of a second pop-up
+    if (ctx.layout === 'portrait' && clockPop++ > 0) lanePush(`${t.time} · ${t.words}`, 'clock', { key: 'clock' });
   }
   if (ticked) refreshLog();
 }
@@ -352,6 +350,26 @@ function project(p: THREE.Vector3, cam: THREE.Camera) {
 
 const twoWords = (s: string) => s.split(/\s+/).slice(0, 2).join(' ');
 
+/** Lowest y a world-anchored label may reach: below the top row and the notice lane (P1). */
+function worldTopY() {
+  const r = $('lane').getBoundingClientRect();
+  const busy = !!document.querySelector('#lane .lane-slip:not(.hidden), #lane .lane-pinned:not(.hidden), #compass:not(.hidden)');
+  return busy ? r.top + 56 : r.top;
+}
+
+/** A small paper tag over a world target (only shown when two targets compete for the thumb). */
+function placeTag(el: HTMLElement, it: { label: string; kind: string; pos: number[] | null; tag?: number[] | null } | null, cam: THREE.Camera, primary: boolean) {
+  const wp = it ? it.tag ?? it.pos : null;
+  const p = wp ? project(v3.set(wp[0], wp[1] + (it!.tag ? 1.2 : 2.4), wp[2]), cam) : null;
+  if (!it || !p?.on) { el.classList.add('hidden'); return; }
+  const txt = it.kind === 'sell_fish' ? 'Sell fish' : it.label;
+  if (el.textContent !== txt) el.textContent = txt;
+  el.classList.toggle('on', primary);
+  const x = Math.min(window.innerWidth - 70, Math.max(70, p.x)), y = Math.max(worldTopY() + 34, Math.min(window.innerHeight * 0.7, p.y));
+  el.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px) translate(-50%, -100%)`;
+  el.classList.remove('hidden');
+}
+
 // ------------------------------------------------------------------ per-frame
 export function frame(dt: number, s: FrameState) {
   const f = s.fishing;
@@ -371,7 +389,7 @@ export function frame(dt: number, s: FrameState) {
       // out of range of a fishing spot (and nothing else to do): the button steps away, like the
       // context button; it comes back when you reach the ripples
       else if (!s.canCast) { label = 'Cast'; enabled = false; away = true; }
-      else if (s.coolerFull) { label = 'Cooler full'; enabled = false; }
+      // a full cooler no longer stops the fishing (P3): the catch card offers a swap instead
       else if (!s.slowEnough) { label = 'Slow down'; enabled = false; }
       break;
     case 'casting': case 'waiting': case 'missed': label = 'Wait…'; mode = 'wait'; break;
@@ -401,8 +419,10 @@ export function frame(dt: number, s: FrameState) {
     const ip = s.interact.pos;
     const p = ip ? project(v3.set(ip[0], ip[1] + 3.2, ip[2]), s.camera) : null;
     const mk = $('target-marker');
-    mk.classList.toggle('hidden', !p?.on);
-    if (p?.on) mk.style.transform = `translate(${p.x.toFixed(0)}px, ${p.y.toFixed(0)}px)`;
+    // the arrow sits under the lane (P1); with two targets the name tags do the pointing
+    const twoT = !!(s.interact2 && !s.inShot);
+    mk.classList.toggle('hidden', !p?.on || twoT);
+    if (p?.on) mk.style.transform = `translate(${p.x.toFixed(0)}px, ${Math.max(worldTopY() + 34, p.y).toFixed(0)}px)`;
     // entering a dock zone: readouts peek; the vendor barks once per visit
     const key = `${s.interact.kind}@${ip ? ip.join(',') : s.interact.label}`;
     if (key !== lastInteractKey) {
@@ -415,6 +435,21 @@ export function frame(dt: number, s: FrameState) {
     $('target-marker').classList.add('hidden');
     lastInteractKey = '';
   }
+  // ---- second thing in reach (P2): a smaller pill beside the context button + world tags naming both
+  const ib2 = $('btn-interact2');
+  const two = !!(s.interact && s.interact2 && !s.inShot);
+  if (two) {
+    const t2 = s.interact2!.kind === 'sell_fish' ? 'Sell fish' : s.interact2!.label;
+    const l2 = $('interact2-label');
+    if (l2.textContent !== t2) l2.textContent = t2;
+    const ico2 = iconForKind(s.interact2!.kind);
+    const ie2 = $('interact2-ico');
+    if (ie2.dataset.icon !== ico2) { ie2.dataset.icon = ico2; ie2.innerHTML = ICONS[ico2]; }
+    ib2.setAttribute('aria-label', t2);
+  }
+  ib2.classList.toggle('hidden', !two);
+  placeTag($('target-tag'), two ? s.interact! : null, s.camera, true);
+  placeTag($('target-tag2'), two ? s.interact2! : null, s.camera, false);
   // the market sheet closes when you paddle out of the dock zone
   if (marketOpen() && marketPos && Math.hypot(marketPos[0] - s.boat.pos.x, marketPos[2] - s.boat.pos.z) > 22) ctx.h?.closeSell();
 
@@ -422,7 +457,13 @@ export function frame(dt: number, s: FrameState) {
   const st = $('strike');
   if (f.phase === 'bite') {
     const p = project(v3.copy(f.bobber.position).setY(f.bobber.position.y + 1.4), s.camera);
-    st.style.transform = `translate(${p.x.toFixed(0)}px, ${p.y.toFixed(0)}px)`;
+    // keep the whole splat + window ring on screen (P7): the ring is 190 px across, the splat ~180
+    const cs = getComputedStyle(document.documentElement);
+    const sl = parseFloat(cs.getPropertyValue('--safe-l')) || 0, sr = parseFloat(cs.getPropertyValue('--safe-r')) || 0, stp = parseFloat(cs.getPropertyValue('--safe-t')) || 0;
+    const half = 100;
+    const x = Math.min(window.innerWidth - sr - half, Math.max(sl + half, p.x));
+    const y = Math.min(window.innerHeight - 160, Math.max(stp + 160, p.y));
+    st.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px)`;
     st.classList.remove('hidden');
   } else st.classList.add('hidden');
 
@@ -460,7 +501,6 @@ export function frame(dt: number, s: FrameState) {
   updateCompass(s);
   updateVisibility(s, dt);
   updateBubbles();
-  flushToasts();
 
   trackT += dt;
   if (trackT > 0.4) { trackT = 0; chart.track(s.boat.pos.x, s.boat.pos.z); }
@@ -475,13 +515,13 @@ function updateCompass(s: FrameState) {
   const comp = $('compass');
   const dest = chart.destination();
   const target = dest ?? (s.errand ? { key: 'errand:' + s.errand.name, name: s.errand.name, x: s.errand.pos[0], z: s.errand.pos[2] } : null);
-  if (!target || s.inShot) { comp.classList.add('hidden'); return; }
+  if (!target || s.inShot) { setCompassWanted(false); return; }
   const dx = target.x - s.boat.pos.x, dz = target.z - s.boat.pos.z;
   const dist = Math.hypot(dx, dz);
   if (dest && dist < 40) {
     chart.clearDestination();
     toast(`Arrived at ${dest.name}`, 'log');
-    comp.classList.add('hidden');
+    setCompassWanted(false);
     return;
   }
   s.camera.getWorldDirection(v3);
@@ -494,8 +534,9 @@ function updateCompass(s: FrameState) {
   if (off && !offCourse) compassUntil = now + 4000;
   offCourse = off;
   const show = (!!dest && off) || now < compassUntil;
-  comp.classList.toggle('hidden', !show);
+  setCompassWanted(show);
   if (!show) return;
+  void comp;
   $('compass-arrow').style.transform = `rotate(${(rel * 180) / Math.PI}deg)`;
   const txt = `${target.name} · ${distanceWords(dist)}`;
   const l = $('compass-label');
@@ -503,12 +544,12 @@ function updateCompass(s: FrameState) {
 }
 
 // ------------------------------------------------------------------ errands + stamps
+/** One badge: what's NEW in the Log since it was last opened (stamps earned, pages, species). */
 function updateBadges() {
-  setLogBadge(openErrands().length);
-  const n = stamps().length;
-  const sc = $('log-stamps');
-  sc.textContent = String(n);
-  sc.classList.toggle('hidden', n === 0);
+  const sn = log.seen ?? { opened: false, struck: 0, pages: 0, species: 0 };
+  const species = Object.keys(ctx.save?.records ?? {}).length;
+  const n = (sn.opened ? 0 : 1) + Math.max(0, stamps().length - sn.struck) + Math.max(0, log.pages.length - sn.pages) + Math.max(0, species - sn.species);
+  setLogBadge(n);
 }
 
 function checkErrands() {
@@ -532,6 +573,7 @@ export function logCatch(f: CaughtFish, perfect: boolean) {
   if (perfect) log.perfect[f.speciesId] = true;
   saveLog();
   refreshLog();
+  updateBadges();
 }
 export function noteMoored() { if (!log.tiedUp) { log.tiedUp = true; saveLog(); } }
 export function noteKept() { hints.event('kept'); }
@@ -558,7 +600,11 @@ export function setWorldInfo(info: string) { ctx.worldInfo = info; refreshLog();
 export const debug = {
   openLog: (tab?: string, opts?: object) => openLog(tab as never, opts as never),
   closeLog,
-  toast: (m: string, k?: Kind) => showToast(m, k ?? 'info', 4000),
+  toast: (m: string, k?: Kind) => lanePush(m, k ?? 'info', { ms: 4000 }),
+  lane: () => laneState(),
+  hintEvent: (n: 'bite' | 'strain' | 'kept') => hints.event(n),
+  hintShown: () => hints.shown,
+  badge: () => document.getElementById('log-badge')!.classList.contains('hidden') ? '' : document.getElementById('log-badge')!.textContent,
   hint: (id: string) => hints.force(id),
   clearHints: () => hints.clear(),
   revealAll: () => chart.revealAll(),

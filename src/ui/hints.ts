@@ -8,7 +8,7 @@
  * coaching caption, so it may show during the reel (it sits beside the ring, never over Strike).
  */
 import { $, ctx } from './ctx';
-import { seenHints, saveHints } from './prefs';
+import { seenHints, saveHints, log } from './prefs';
 import type { FrameState } from './hud';
 
 type HintId = 'paddle' | 'cast' | 'strike' | 'ease' | 'cooler';
@@ -29,7 +29,8 @@ const ARROW: Record<string, string> = {
   right: '<svg viewBox="0 0 70 40" class="arrow"><path d="M4 20c16-10 30 8 54 0"/><path d="M48 9l12 11-13 9"/></svg>',
   up: '<svg viewBox="0 0 40 60" class="arrow"><path d="M20 56c6-14-6-24 0-42"/><path d="M10 22l10-12 10 11"/></svg>',
 };
-const DIR: Record<HintId, string> = { paddle: 'down', cast: 'right', strike: 'down', ease: 'down', cooler: 'up' };
+// the cooler hint is advice, not a pointer: the cooler only peeks, so an arrow would point at whatever sits there
+const DIR: Record<HintId, string> = { paddle: 'down', cast: 'right', strike: 'down', ease: 'down', cooler: 'none' };
 
 class Hints {
   private seen = seenHints();
@@ -45,8 +46,9 @@ class Hints {
     this.el.className = 'hint hidden';
     this.el.setAttribute('role', 'note');
     $('hints').appendChild(this.el);
+    // any hint can be tapped away (hud_flow_study P1); it never comes back
     this.el.addEventListener('pointerdown', (e) => {
-      if (this.current === 'cooler') { e.stopPropagation(); this.done('cooler'); }
+      if (this.current) { e.stopPropagation(); this.done(this.current); }
     });
   }
 
@@ -61,7 +63,8 @@ class Hints {
         case 'cast': if (ph === 'idle' && s.canCast && !s.coolerFull) return id; break;
         case 'strike': if (ph === 'casting' || ph === 'waiting' || ph === 'missed' || ph === 'bite') return id; break;
         case 'ease': if (ph === 'reeling' && this.flags.has('strain')) return id; break;
-        case 'cooler': if (this.flags.has('kept')) return id; break;
+        // retired, not shown late: if the catch was already sold the advice is moot
+        case 'cooler': if (log.sold > 0 || ctx.modal === 'market') { this.done('cooler'); break; } if (this.flags.has('kept')) return id; break;
       }
     }
     return null;
@@ -74,12 +77,14 @@ class Hints {
       case 'cast': return ph !== 'idle';
       case 'strike': return ph === 'reeling' || ph === 'landed';
       case 'ease': return ph !== 'reeling' || (!s.fishing.reelHeld && s.fishing.tension < 0.5);
-      case 'cooler': return ctx.modal === 'market';
+      case 'cooler': return ctx.modal === 'market' || log.sold > 0;
     }
   }
 
   private done(id: HintId) {
     this.seen.add(id);
+    // the next hint waits for a calm moment rather than popping straight into the gap
+    this.calmSince = performance.now();
     saveHints(this.seen);
     if (this.forced === id) this.forced = null;
     if (this.current === id) this.hide();
@@ -94,7 +99,7 @@ class Hints {
     if (!this.el) return;
     this.current = id;
     this.el.className = `hint h-${id} dir-${DIR[id]}`;
-    this.el.innerHTML = `${id === 'paddle' && touch() ? '<div class="ghost-thumb"></div>' : ''}<p>${TEXT[id]()}</p>${ARROW[DIR[id]]}`;
+    this.el.innerHTML = `${id === 'paddle' && touch() ? '<div class="ghost-thumb"></div>' : ''}<p>${TEXT[id]()}</p>${ARROW[DIR[id]] ?? ''}`;
   }
 
   update(s: FrameState) {
@@ -102,7 +107,10 @@ class Hints {
     const now = performance.now();
     if (this.current && !this.forced && this.satisfied(this.current, s)) this.done(this.current);
     const ph = s.fishing.phase;
-    const busy = s.inShot || !!ctx.modal || ctx.title || ctx.pausedSlip || ph === 'bite' || ph === 'landed';
+    // P8: nothing while the area card / reveal is up, nor before the player is actually playing
+    const b = document.body.classList;
+    const busy = s.inShot || !!ctx.modal || ctx.title || ctx.pausedSlip || ph === 'bite' || ph === 'landed'
+      || b.contains('titling') || b.contains('cinematic') || !b.contains('playing') || b.contains('onfoot'); // the boat hints don't apply ashore
     if (busy) this.calmSince = now;
     let want = this.forced ?? (busy ? null : this.want(s));
     // ease is the reel coach (allowed mid-reel); everything else needs ≥2 s of calm first
@@ -114,6 +122,8 @@ class Hints {
     this.el.classList.toggle('hidden', !this.current);
   }
 
+  /** test helper: the hint on screen, if any */
+  get shown() { return this.current; }
   /** Screenshot/test helper: show a hint regardless of state. */
   force(id: string) { this.forced = (ORDER as string[]).includes(id) ? (id as HintId) : null; if (this.forced) this.show(this.forced); }
   clear() { this.forced = null; this.seen = new Set(ORDER); saveHints(this.seen); this.hide(); }

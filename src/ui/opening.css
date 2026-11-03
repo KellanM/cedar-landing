@@ -145,3 +145,5 @@ body.playing #hud { transition: opacity 450ms var(--ease-out); }
   .ld-crests, .ld-boat, .ld-gulls i, .ld-gulls i svg, .ld-go { animation: none !important; }
 }
 .reduce-motion .ld-crests, .reduce-motion .ld-boat, .reduce-motion .ld-gulls i, .reduce-motion .ld-gulls i svg, .reduce-motion .ld-go { animation: none !important; }
+/* P6: the build stamp is for the loading card + title; in play it lives in Log > Settings > About */
+body.playing #version-stamp { display: none !important; }

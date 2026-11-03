@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WATER } from './tide';
+import { SWELL } from './swell';
 import { BOAT_TUNING, type Boat } from './boat';
 import type { CameraShot } from '../world/types';
 import type { LandCollision } from './collision';
@@ -109,7 +110,7 @@ export class ChaseCamera {
     // frame bias along the (stable, lazy) camera heading + a speed look-ahead along the actual velocity
     const cfx = -Math.sin(this.yaw), cfz = -Math.cos(this.yaw);
     const la = BOAT_TUNING.camLookAhead * 0.5 / BOAT_TUNING.maxSpeed; // m per m/s
-    look.set(boat.pos.x + cfx * C.frameAhead + boat.vel.x * la, 0.4 + WATER.y, boat.pos.z + cfz * C.frameAhead + boat.vel.y * la);
+    look.set(boat.pos.x + cfx * C.frameAhead + boat.vel.x * la, 0.4 + WATER.y + (SWELL.on ? SWELL.camY : 0), boat.pos.z + cfz * C.frameAhead + boat.vel.y * la);
     let a = this.yaw + C.sideDeg * D2R + this.orbit;
     let zoom = 1 - (1 - C.fishZoom) * this.fishK;
     if (this.focus) {

@@ -360,7 +360,7 @@ export function buildPlaceholderWorld(): LoadedWorld {
     spawn: { pos: [0, 0, 40], dir: [0, -1] },
     interacts: [
       { name: 'Interact_SellFish', kind: 'sell_fish', pos: [66, 1.3, -94], props: { prompt: 'Sell fish', label: 'Cedar Landing Fish Market' } },
-      { name: 'Interact_MoorBoat', kind: 'moor_boat', pos: [60, 0.2, -97], props: { prompt: 'Moor canoe' } },
+      { name: 'Interact_MoorBoat', kind: 'moor_boat', pos: [60, 0.2, -97], props: { prompt: 'Moor troller' } },
       { name: 'Interact_BuyTackle', kind: 'buy_tackle', pos: [72, 1.3, -103], props: {} },
       { name: 'Interact_TreasureMap', kind: 'quest_lost_treasure', pos: [-50, 1, -8], props: {} },
     ],

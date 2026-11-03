@@ -105,7 +105,7 @@ async function run(name, viewport, isMobile) {
   await shot('00_baseline_t0');
 
   // ---- walk to the Chandlery on foot (real interact path)
-  await page.keyboard.press('Space'); // Ashore (cooler has fish → context button sells)
+  await page.keyboard.press('q'); // Ashore: the second context action (the cooler has fish → the main one sells)
   await sleep(1500);
   let s = await st();
   if (s.foot.mode !== 'foot') { await page.evaluate(() => window.__debug.stepAshore()); await sleep(1500); s = await st(); }
@@ -216,6 +216,10 @@ async function run(name, viewport, isMobile) {
   await sleep(1500);
   await shot('13_flags');
   await page.click('.sw-flag[data-flag="moon"]');
+  await sleep(500);
+  check(name, await page.isVisible('.bill-wrap:not(.hidden)'), 'a new flag asks first (bill of sale)');
+  await shot('13b_flag_bill');
+  await page.click('#bill-yes');
   await sleep(1200);
   check(name, (await up()).flag === 'moon', 'bought + hoisted the Ringed moon flag');
   await shot('14_flag_hoisted');
@@ -228,6 +232,10 @@ async function run(name, viewport, isMobile) {
   await page.evaluate(() => window.__debug.upg.sw.setTab('boats'));
   await sleep(200);
   await page.click('[data-buyboat="T1"]');
+  await sleep(500);
+  check(name, await page.isVisible('.bill-wrap:not(.hidden)'), 'the Packer asks first (bill of sale)');
+  await shot('15b_boat_bill');
+  await page.click('#bill-yes');
   await sleep(1300);
   await shot('16_launch_title');
   await sleep(2000);

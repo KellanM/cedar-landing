@@ -1,4 +1,4 @@
-// Reel button only near a fishing spot (or when it is the Ashore action).
+// Reel button only near a fishing spot; it never says Ashore (that is a context action now, hud_flow_study P8).
 import { chromium } from 'playwright';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 const BASE = process.argv[2] ?? 'http://localhost:5196/cedar-landing/';
@@ -13,7 +13,7 @@ await p.evaluate(() => window.__debug.markRevealSeen());
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const st = () => p.evaluate(() => { const e = document.getElementById('btn-action'); return { label: document.getElementById('action-label').textContent, away: e.classList.contains('away'), opacity: getComputedStyle(e).opacity }; });
 let fails = 0; const check = (name, ok, s) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`, JSON.stringify(s)); if (!ok) fails++; };
-await sleep(1500); let s = await st(); check('at spawn (dock): shows, as Ashore or Cast', !s.away, s);
+await sleep(1500); let s = await st(); check('at spawn (dock): never Ashore; Cast when a spot is in range, else away', !/ashore/i.test(s.label) && (s.away || s.label === 'Cast'), s);
 await p.screenshot({ path: 'screenshots/reel_away_spawn.png' });
 await p.evaluate(() => window.__debug.teleport(60, 260, 0)); await sleep(1500);
 s = await st(); check('open water, no spot near: hidden', s.away && s.opacity === '0', s);

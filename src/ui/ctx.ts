@@ -8,6 +8,8 @@ export interface UIHandlers {
   setModal(open: boolean): void;
   keep(): void;
   release(): void;
+  /** full cooler (hud_flow_study P3): keep the new catch, let cooler[i] go */
+  swap(i: number): void;
   sellAll(): void;
   sellOne(i: number): void;
   closeSell(): void;
@@ -31,6 +33,8 @@ export interface DevState {
   weather: DevWeather; mist: DevMist; tide: DevTide;
   clock: string; day: number; weatherWords: string; tideLevel: number; tideTrend: 'rising' | 'falling'; mistNow: number;
   sunShading: boolean; wind: boolean; fps: boolean;
+  /** ocean experiment (docs/ocean_study.md) */
+  ocean: 'classic' | 'swell'; seaState: number;
 }
 export interface DevHandlers {
   state(): DevState;
@@ -41,6 +45,7 @@ export interface DevHandlers {
   nextDay(): void;
   lightning(near: boolean): void;
   sunShading(on: boolean): void;
+  ocean(v: 'classic' | 'swell'): void;
   wind(on: boolean): void;
   shells(n: number): void;
 }

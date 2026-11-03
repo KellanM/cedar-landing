@@ -80,7 +80,9 @@ export function iconForKind(kind: string) {
   if (kind === 'talk' || kind === 'trade_rumours' || kind === 'story_evening') return 'talk';
   if (kind.startsWith('buy_') || kind === 'canoe_maker' || kind === 'upgrade_bench') return 'basket';
   if (kind === 'photo' || kind === 'photograph' || kind === 'telescope' || kind === 'look_out' || kind === 'climb_lookout') return 'photo';
-  if (kind === 'land_here') return 'land';
+  if (kind === 'land_here' || kind === 'step_ashore') return 'land';
+  if (kind === 'board') return 'boat';
+  if (kind === 'pet') return 'talk';
   if (kind === 'read_sunstone' || kind.startsWith('quest') || kind === 'read_message_bottle' || kind === 'read_warning') return 'stone';
   if (kind === 'dive_here') return 'dive';
   if (kind === 'rest' || kind === 'sit' || kind === 'nap' || kind === 'save_bed') return 'rest';
