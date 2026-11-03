@@ -1204,6 +1204,7 @@ window.__debug = {
   catchPlan: () => (show.plan ? { tier: show.plan.tier, arc: show.plan.arc, at: show.plan.at, head: show.plan.head, line: show.plan.line, frame: show.plan.frame } : null),
   catchFX: () => ({ ...catchFX.stats, visible: catchFX.group.visible }),
   skipCatch: () => show.skip(),
+  flashes: (on?: boolean) => uiCtx.h?.flashes(on),
   closeCatch: (keep: boolean) => { if (pendingCatch) closeCard(keep); },
   /** Draw calls with each new fishing system hidden in turn (same frame, same view). */
   drawBreakdown: () => {

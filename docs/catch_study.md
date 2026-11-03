@@ -134,6 +134,45 @@ in front of rays. *Application:* legendary only — a soft fan of paper-gold ray
 
 Tuning guesses (not researched): exact durations below, the confetti count, the fanfare notes.
 
-## Result
+## Result (v0.9.5 skipper, phone 390×844 unless noted)
 
-See the bottom of this file (filled after the build).
+Tier ladder as built (`planCatch`, times from the fish leaving the water; measured in
+`screenshots/catch_after_log.txt`):
+
+| tier | when | arc | adds | to card/slip |
+|---|---|---|---|---|
+| quick | a common you've caught before (no record) | 0.6 s / 1.4 m | slap, 2-note chime, small star pop, hop, bubble "Pile Perch! 27.5 cm" | slip @ 1.2 s |
+| common | a common first-of-kind or record | 0.66 s / 1.6 m | + speech box with the pun, 3-note chime + bell, tighter framing | card @ ~2.4 s |
+| uncommon | | 0.78 s / 2.0 m | + whoosh-up/sparkle-down sting + marimba phrase, twinkles, confetti if first | card @ 2.8 s |
+| rare | | 0.95 s / 2.6 m | + forced two-hand hoist, headline in big type, cornet "item-get" fanfare + timpani, paper confetti, warm flash, punch-in, gold box frame | card @ 4.1 s |
+| legendary | | 1.2 s / 3.4 m + slow-mo at the apex | + timpani roll / string / cymbal swell from the pull-out, two-cornet fanfare + strings + bell, rays, red-and-gold frame, longest buzz | card @ 5.2–5.8 s |
+
+Modifiers: NEW (tag, NEW stamp, pun even on repeats of rare+), record (RECORD stamp, "Record!" tag,
+closer framing — the Pocket Camp close-up, a marimba "ta-da"), perfect reel (PERFECT stamp, tag,
+a high glint, +4 stars). Rare+ repeats keep the headline for their first 3 catches, then go straight
+to the line; uncommon/common repeats get a one-line "Another copper rockfish!" with no pun.
+Tap / Space / Enter anywhere after the reveal skips straight to the card.
+
+What changed against the criteria:
+1. Reveal beat — the hold-up now has its own sound (tiered fanfare), pose (hop + arch), light
+   (stars, flash) and frame (orbit-in + creep). Seen in every `catch_after_*` GIF at the reveal.
+2. Escalation — arc height, splash, camera tightness, text weight, music and FX all step up together.
+3. Never annoying — the repeat common is 1.2 s to the slip (baseline: 0.62 s arc + 0.65 s hold-up
+   wait + 0.6 s ≈ 1.9 s), and all longer tiers skip on a tap.
+4. Fish as hero — the baseline lingcod spanned ≈ 30 % of the portrait width; now ≈ 70 %
+   (`catch_after_rare_phone_04_line-full.png`); the sixgill overflows the frame like ACNH's whale shark.
+
+Baseline bug fixed: the hold-up camera blended in a straight line through the wheelhouse
+(`catch_before_rare_phone.gif` 0.75 s). It now orbits around the subject, raycasts the boat to
+pick an unoccluded side, and re-aims at the reveal.
+
+Disproved / revised during the build:
+- Pushing in only after the catch (ACNH's wide-then-push) left the fish arc invisible from the
+  13 m fishing camera — the arc read as a speck. Revised: the orbit-in starts at the pull-out and
+  lands with the fish; the reveal adds a punch + creep instead of the push.
+- Star size tied to world metres made the uncommon burst bury the fish and face; stars now scale
+  with the fish and the halo is fainter.
+- The first legendary splash (scaled by arc height²) left a raft of foam for 5 s; capped.
+
+Limits: audio judged by levels (no clipping, peak ≤ −0.8 dBFS) and spectrograms, not by ear in this
+environment; the ACNH audio analysis rests on one clip; no player testing.
