@@ -40,6 +40,9 @@ export class Skipper {
   face: THREE.Vector3 | null = null;
   /** true: turn so the ROD points at `face` (the reel pose holds it out to the right); false: the chest */
   aimRod = false;
+  /** catch victory (docs/catch_study.md F3): a hop + arch-back "ta-da" layered on any hold pose */
+  private cheerT = -1;
+  private cheerK = 0;
   /** debug: skip the procedural layers / yaw aim */
   dbgNoProc = false;
   dbgNoAim = false;
@@ -153,6 +156,11 @@ export class Skipper {
 
   showRod(on: boolean) { if (this.rod) this.rod.visible = on; }
 
+  /** Victory beat: k 0..1 (0.35 a little bounce … 1 two hops and a big arch). Rig-generic: it only
+   *  moves the turn group (hop) and the chest / spine / head bones (arch back, chin up). */
+  cheer(k: number) { this.cheerT = 0; this.cheerK = k; }
+  get cheering() { return this.cheerT >= 0; }
+
   update(dt: number) {
     if (!this.ready || !this.mixer) return;
     this.t += dt;
@@ -202,6 +210,19 @@ export class Skipper {
     if (this.narrow > 0.002 && b.upper_arm_L && b.upper_arm_R) {
       b.upper_arm_L.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(0, 1, 0), this.narrow));
       b.upper_arm_R.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(0, 1, 0), -this.narrow));
+    }
+    // victory hop: one quick hop (two for the big ones) with an arch back on the way up
+    if (this.cheerT >= 0) {
+      this.cheerT += dt;
+      const k = this.cheerK, t = this.cheerT;
+      const hop1 = t < 0.34 ? Math.sin((t / 0.34) * Math.PI) : 0;
+      const hop2 = k > 0.8 && t > 0.42 && t < 0.7 ? Math.sin(((t - 0.42) / 0.28) * Math.PI) * 0.6 : 0;
+      const h = hop1 + hop2;
+      this.turn.position.y = h * 0.1 * k;
+      const arch = (h + (t < 1.2 ? Math.max(0, 1 - Math.abs(t - 0.3) / 0.9) * 0.5 : 0)) * k;
+      if (b.chest) b.chest.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(1, 0, 0), -0.16 * arch));
+      if (b.head) b.head.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(1, 0, 0), -0.12 * arch));
+      if (t > 1.3) { this.cheerT = -1; this.turn.position.y = 0; }
     }
     if (this.strain > 0.85 && b.hand_R) b.hand_R.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(1, 0, 0), Math.sin(this.t * 50) * 0.04));
   }

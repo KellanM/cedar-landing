@@ -28,6 +28,7 @@ export interface TideHost {
   floaters: () => Floaters | null;
   wildlife: () => Wildlife | null;
   hotspots: () => THREE.Object3D | null;
+  crowd: () => { actors: { root: THREE.Object3D; pos: THREE.Vector3 }[] } | null;
   wake: BoatWake;
   fishing: Fishing;
   foot: OnFoot;
@@ -39,6 +40,8 @@ export interface TideHost {
   note: (who: string, text: string) => void;
   shells: (n: number) => void;
   reduceMotion: () => boolean;
+  /** camera: look down into the pool while its note is open (docs/camera_study.md F8) */
+  peek?: (x: number, y: number, z: number, r: number) => void;
 }
 
 const BOAT_R = 1.1;
@@ -74,9 +77,59 @@ export class Tides {
   get fieldChunks(): LoadedChunk[] { return this.pools?.fieldChunks ?? []; }
   /** After the on-foot world is set: walk on the terraces, round the pools. */
   footWorld(fw: FootWorld, chunks: LoadedChunk[]) {
-    if (!this.pools) return;
-    fw.setChunks([...chunks, ...this.pools.walkChunks]);
-    fw.circles = [...fw.circles, ...this.pools.circles];
+    if (this.pools) {
+      fw.setChunks([...chunks, ...this.pools.walkChunks]);
+      fw.circles = [...fw.circles, ...this.pools.circles];
+    }
+    // floats and gangways: walkable, riding the tide (the deck under your feet moves with them)
+    const fl = this.host.floaters();
+    if (fl) {
+      fw.addMoving(fl.tidalItems.map((it) => {
+        const b = it.box.clone().expandByScalar(0.5);
+        return { chunk: { object: it.o, bounds: b, center: b.getCenter(new THREE.Vector3()) }, off: (x: number, z: number) => fl.offsetOf(it, x, z) };
+      }));
+    }
+    this.npcRest.clear();
+  }
+  /** On foot on a float or gangway: the deck carries you (also through a sudden jump, e.g. the Dev tab's tide buttons). */
+  private riding: { it: { kind: string; dy: number; box: THREE.Box3 }; dy: number } | null = null;
+  private carryFeet() {
+    const f = this.host.foot, fl = this.host.floaters();
+    if (!f.active || !fl) { this.riding = null; return; }
+    const p = f.feet;
+    if (this.riding) {
+      const b = this.riding.it.box;
+      if (p.x < b.min.x - 0.4 || p.x > b.max.x + 0.4 || p.z < b.min.z - 0.4 || p.z > b.max.z + 0.4) this.riding = null;
+    }
+    if (!this.riding) {
+      // only when the ground under your feet is itself a float / gangway (not a pier above one)
+      if (!f.world.groundAt(p.x, p.z, p.y, 0.25, 0.25)?.moving) return;
+      const it = fl.tidalItems.find((it) => { const b = it.box, dy = fl.offsetOf(it, p.x, p.z); return p.x > b.min.x - 0.2 && p.x < b.max.x + 0.2 && p.z > b.min.z - 0.2 && p.z < b.max.z + 0.2 && p.y > Math.max(b.min.y, -0.6) + dy - 0.1 && p.y < b.max.y + dy + 0.3; });
+      if (it) this.riding = { it, dy: fl.offsetOf(it, p.x, p.z) };
+      return;
+    }
+    const dy = fl.offsetOf(this.riding.it as never, p.x, p.z);
+    const d = dy - this.riding.dy;
+    this.riding.dy = dy;
+    if (Math.abs(d) > 1e-4) p.y += d;
+  }
+
+  /** NPCs standing on floats: rest height, keyed by actor root */
+  private npcRest = new Map<THREE.Object3D, { y: number; onFloat: boolean | null }>();
+  private floatNpcs() {
+    const crowd = this.host.crowd(), fl = this.host.floaters();
+    if (!crowd || !fl) return;
+    for (const a of crowd.actors) {
+      let r = this.npcRest.get(a.root);
+      if (!r) { r = { y: a.root.position.y, onFloat: null }; this.npcRest.set(a.root, r); }
+      if (r.onFloat === false) continue;
+      const p = a.pos;
+      // decided once, at rest: is this NPC standing on a float deck?
+      if (r.onFloat === null) r.onFloat = fl.tidalItems.some((it) => { const b = it.box; return p.x > b.min.x - 0.3 && p.x < b.max.x + 0.3 && p.z > b.min.z - 0.3 && p.z < b.max.z + 0.3 && p.y > b.min.y && p.y < b.max.y + 0.5; });
+      if (!r.onFloat) continue;
+      a.root.position.y = r.y + fl.floatDyAt(p.x, p.y, p.z);
+      a.root.updateMatrix(); a.root.updateMatrixWorld(true);
+    }
   }
 
   setField(f: ShoreField | null, land: LandCollision | null) {
@@ -111,6 +164,8 @@ export class Tides {
     const feet = h.foot.active ? h.foot.feet.y : 99;
     setWalkWater(Math.min(y + 0.3, feet - 0.05)); // + 0.3: as before at high water
     this.boat(dt);
+    this.floatNpcs();
+    this.carryFeet();
     this.pools?.update(dt, h.camera.position, h.reduceMotion());
     this.chipT -= dt;
     if (this.chipT <= 0) {
@@ -133,7 +188,8 @@ export class Tides {
   }
 
   /** Catch-and-look: name what is in the pool, log anything new (a few Shells for Gran's notes). */
-  observe(p: { id: string; critters: CritterId[]; zone: string; orange: boolean }) {
+  observe(p: { id: string; critters: CritterId[]; zone: string; orange: boolean; x?: number; z?: number; h?: number; r?: number }) {
+    if (p.x !== undefined && p.z !== undefined) this.host.peek?.(p.x, p.h ?? 0, p.z, p.r ?? 0.8);
     const s = this.host.save;
     const seen = (s.tidepools ??= {});
     const fresh = p.critters.filter((c) => !seen[c]);

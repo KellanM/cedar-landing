@@ -9,7 +9,7 @@ import type { AudioEngine, Bus } from './engine';
 
 export type Inst = 'guitar' | 'harp' | 'bass' | 'marimba' | 'celesta' | 'vibes' | 'bell' | 'harmonium' | 'accordion' | 'mute' | 'mandolin';
 
-export interface NoteOpts { pan?: number; wet?: number; bus?: Bus; lp?: number; dest?: AudioNode }
+export interface NoteOpts { pan?: number; wet?: number; bus?: Bus; lp?: number; dest?: AudioNode; /** voice pool (default: music / sfx by bus) */ pool?: string }
 
 let reedWave: PeriodicWave | null = null;
 let reedCtx: BaseAudioContext | null = null;
@@ -67,7 +67,7 @@ function setTimeoutSafe(e: AudioEngine, at: number, f: () => void) {
 /** Play one note on an instrument. vel 0..1. */
 export function note(e: AudioEngine, inst: Inst, at: number, midi: number, dur: number, vel: number, o: NoteOpts = {}) {
   const bus = o.bus ?? 'music';
-  const pool = bus === 'music' ? 'music' : 'sfx';
+  const pool = o.pool ?? (bus === 'music' ? 'music' : 'sfx');
   switch (inst) {
     case 'guitar': {
       const b = e.pluckBuf('gtr', midi, 3.2, { bright: 0.42, t60: 2.6, pos: 0.17, damp: 0.45, body: 0.55 });

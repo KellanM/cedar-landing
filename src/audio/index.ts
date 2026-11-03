@@ -9,6 +9,7 @@ import { Ambience, BoatAudio, type Spot, type Zones } from './ambience';
 import { MusicDirector, compose, type Variant } from './music';
 import { makeSfx, type Place, type Sfx } from './sfx';
 import { measure } from './dsp';
+import { makeFanfare, type Fanfare, type FanMods, type FanTier } from './fanfare';
 
 export interface AudioFrame {
   cam: { x: number; z: number; yaw: number };
@@ -26,9 +27,13 @@ const TOWN_KINDS = new Set(['sell_fish', 'moor_boat', 'buy_tackle', 'buy_bait', 
 
 const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
+/** the piece's key, folded into the fanfare's comfortable register (C4..F#4) */
+const fanTonic = (t: number) => 60 + (((t - 60) % 12) + 12) % 12 - ((((t - 60) % 12) + 12) % 12 > 6 ? 12 : 0);
+
 class GameAudio {
   e: AudioEngine | null = null;
   sfx: Sfx | null = null;
+  fan: Fanfare | null = null;
   music: MusicDirector | null = null;
   amb: Ambience | null = null;
   boat: BoatAudio | null = null;
@@ -69,6 +74,7 @@ class GameAudio {
       this.e.vol = { ...this.vol };
       this.e.applyLevels(true);
       this.sfx = makeSfx(this.e);
+      this.fan = makeFanfare(this.e);
       this.amb = new Ambience(this.e, this.sfx);
       this.amb.spots = this.spots;
       this.boat = new BoatAudio(this.e);
@@ -236,6 +242,18 @@ class GameAudio {
     if (this.vol.sound > 0) { this.sfx!.slap(this.at()); this.sfx!.chime(this.at() + 0.05, tonic, big); }
     if (this.vol.music > 0) this.music?.resolve(big);
   }
+  /** Catch victory (docs/catch_study.md F5): the fish leaves the water. lead = s until the reveal. */
+  catchPullout(tier: FanTier, lead: number) {
+    if (this.ok()) this.fan!.pullout(this.at(), fanTonic(this.music?.lastTonic ?? 62), tier, lead);
+  }
+  /** Fish in hand: slap + the tier's fanfare (SFX bus, so it plays with the music off); the music bed
+   *  resolves under the small ones and just gets out of the way of the big fanfares. */
+  catchReveal(tier: FanTier, mods: FanMods) {
+    if (!this.e || !this.running) return;
+    const tonic = fanTonic(this.music?.lastTonic ?? 62);
+    if (this.vol.sound > 0) { this.sfx!.slap(this.at()); this.fan!.reveal(this.at() + 0.05, tonic, tier, mods); }
+    if (this.vol.music > 0) this.music?.resolve(tier === 'common' || !!mods.first, tier === 'uncommon' || tier === 'rare' || tier === 'legendary');
+  }
   keep() { if (this.ok()) this.sfx!.keep(this.at()); }
   release() { if (this.ok()) this.sfx!.release(this.at()); }
 
@@ -372,6 +390,13 @@ export async function renderOffline(kind: string, secs: number, seed = 7) {
     at(11.5, () => S.chime(e.now, 62, true));
     at(14, () => S.release(e.now));
     at(15.5, () => S.keep(e.now));
+  } else if (kind.startsWith('catch:')) {
+    // catch:<tier>[+pb][+perfect] — pull-out at 0.2 s, the reveal after the tier's arc
+    const [tier, ...mods] = kind.slice(6).split('+') as [FanTier, ...string[]];
+    const F = makeFanfare(e);
+    const arc = { quick: 0.6, common: 0.66, uncommon: 0.78, rare: 0.95, legendary: 1.5 }[tier] ?? 0.8;
+    at(0.2, () => { S.breach(e.now, 1.2); F.pullout(e.now, 62, tier, arc); });
+    at(0.2 + arc, () => { S.slap(e.now); F.reveal(e.now + 0.05, 62, tier, { pb: mods.includes('pb'), perfect: mods.includes('perfect') }); });
   } else if (kind === 'boat') {
     const amb = new Ambience(e, S), boat = new BoatAudio(e);
     every((t) => {

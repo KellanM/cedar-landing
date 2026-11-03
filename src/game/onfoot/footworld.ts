@@ -12,9 +12,14 @@ export const MAX_DROP = 1.1;
 export let WATER_Y = 0.3;
 export function setWalkWater(y: number) { WATER_Y = y; }
 
-interface Entry { chunk: LoadedChunk; bvh: MeshBVH | null; box: THREE.Box3; col?: Uint8Array | null }
+interface Entry {
+  chunk: LoadedChunk; bvh: MeshBVH | null; box: THREE.Box3; col?: Uint8Array | null;
+  /** tides: things that float. The BVH is kept in the rest pose; off(x,z) is how far the surface at (x,z) has moved
+   *  up/down since (a whole float: constant; a gangway: varies along its length). */
+  off?: (x: number, z: number) => number;
+}
 
-export interface GroundHit { y: number; ny: number }
+export interface GroundHit { y: number; ny: number; /** tides: the surface rides the water (a float / gangway) */ moving?: boolean }
 export interface Surface { c: [number, number, number]; hollow: boolean; y: number }
 
 const _ray = new THREE.Ray();
@@ -81,27 +86,36 @@ export class FootWorld {
     this.entries = chunks.map((c) => ({ chunk: c, bvh: null, box: c.bounds.clone() }));
     this.built = 0;
   }
+  /** Tides: walkable things that ride the water (floats, gangways). `off(x,z)` = their current vertical offset. */
+  addMoving(list: { chunk: LoadedChunk; off: (x: number, z: number) => number }[]) {
+    for (const m of list) this.entries.push({ chunk: m.chunk, bvh: null, box: m.chunk.bounds.clone(), off: m.off });
+  }
 
   private build(e: Entry) {
     const t0 = performance.now();
     const g = bakeChunk(e.chunk.object);
+    if (g && e.off) {
+      // back to the rest pose (the object may already have moved with the tide)
+      const P = g.getAttribute('position') as THREE.BufferAttribute;
+      for (let i = 0; i < P.count; i++) P.setY(i, P.getY(i) - e.off(P.getX(i), P.getZ(i)));
+    }
     e.bvh = g ? new MeshBVH(g, { targetLeafSize: 12 }) : new MeshBVH(new THREE.BoxGeometry(0, 0, 0));
     e.col = g ? (g.userData.col as Uint8Array) : null;
     this.buildMs += performance.now() - t0;
     this.built++;
   }
 
-  private near(x: number, z: number, pad: number, out: MeshBVH[]) {
+  private near(x: number, z: number, pad: number, out: Entry[]) {
     out.length = 0;
     for (const e of this.entries) {
       const b = e.box;
       if (x < b.min.x - pad || x > b.max.x + pad || z < b.min.z - pad || z > b.max.z + pad) continue;
       if (!e.bvh) this.build(e);
-      out.push(e.bvh!);
+      out.push(e);
     }
     return out;
   }
-  private tmpList: MeshBVH[] = [];
+  private tmpList: Entry[] = [];
 
   /** Build at most one missing BVH near (x,z). Returns true if it did work. */
   prefetch(x: number, z: number, pad = 30) {
@@ -120,17 +134,18 @@ export class FootWorld {
    */
   groundAt(x: number, z: number, feetY: number, up = STEP_UP, down = MAX_DROP): GroundHit | null {
     const list = this.near(x, z, 1, this.tmpList);
-    _ray.origin.set(x, feetY + up + 0.02, z);
     _ray.direction.copy(_down);
     const far = up + down + 0.02;
     let best: GroundHit | null = null;
-    for (const bvh of list) {
-      const hits = bvh.raycast(_ray, THREE.DoubleSide, 0, far);
+    for (const e of list) {
+      const d = e.off ? e.off(x, z) : 0;
+      _ray.origin.set(x, feetY + up + 0.02 - d, z);
+      const hits = e.bvh!.raycast(_ray, THREE.DoubleSide, 0, far);
       for (const h of hits) {
         if (!h.face) continue;
         const ny = Math.abs(h.face.normal.y);
         if (ny < WALKABLE_NY) continue;
-        if (!best || h.point.y > best.y) best = { y: h.point.y, ny };
+        if (!best || h.point.y + d > best.y) best = { y: h.point.y + d, ny, moving: !!e.off };
       }
     }
     return best;
@@ -153,7 +168,10 @@ export class FootWorld {
     _seg.end.set(feet.x, feet.y + Math.max(height - radius, STEP_UP + radius + 0.01), feet.z);
     const sx = _seg.start.x, sz = _seg.start.z;
     for (let iter = 0; iter < 2; iter++) {
-      for (const bvh of list) {
+      for (const e of list) {
+        const bvh = e.bvh!;
+        const d = e.off ? e.off(_seg.start.x, _seg.start.z) : 0;
+        _seg.start.y -= d; _seg.end.y -= d;
         _box.makeEmpty();
         _box.expandByPoint(_seg.start).expandByPoint(_seg.end);
         _box.min.addScalar(-radius); _box.max.addScalar(radius);
@@ -174,6 +192,7 @@ export class FootWorld {
             return false;
           },
         });
+        _seg.start.y += d; _seg.end.y += d;
       }
     }
     for (const c of this.circles) {
@@ -200,18 +219,20 @@ export class FootWorld {
     for (const e of this.entries) {
       const b = e.box;
       if (!e.bvh || !e.col || x < b.min.x - 1 || x > b.max.x + 1 || z < b.min.z - 1 || z > b.max.z + 1) continue;
+      const d = e.off ? e.off(x, z) : 0;
+      _ray.origin.set(x, feetY + 0.5 - d, z);
       const h = e.bvh.raycastFirst(_ray, THREE.DoubleSide, 0, 1.5);
-      if (!h || !h.face || (best && h.point.y < best.y)) continue;
+      if (!h || !h.face || (best && h.point.y + d < best.y)) continue;
       const a = h.face.a * 3, col = e.col;
-      best = { y: h.point.y, c: [col[a], col[a + 1], col[a + 2]] };
+      best = { y: h.point.y + d, c: [col[a], col[a + 1], col[a + 2]] };
     }
     if (!best) return null;
     // hollow test: anything 0.25–5 m under the surface (seabed, ground under a deck)?
-    _ray.origin.set(x, best.y - 0.25, z);
     let hollow = false;
     for (const e of this.entries) {
       const b = e.box;
       if (!e.bvh || x < b.min.x - 1 || x > b.max.x + 1 || z < b.min.z - 1 || z > b.max.z + 1) continue;
+      _ray.origin.set(x, best.y - 0.25 - (e.off ? e.off(x, z) : 0), z);
       if (e.bvh.raycastFirst(_ray, THREE.DoubleSide, 0, 5)) { hollow = true; break; }
     }
     return { c: best.c, hollow, y: best.y };
@@ -220,11 +241,12 @@ export class FootWorld {
   /** Distance along a ray to the first hit (any side), or `far` if clear. */
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): number {
     const list = this.near(origin.x, origin.z, far + 2, this.tmpList);
-    _ray.origin.copy(origin);
     _ray.direction.copy(dir);
     let best = far;
-    for (const bvh of list) {
-      const h = bvh.raycastFirst(_ray, THREE.DoubleSide, 0, best);
+    for (const e of list) {
+      _ray.origin.copy(origin);
+      if (e.off) _ray.origin.y -= e.off(origin.x, origin.z);
+      const h = e.bvh!.raycastFirst(_ray, THREE.DoubleSide, 0, best);
       if (h && h.distance < best) best = h.distance;
     }
     return best;

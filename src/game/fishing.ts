@@ -64,6 +64,8 @@ const rand = (a: number, b: number) => a + Math.random() * (b - a);
 export interface FishingEvents {
   toast(msg: string, kind?: 'info' | 'good' | 'warn'): void;
   landed(fish: CaughtFish, species: Species, perfect: boolean): void;
+  /** the fish leaves the water (before the arc): the catch show plans here and may set `landArc` / `forceHoist` */
+  pullout?(fish: CaughtFish, species: Species, perfect: boolean): void;
   bite(): void;
   /** UI hooks (sound/haptics); optional */
   nibble?(): void;
@@ -116,6 +118,10 @@ export class Fishing {
   handTarget: THREE.Vector3 | null = null;
   /** set by main with handTarget: the skipper's head (the one-hand hold keeps the fish beside the face) */
   headPos: THREE.Vector3 | null = null;
+  /** landing arc for this catch (set by the catch show at pullout; docs/catch_study.md F1) */
+  landArc = { dur: FIGHT_FX.landArc, h: 1.4 };
+  /** rare+: two-hand overhead hoist even for a small fish (F3) */
+  forceHoist = false;
   /** drawn length (m) of the fish on the line / in hand */
   shownLen = 0.3;
   private held = 0; // steady float submersion
@@ -144,7 +150,7 @@ export class Fishing {
   get active() { return this.phase !== 'idle'; }
   /** Hold-up layout: small fish (drawn < HOLD.handMax m) are shown in one hand by the face, the rest
    *  rest across both raised fists. */
-  get holdMode(): 'hand' | 'hoist' { return this.shownLen < HOLD.handMax ? 'hand' : 'hoist'; }
+  get holdMode(): 'hand' | 'hoist' { return this.forceHoist || this.shownLen >= HOLD.handMax ? 'hoist' : 'hand'; }
   get rarityScale() { return this.species ? RSCALE[this.species.rarity] : 1; }
 
   /** Start a cast toward the hotspot. */
@@ -170,6 +176,8 @@ export class Fishing {
 
   cancel() {
     this.phase = 'idle';
+    this.forceHoist = false;
+    this.landArc = { dur: FIGHT_FX.landArc, h: 1.4 };
     this.group.visible = false;
     this.thrashing = false;
     this.leap = null;
@@ -505,8 +513,15 @@ export class Fishing {
     this.fish.group.visible = true;
     this.fish.flop(0.9);
     this.land_ = { t: 0, from: this.shadowPos.clone().setY(SEA_Y), done: false, fish, perfect };
-    this.fx.burst(this.shadowPos.x, this.shadowPos.z, 0.9 * R, Math.round(16 * R));
-    this.ev.breach?.(this.shadowPos.x, this.shadowPos.z, R);
+    this.ev.pullout?.(fish, sp, perfect);
+    // the pull-out (F1): a crown splash and a column of water thrown up after the fish, both scaled
+    // by how high this catch is thrown (a perch pops out; the sixgill rockets out nose-first)
+    const S = Math.max(1, this.landArc.h / 1.4);
+    const p = this.shadowPos;
+    this.fx.burst(p.x, p.z, Math.min(1.9, 0.9 * R * Math.sqrt(S) * 0.75), Math.min(30, Math.round(16 * R * Math.sqrt(S))));
+    this.fx.throwAt(p.x, 0.05, p.z, 0, 2.6 + 1.1 * S, 0, Math.min(20, Math.round(6 * S * S)), 1.2 + 0.3 * S, 0.7);
+    if (S > 1.5) this.fx.ring(p.x, p.z, 0.5 * S);
+    this.ev.breach?.(p.x, p.z, R * Math.sqrt(S));
   }
 
   private updateLanding(dt: number) {
@@ -516,11 +531,13 @@ export class Fishing {
     const target = this.handTarget ? this.htLocal.copy(this.handTarget).setY(this.handTarget.y - this.group.position.y) : this.v3.copy(this.tip).setY(1.4);
     if (!L.done) {
       L.t += dt;
-      const k = Math.min(1, L.t / FIGHT_FX.landArc);
+      const k = Math.min(1, L.t / this.landArc.dur);
       const e = 1 - Math.pow(1 - k, 2);
       g.position.copy(L.from).lerp(target, e);
-      g.position.y += Math.sin(k * Math.PI) * 1.4;
-      g.rotation.set(0, Math.atan2(-(target.z - L.from.z), target.x - L.from.x), (0.5 - k) * 1.6);
+      g.position.y += Math.sin(k * Math.PI) * this.landArc.h;
+      // leaves the water nose-up (near vertical for the big throws), levels off over the top
+      const up = Math.min(1.45, 0.8 + 0.2 * (this.landArc.h - 1.4));
+      g.rotation.set(0, Math.atan2(-(target.z - L.from.z), target.x - L.from.x), up * Math.pow(1 - k, 1.6) - 0.3 * Math.sin(k * Math.PI) * (k > 0.5 ? 1 : 0));
       this.fish.leap = Math.sin(k * Math.PI) * 0.8;
       this.fish.present = HOLD.present * k;
       if (Math.random() < dt * 30) this.fx.throwAt(g.position.x, g.position.y, g.position.z, 0, 0, 0, 1, 0.5, 0.45);

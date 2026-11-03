@@ -35,7 +35,9 @@ import { onUpdateReady, applyUpdate } from '../version';
 import { SPECIES, type CaughtFish, type Species } from '../game/fishdata';
 import type { LoadedWorld } from '../world/types';
 
-export { showCard, hideCard, showSpecimen, catchHooks } from './catchcard';
+export { showCard, hideCard, showSpecimen, catchHooks, catchBubble, killCatchBubble } from './catchcard';
+export { catchHead, catchLine, hideCatchLine, catchFlash } from './catchline';
+export { haptic } from './fx';
 export { showSell, hideSell, onSold } from './market';
 import { showSell as openMarketSheet } from './market';
 export { openLog, closeLog } from './log';

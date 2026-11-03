@@ -371,6 +371,7 @@ function settingsTab(L: HTMLElement, R: HTMLElement) {
   <div class="settings">
     ${seg('set-text', [['1', '100%'], ['1.15', '115%'], ['1.3', '130%']], String(prefs.textScale), 'Text size')}
     ${toggle('set-motion', prefs.reduceMotion, 'Reduce motion')}
+    ${seg('set-recentre', [['0', 'Off'], ['2', 'Quick'], ['4', 'Normal'], ['8', 'Slow']], String(prefs.recentre ?? 4), 'Camera re-centre')}
     ${toggle('set-flash', ctx.h?.flashes() ?? true, 'Screen flashes')}
     ${seg('set-music', VOL, volKey(s.music), 'Music')}
     ${seg('set-sound', VOL, volKey(s.sound), 'Sound')}
@@ -404,6 +405,7 @@ function settingsTab(L: HTMLElement, R: HTMLElement) {
   const sg = (id: string, f: (v: string) => void) => document.getElementById(id)?.querySelectorAll<HTMLButtonElement>('button').forEach((b) => (b.onclick = () => { f(b.dataset.v!); savePrefs(); applyPrefsCb(); show('settings', true); }));
   sg('set-text', (v) => { prefs.textScale = Number(v) as 1 | 1.15 | 1.3; });
   sw('set-motion', () => { prefs.reduceMotion = !prefs.reduceMotion; });
+  sg('set-recentre', (v) => { prefs.recentre = Number(v); });
   sw('set-flash', () => { ctx.h?.flashes(!(ctx.h?.flashes() ?? true)); });
   sg('set-music', (v) => ctx.h?.volume('music', Number(v)));
   sg('set-sound', (v) => ctx.h?.volume('sound', Number(v)));

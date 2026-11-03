@@ -183,3 +183,48 @@ Reference frames are in `screenshots/tide_ref_*.png` (gitignored, like all captu
 - The pool benches are procedural add-ons at baked sites. If the world is re-exported, re-run `node scripts/tidepool_bake.mjs <url> --write` (the JSON stores the world version it was baked for).
 - There is no seasonal shift (summer daytime lows vs winter night lows) because the game has no seasons yet.
 - Tidal currents are not simulated yet. The plug-in point is `WATER.rate` (flood/ebb strength) together with the shore field gradient for direction.
+
+## 8. Pass 2: everything on the water, and things that float (v0.9.x feedback)
+
+Kellan's feedback after playing v0.9.1:
+1. Fish ripples and meshes around rocks and islands did not follow the tide.
+2. Floating things like the shop should rise and fall.
+
+**Audit.** I swept everything drawn at or relative to the sea surface at y 0 and y −1.72, using `scripts/tide2_shots.mjs` (before/after) and an inventory dump of the master `.blend` (run headless on a copy).
+
+| Thing | Before | Fix |
+|---|---|---|
+| Fishing-spot marks (slick, rings, boils, dimples, school, leapers, predator shadows) | Placed in world space by the shader (`hotspots.ts` VERT ignores `modelMatrix`). Moving the group did nothing, so the marks hung 1.7 m up at low tide. | The marks shader reads the sea's `uTideY`. The fins already ride the group. |
+| Crests, wind lines, glints, shore foam, wake + collar, splashes, fishing rig, sea life, mammals, rain marks | Already follow `WATER.y` (pass 1, rain branch) | — |
+| **Baked water-surface meshes** in the chunks: island `*_Shallows` plates (`M_water_shallow`, z 0.08), the Teeth surf pads `TeethFoam0–15`, the foam rings at the foot of `Signal_TeethSpray*`, the Race's foam lines / rips / whirlpools (`ISN_Race_*`) | Static, so at low tide they float above the sea as flat plates | **Exporter:** faces with a water/foam material whose corners all lie within −0.4…0.45 m are split out of the static meshes, merged per chunk cell into `Surface_<ix>_<iz>`, and exported to `dynamic.glb` with `anim: "surface"`. They are water, so they sit exactly at `WATER.y`. Rocks and spray columns stay put; the rocks rise out of their surf pads at low tide. For the shore field they still count as "shore" at every level (a separate decal pass), so their foam rings move with them. They do not enter the tide grid, so a plate never blocks the boat. |
+| Kelp heads, buoys, flotsam, moored canoes | Already `dynamic.glb`; follow the water, settle on the mud | — |
+| Fog banks | A metre or two of difference in a mist layer; left as is | — |
+
+Hotspot marker faces are excluded from the split (the exporter drops them; the game draws its own).
+
+**Floating structures.** Picked by the master's own tags, not by guessing:
+- `POI_Seapost`: the Bobbing Seapost, `role: floating_shop` (Marisol's bait and ice float). It is the shop that floats.
+- `ISS_LogBoom`: `floating: True`, `walkable`.
+- `Town_CanoeFloat` (`building: canoe_float`) and its `Town_CanoeGangway`.
+
+Cedar Landing's fish market (Mae), the shops and the wharves are pile-built in the model (pilings to the seabed, creosote/mussel bands), so they stay fixed and their pilings show the tide.
+
+How the floats move:
+- The exporter tags them `anim: "float"` / `"gangway"` in `dynamic.glb` and keeps them in the boat land grid.
+- `floaters.ts`: a float follows the water with a slow, heavy roll (1 cm). Its draft is its hull bottom, ignoring anchor chains, capped at 1 m. It settles on the mud if the berth dries.
+- A gangway is **sheared**: its pier end stays put and its float end follows the float, so it hinges instead of detaching.
+- Walking: `FootWorld.addMoving` keeps each float's BVH in its rest pose and offsets rays by the float's current rise (a gangway's offset varies along its length). The deck under your feet moves with the tide.
+- NPCs standing on a float deck ride it (none are placed on one today).
+- The deck carries you, even through a sudden jump of the water level (for example the Dev tab's tide buttons). This only applies while the ground under your feet is itself a float.
+
+**Verification.**
+- `scripts/tide2_shots.mjs`: before/after stills.
+- `scripts/tide2_float_gif.mjs`: you stand on the Seapost's deck while the tide falls 1.76 m, and your feet stay on the deck.
+- `scripts/tide2_gangway.mjs`: you walk from the canoe float up the hinged gangway to the pier and back, at high and low water.
+- `tide_strand` and `arch_pass` (also at −1.72) pass.
+
+**Weak spots.**
+- The canoe float's own guide posts are part of the float, so they ride down with it instead of the float sliding on them.
+- At the lowest water the gangway is steep (about 35°); it is still walkable.
+- Fog banks keep their height.
+- The decals keep their high-water outline (a shallows plate does not shrink as the island grows).

@@ -16,9 +16,15 @@ import { Input } from './game/input';
 import { LandCollision } from './game/collision';
 import { Boat, BOAT_TUNING } from './game/boat';
 import { CAMERA_TUNING, ChaseCamera } from './game/camera';
+import { cameraFrame, cameraSubject, smallThingCull } from './game/camerahooks';
+import { updateSeeThrough } from './render/seethrough';
+import { PhotoMode } from './ui/photo';
+import { chart } from './ui/chart';
 import { Fishing } from './game/fishing';
 import { HotspotFX, hideBakedHotspotMarkers } from './game/hotspots';
 import { Skipper } from './game/skipper';
+import { CatchShow, planCatch, type CatchPlan } from './game/catchshow';
+import { CatchFX } from './game/catchfx';
 import { reduceMotion, type DevWeather, type DevMist, type DevTide } from './ui/ctx';
 import { Wildlife } from './game/wildlife';
 import { Floaters } from './game/floaters';
@@ -118,6 +124,20 @@ resize();
 // ---------------------------------------------------------------- game state
 const input = new Input(canvas, $('btn-action'), $('btn-interact'));
 const chase = new ChaseCamera(camera);
+{
+  // hold-up shot: is the boat (cabin roof, wheelhouse, stack) between the subject and the lens?
+  const ray = new THREE.Raycaster(), dir = new THREE.Vector3();
+  chase.blocked = (from, to) => {
+    const m = boat?.modelObject;
+    if (!m) return false;
+    dir.copy(to).sub(from);
+    const len = dir.length();
+    ray.set(from, dir.normalize());
+    ray.far = len;
+    ray.near = 0.25; // skip the skipper's own hands / the fish at the start
+    return ray.intersectObject(m, true).some((h) => !skipper.root.getObjectById(h.object.id) && (h.object as THREE.Mesh).isMesh && h.object.visible);
+  };
+}
 // ---------------------------------------------------------------- fishing juice: actor clock (hit-stop / slow-mo)
 // Freezes only the fishing actors (float, line, fish, splashes, skipper) — never the UI, sea or camera.
 const actorClock = { scale: 1, until: 0, slowUntil: 0, slow: 1 };
@@ -131,6 +151,7 @@ const fishing = new Fishing({
   nibble: () => { hud.onNibble(); gameAudio.nibble(); },
   slip: () => { hud.onSlip(); chase.shake(0.2); gameAudio.slip(); },
   landed: (fish, sp, perfect) => onLanded(fish, sp, perfect),
+  pullout: (fish, sp, perfect) => onPullout(fish, sp, perfect),
   // hook-set: hit-stop scaled by rarity + a punch toward the float + a little trauma
   strike: (x, z, r) => { hitStop(55 + 15 * r); chase.punch(fv.set(x, 0, z)); chase.shake(0.22 * r); gameAudio.strike(x, z, r); },
   thrash: (x, z, _pull, r) => { chase.shake(0.1 * r); gameAudio.thrash(x, z, r); },
@@ -154,6 +175,58 @@ hud.catchHooks.holdUp = (fish) => {
   skipper.pose(fishing.holdMode === 'hand' ? 'hold_show' : 'hold_hoist', 0.22);
   return new Promise<void>((res) => setTimeout(res, reduceMotion() ? 120 : 650));
 };
+
+// ---------------------------------------------------------------- catch victory (docs/catch_study.md)
+const catchFX = new CatchFX();
+scene.add(catchFX.group);
+const fishWorld = new THREE.Vector3(), cheerV = new THREE.Vector3();
+let showStamp: 'NEW!' | 'RECORD!' | null = null;
+const show = new CatchShow({
+  pullout: (p) => {
+    // legendary: the suspense swell runs until the reveal (the arc plus its slow-mo stretch)
+    gameAudio.catchPullout(p.tier, p.arc.dur * (p.slow && !reduceMotion() ? 1.35 : 1));
+    if (p.slow) setTimeout(() => { if (show.beat === 'arc') slowMo(620, 0.38); }, p.arc.dur * 0.3 * 1000);
+    if (p.level >= 3) chase.shake(0.08 * p.level);
+  },
+  pose: () => {
+    if (!skipper.attached) return;
+    skipper.showRod(false);
+    skipper.pose(fishing.holdMode === 'hand' ? 'hold_show' : 'hold_hoist', 0.22);
+  },
+  reveal: (p) => {
+    const rm = reduceMotion();
+    gameAudio.catchReveal(p.tier, { first: p.mods.first, pb: p.mods.pb, perfect: p.mods.perfect });
+    hud.haptic(p.haptic);
+    if (!rm) skipper.cheer(p.cheer);
+    catchFX.calm = rm;
+    fishing.fish.group.getWorldPosition(fishWorld);
+    catchFX.burst(fishWorld, rm ? Math.ceil(p.sparks / 3) : p.sparks, 1.4 + 0.3 * p.level + fishing.shownLen, rm ? 0 : p.twinkle, 0.25 + fishing.shownLen * 0.6, 0.7 + 0.8 * Math.min(1.5, fishing.shownLen));
+    if (p.confetti && skipper.head(cheerV)) catchFX.confetti(cheerV.setY(cheerV.y + 0.5), p.confetti, 0.8 + 0.2 * p.level);
+    if (p.rays) catchFX.raysOnAt(fishWorld);
+    if (p.flash && !rm && uiCtx.h?.flashes()) hud.catchFlash(p.flash);
+    if (p.level >= 1) chase.punch(fishWorld, 0.1 + 0.06 * p.level, 1 + p.level);
+    if (p.tier === 'quick') hud.catchBubble(p.fish, 3200);
+  },
+  head: (p, text) => hud.catchHead(text, p.tier),
+  line: (p, text) => {
+    const tags = [p.mods.first ? 'New' : '', p.mods.pb && !p.mods.first ? 'Record!' : '', p.mods.perfect ? 'Perfect' : ''].filter(Boolean);
+    hud.catchLine(text, p.fish.name, { speciesId: p.fish.speciesId, size: p.fish.size, tags }, p.tier, p.cps);
+  },
+  result: (p) => {
+    hud.hideCatchLine();
+    catchFX.stop();
+    if (p.mode === 'card') hud.killCatchBubble();
+    hud.showCard(p.fish, p.species, showStamp, save.cooler.length >= save.coolerCap, p.mods.perfect, { direct: true, mode: p.mode, stamps: p.stamps });
+  },
+});
+/** tap / Space anywhere during the show: straight to the card */
+function skipShow(e: Event) {
+  if (!show.active || show.beat === 'arc') return;
+  if (e instanceof KeyboardEvent && ![' ', 'Enter', 'e', 'E', 'Escape'].includes(e.key)) return;
+  if (show.skip()) e.preventDefault();
+}
+window.addEventListener('pointerdown', skipShow, { capture: true });
+window.addEventListener('keydown', skipShow, { capture: true });
 
 let world: LoadedWorld | null = null;
 let worldVersion = '';
@@ -215,15 +288,32 @@ foot.onTalk = (name) => crowd?.react(name);
 foot.onFootstep = (sp, feet, surf) => gameAudio.step(surfaceFromColor(surf, feet.y), sp);
 foot.onSay = (name, text, role, x, z) => gameAudio.talk(name, text, role, x, z);
 let footCtx: FootContext | null = null;
+// Photo mode (src/ui/photo.ts): HUD hidden, world held still, orbit / pinch, filters + frames, PNG out
+const photo = new PhotoMode({
+  camera,
+  subject: (out) => (foot.active ? out.copy(foot.feet).setY(foot.feet.y + 1.1) : out.set(boat.pos.x, boat.root.position.y + 1.2, boat.pos.z)),
+  canEnter: () => !!world && !!boat && !titleOpen && !modalOpen && !chase.inShot && !fishing.active && !pendingCatch,
+  render: () => { renderer.render(scene, camera); return renderer.domElement; },
+  waterY: () => WATER.y,
+  clip: (from, dir, far) => (foot.active ? foot.world.raycast(from, dir, far) : far),
+  place: () => {
+    const p = foot.active ? foot.feet : boat.pos;
+    let best = 'The Salish Sea', bd = Infinity;
+    for (const pl of chart.places) { if (pl.kind !== 'town' && pl.kind !== 'island') continue; const d = Math.hypot(pl.x - p.x, pl.z - p.z); if (d < Math.max(260, pl.r * 1.5) && d < bd) { bd = d; best = pl.name; } }
+    return best;
+  },
+}, canvas);
+photo.mountButton();
 /** the runner-up in reach (hud_flow_study P2): a second, smaller context button */
 let footCtx2: FootContext | null = null;
 // ---------------------------------------------------------------- tides (src/game/tides.ts)
 // ?tide=<y> pins the water level (captures / tests at a fixed tide)
 { const t = new URLSearchParams(location.search).get('tide'); if (t !== null && t !== '' && isFinite(Number(t))) WATER.pinned = Number(t); }
 const tides = new Tides({
-  boat: () => boat, floaters: () => floaters, wildlife: () => wildlife, hotspots: () => hotspotFX?.group ?? null,
+  boat: () => boat, floaters: () => floaters, wildlife: () => wildlife, hotspots: () => hotspotFX?.group ?? null, crowd: () => crowd,
   wake, fishing, foot, toast: (m, k) => hud.toast(m, k), camera, renderer, save, writeSave: () => writeSave(save),
   note: (who, text) => { void hud.readNote(who, text); }, shells: (n) => hud.setShells(n), reduceMotion,
+  peek: (x, y, z, r) => foot.cam.peek(new THREE.Vector3(x, y, z), r, () => modalOpen), // camera: look into the pool while its note is open
 });
 
 // ---------------------------------------------------------------- world
@@ -308,7 +398,9 @@ function installWorld(w: LoadedWorld) {
 let seaFieldInfo: { ms: number; res: [number, number] } | null = null;
 function buildSeaField(w: LoadedWorld) {
   if (land) land.extra = null; // tides: the field classifies against the exported grid alone
-  const f = buildShoreField(renderer, [...w.chunks, ...tides.fieldChunks], land, save.settings.quality === 'low' ? 512 : 1024, w.dynamic ?? []);
+  // tides: water-surface decals (anim "surface") ring with foam like shore; floats and boats are extras (collars, cover)
+  const dyn = w.dynamic ?? [];
+  const f = buildShoreField(renderer, [...w.chunks, ...tides.fieldChunks], land, save.settings.quality === 'low' ? 512 : 1024, dyn.filter((o) => o.userData.anim !== 'surface'), undefined, dyn.filter((o) => o.userData.anim === 'surface'));
   sea.setShoreField(f);
   tides.setField(f, land); // tides: low-water land grid from the field's heights
   seaFieldInfo = f && { ms: +f.ms.toFixed(1), res: f.res };
@@ -563,21 +655,34 @@ function sellFish(idx: number[]) {
   hud.onSold(idx, total, save.cooler, () => { hud.setShells(save.shells); hud.renderCooler(save.cooler, save.coolerCap, true); });
 }
 
-function onLanded(fish: CaughtFish, sp: ReturnType<typeof lookupSpecies>, perfect: boolean) {
+/** The fish leaves the water: plan the victory sequence (tier from rarity, firsts, records, perfect). */
+function onPullout(fish: CaughtFish, sp: ReturnType<typeof lookupSpecies>, perfect: boolean) {
+  if (debugPerfect !== null) perfect = debugPerfect;
+  const rec = save.records[fish.speciesId];
+  const mods = { first: !rec, pb: !!rec && fish.size > rec.size, perfect, count: rec?.count ?? 0 };
+  showStamp = mods.first ? 'NEW!' : mods.pb ? 'RECORD!' : null;
+  const plan: CatchPlan = planCatch(fish, sp, mods);
+  fishing.landArc = plan.arc;
+  fishing.forceHoist = plan.hoist;
+  show.start(plan);
+}
+let debugPerfect: boolean | null = null;
+
+function onLanded(fish: CaughtFish, _sp: ReturnType<typeof lookupSpecies>, perfect: boolean) {
   pendingCatch = fish;
   const hs = fishing.hotspot;
   if (hs) wildlife?.onCatch(hs.pos[0], hs.pos[2]);
-  pendingPerfect = perfect;
-  const rec = save.records[fish.speciesId];
-  const stamp = !rec ? 'NEW!' : fish.size > rec.size ? 'RECORD!' : null;
-  gameAudio.landed(!rec || fish.rarity === 'rare' || fish.rarity === 'legendary');
-  hud.showCard(fish, sp, stamp, save.cooler.length >= save.coolerCap, perfect);
+  pendingPerfect = debugPerfect ?? perfect;
+  show.caught();
 }
 let pendingPerfect = false;
 function closeCard(keep: boolean, swapOut = -1) {
   const f = pendingCatch;
   pendingCatch = null;
   hud.hideCard();
+  hud.hideCatchLine();
+  show.reset();
+  catchFX.clear();
   fishing.finish();
   chase.endLanding();
   skipper.showRod(true);
@@ -621,7 +726,8 @@ function rodTip() {
 
 const headPosV = new THREE.Vector3();
 const fishFace = new THREE.Vector3(), handsV = new THREE.Vector3(), headV = new THREE.Vector3(), fwdV = new THREE.Vector3(), leanV = new THREE.Vector3();
-let landingShot = false;
+let landingShot = false, reframed = false;
+const landFwd = new THREE.Vector3();
 /** Skipper pose + camera layers that follow the fishing state (runs after fishing.update). */
 function fishingDirector(adt: number) {
   const ph = fishing.phase;
@@ -662,14 +768,25 @@ function fishingDirector(adt: number) {
     chase.lean(leanV.x, leanV.z);
   } else chase.lean(null);
   // hold-up shot once the fish is in hand
+  // the camera orbits in while the fish is in the air and arrives as it lands (study F2: the fish's
+  // arc stays in frame; the reveal then adds a punch and the slow creep-in)
   if (ph === 'landed' && fishing.handTarget && !landingShot && skipper.head(headV)) {
     landingShot = true;
     fwdV.set(camera.position.x - headV.x, 0, camera.position.z - headV.z).normalize();
-    chase.landing(headV, fwdV, fishing.handTarget, fishing.shownLen, fishing.holdMode);
+    landFwd.copy(fwdV);
+    const P = show.plan;
+    chase.cardSide = camera.aspect < 1 ? 0 : document.body.classList.contains('lefty') ? -1 : 1;
+    const inT = P && show.beat === 'arc' ? P.arc.dur * (P.slow && !reduceMotion() ? 1.4 : 1) + 0.25 : 0.45;
+    chase.landing(headV, fwdV, fishing.handTarget, fishing.shownLen, fishing.holdMode, P?.frame ?? 0, inT);
+  } else if (ph === 'landed' && fishing.handTarget && landingShot && !reframed && show.beat !== 'arc' && skipper.head(headV)) {
+    // the reveal: re-aim at the hold pose (the shot above was framed on the reel pose at the pull-out)
+    reframed = true;
+    const P = show.plan;
+    chase.landing(headV, landFwd, fishing.handTarget, fishing.shownLen, fishing.holdMode, P?.frame ?? 0, 0.45);
   } else if (ph === 'landed' && !fishing.handTarget && !landingShot) {
     landingShot = true; // no rig: keep the chase view
   }
-  if (!fishing.active) { landingShot = false; swingSide = 0; }
+  if (!fishing.active) { landingShot = false; reframed = false; swingSide = 0; }
 }
 let fishingCastT = 0;
 /** While fishing, the boat slowly swings so the float sits abaft the beam (≈105° off the bow):
@@ -934,6 +1051,8 @@ function frame(now: number) {
   let dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (stepClock) { if (stepClock.steps > 0) { stepClock.steps--; dt = stepClock.dt; } else dt = 0; }
+  const realDt = dt;
+  if (photo.active && photo.still) dt = 0; // photo mode: the world holds its breath
   input.update();
 
   if (world && !hud.paused()) {
@@ -956,6 +1075,7 @@ function frame(now: number) {
       $('skip-hint').classList.add('hidden');
     }
 
+    if (photo.active) { input.consumeAction(); input.consumeInteract(); input.takeOrbit(); }
     if (input.consumeAction() && !foot.active) onAction();
     if (input.consumeInteract() && !modalOpen && !fishing.active) {
       if (footCtx) footCtx.run();
@@ -964,7 +1084,7 @@ function frame(now: number) {
 
     let throttle = input.throttle, steer = input.steer;
     lastThrottle = 0;
-    if (modalOpen || chase.inShot || foot.active || titleOpen) { throttle = 0; steer = 0; }
+    if (modalOpen || chase.inShot || foot.active || titleOpen || photo.active) { throttle = 0; steer = 0; }
     if (fishing.active) {
       // Paddling away while waiting reels the line in; during the fight the boat holds still.
       if ((fishing.phase === 'casting' || fishing.phase === 'waiting' || fishing.phase === 'missed') && Math.abs(throttle) > 0.3) {
@@ -976,11 +1096,14 @@ function frame(now: number) {
 
     updateSwell(dt, weatherNow, LIGHT_U.uWindDir.value, reduceMotion()); // ocean experiment: before anything reads the water
     boat.update(dt, throttle, steer, land);
+    cameraFrame({ chase, foot, boat, world, tides, reduce: reduceMotion() });
     lastThrottle = throttle;
     const adt = dt * actorScale(now);
     fishingCastT = fishing.phase === 'casting' ? fishingCastT + adt : 0;
     fishing.update(adt, input.actionHeld, rodTip(), boat.pos, camera.position);
     fishingDirector(adt);
+    show.update(dt, adt);
+    if (catchFX.group.visible) catchFX.update(dt, camera, fishing.phase === 'landed' && fishing.fish.group.visible ? fishing.fish.group.getWorldPosition(fishWorld) : null);
     if (foot.active) foot.update(dt, modalOpen || chase.inShot);
     else {
       chase.update(dt, boat, input.takeOrbit(), input.lastOrbitTime, land);
@@ -1005,13 +1128,16 @@ function frame(now: number) {
     floaters?.update(dt, camera.position);
     crowd?.update(dt, camera.position, foot.active ? foot.feet : null);
     titleCamera(dt);
+    photo.update(realDt);
     cull();
+    smallThingCull(realDt, camera.position, floaters?.group ?? null, crowd?.group ?? null);
     if (!titleOpen) updateUI(dt);
     upg.tick(dt, camera, window.innerHeight > window.innerWidth);
   }
 
   updateLighting(dt);
   applyDebugCam();
+  if (boat) { const sub = cameraSubject({ chase, foot, boat, titleOpen: titleOpen || titleBlend < 1, debugCam: !!debugCam }); updateSeeThrough(renderer, camera, sub?.at ?? null, sub?.r); }
   sepia.update(dt);
   // the Logbook HUD arrives once the colour has (it would sit on the drawing otherwise)
   if (sepia.progress > 0.55 && document.body.classList.contains('title-bloom')) document.body.classList.remove('title-bloom');
@@ -1154,6 +1280,24 @@ window.__debug = {
   /** Force the next catch: species id + size (cm); null clears. landNow() reels it straight in. */
   nextCatch: (id: string | null, size?: number) => { fishing.debugNext = id ? { id, size } : null; },
   landNow: () => fishing.debugLand(),
+  /** Catch show (docs/catch_study.md): force the next catch: species, size (cm), first-of-kind or a
+   *  repeat (seeds the record a bit bigger unless pb), perfect reel; cast: also cast + hook it now. */
+  forceCatch: (id: string, size: number, o: { first?: boolean; pb?: boolean; perfect?: boolean; count?: number; cast?: boolean } = {}) => {
+    fishing.debugNext = { id, size };
+    if (o.first ?? true) delete save.records[id];
+    else save.records[id] = { size: o.pb ? size - 4 : size + 5, stars: 1, count: o.count ?? 4 };
+    debugPerfect = o.perfect ?? false;
+    if (o.cast) { onAction(); setTimeout(() => { fishing.debugForceBite(); setTimeout(() => { fishing.press(); setTimeout(() => fishing.debugLand(), 600); }, 80); }, 1200); }
+    return true;
+  },
+  seedRecord: (id: string, size: number, count = 4) => { save.records[id] = { size, stars: 1, count }; },
+  catchBeat: () => (show.beat === 'result' ? (document.querySelector('#card:not(.hidden)') ? 'card' : 'slip') : show.beat),
+  catchLog: () => show.log.slice(),
+  catchPlan: () => (show.plan ? { tier: show.plan.tier, arc: show.plan.arc, at: show.plan.at, head: show.plan.head, line: show.plan.line, frame: show.plan.frame } : null),
+  catchFX: () => ({ ...catchFX.stats, visible: catchFX.group.visible }),
+  skipCatch: () => show.skip(),
+  flashes: (on?: boolean) => uiCtx.h?.flashes(on),
+  closeCatch: (keep: boolean) => { if (pendingCatch) closeCard(keep); },
   /** Draw calls with each new fishing system hidden in turn (same frame, same view). */
   drawBreakdown: () => {
     const count = () => { renderer.render(scene, camera); return renderer.info.render.calls; };
@@ -1164,6 +1308,42 @@ window.__debug = {
     return out;
   },
   /** GPU bench (water study): ms per synchronous render of the current view, with and without the sea. */
+  /** photo mode (src/ui/photo.ts) */
+  photo: {
+    enter: () => { photo.enter(); return photo.active; },
+    exit: () => photo.exit(),
+    set: (o: { filter?: 'none' | 'logbook' | 'mono' | 'warm' | 'dusk'; frame?: 'none' | 'postcard' | 'logbook'; still?: boolean }) => { if (o.filter) photo.setFilter(o.filter); if (o.frame) photo.setFrame(o.frame); if (o.still !== undefined) photo.still = o.still; },
+    nudge: (y: number, p: number, z = 1) => photo.nudge(y, p, z),
+    capture: async () => { const b = await photo.compose(); return await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(b); }); },
+    get active() { return photo.active; },
+  },
+  /** camera study: draw calls by layer (all minus the count with that layer hidden) */
+  drawSplit: () => {
+    const count = () => { renderer.render(scene, camera); return renderer.info.render.calls; };
+    const all = count();
+    const parts: Record<string, THREE.Object3D[]> = {
+      chunks: world?.chunks.map((c) => c.object) ?? [], instances: instances ? [instances.group] : [], backdrops: world?.backdrops ?? [], clouds: world?.clouds ?? [],
+      wildlife: wildlife ? [wildlife.group] : [], sea: [sea.group], npcs: crowd ? [crowd.group] : [], fx: [smoke?.mesh, fogBanks?.mesh, rain.group, wake.mesh].filter((o): o is THREE.Mesh => !!o),
+      floaters: floaters ? [floaters.group] : [], tides: tides.pools ? [tides.pools.group] : [],
+    };
+    const out: Record<string, number> = { all };
+    for (const [k, os] of Object.entries(parts)) { const v = os.map((o) => o.visible); os.forEach((o) => (o.visible = false)); out[k] = all - count(); os.forEach((o, i) => (o.visible = v[i])); }
+    out.instBatches = instances?.batches.filter((b) => b.mesh.visible).length ?? 0;
+    return out;
+  },
+  /** camera study: instance batches inside the view frustum, by proto and distance band */
+  instProbe: () => {
+    const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const by: Record<string, number> = {}, band: Record<string, number> = {};
+    for (const m of instances?.group.children ?? []) {
+      const im = m as THREE.InstancedMesh;
+      if (!im.visible || !im.boundingSphere || !fr.intersectsSphere(im.boundingSphere)) continue;
+      const k = im.name.replace(/_\d.*$/, '').slice(0, 14); by[k] = (by[k] ?? 0) + 1;
+      const d = Math.hypot(im.boundingSphere.center.x - camera.position.x, im.boundingSphere.center.z - camera.position.z);
+      const bk = d < 120 ? '<120' : d < 240 ? '<240' : d < 480 ? '<480' : '480+'; band[bk] = (band[bk] ?? 0) + 1;
+    }
+    return { by: Object.fromEntries(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 14)), band };
+  },
   benchFrame: (n = 60) => {
     const gl = renderer.getContext(), px = new Uint8Array(4);
     const time = () => { gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); const t = performance.now(); for (let i = 0; i < n; i++) renderer.render(scene, camera); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return (performance.now() - t) / n; };

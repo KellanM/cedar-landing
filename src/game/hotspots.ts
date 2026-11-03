@@ -65,6 +65,7 @@ attribute vec4 iB; // life 0..1, type (+10 = gold), seed, strength
 uniform float uTime;
 uniform float uWave;
 uniform float uFogK;
+uniform float uTideY; // tides: the water level (the marks are placed in world space, not by the group)
 varying vec2 vP;
 varying vec4 vB;
 varying float vR;
@@ -82,7 +83,7 @@ void main() {
   // ride the sea's vertex ripple (same formula as sea.ts) a few cm above it
   float w = sin(xz.x * 0.21 + uTime * 0.9) * 0.5 + sin(xz.y * 0.17 - uTime * 0.7) * 0.35 + sin((xz.x + xz.y) * 0.43 + uTime * 1.6) * 0.15;
   float fade = 1.0 - smoothstep(60.0, 140.0, length(xz - cameraPosition.xz));
-  vec4 wp = vec4(xz.x, w * 0.07 * fade * uWave + 0.035, xz.y, 1.0);
+  vec4 wp = vec4(xz.x, uTideY + w * 0.07 * fade * uWave + 0.035, xz.y, 1.0);
   if (uSwOn > 0.5) wp.y = uSwTideY + swellEval(xz).x + 0.05; // ocean experiment: the mark lies on the tide + swell
   // a leaping baitfish: a low arc, about three body lengths high at the top
   if (type > 6.5) wp.y += 4.0 * iB.x * (1.0 - iB.x) * 1.5 * iA.z;
@@ -297,7 +298,7 @@ export class HotspotFX {
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
-        uTime: { value: 0 }, uWave: { value: 1 }, uFogK: { value: HOTSPOT_FX.fogK }, uT: { value: 0 },
+        uTime: { value: 0 }, uWave: { value: 1 }, uFogK: { value: HOTSPOT_FX.fogK }, uTideY: { value: 0 }, uT: { value: 0 },
         uHead: { value: new THREE.Color(0xeef1ec) }, uBead: { value: new THREE.Color(0xb8c6c4) }, uDark: { value: new THREE.Color(0x24363c) },
         uTint: { value: new THREE.Color(0x8aa0a2) }, uGold: { value: new THREE.Color(0xf2c94c) },
         uBack: { value: new THREE.Color(0x2c4450) }, uSilver: { value: new THREE.Color(0xc9d3d6) }, uShade: { value: new THREE.Color(0x0d1a1f) },
@@ -354,6 +355,7 @@ export class HotspotFX {
     mu.uTime = u.uTime;
     if (u.uWave) mu.uWave = u.uWave;
     if (u.uWind) mu.uWind = u.uWind;
+    if (u.uTideY) mu.uTideY = u.uTideY;
   }
 
   /** Colours from the sea's TOD palette: the spot sits above crests (gameplay) but at or below shore foam. */

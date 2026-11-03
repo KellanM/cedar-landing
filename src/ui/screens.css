@@ -260,3 +260,55 @@
 .lay-portrait #sell .sell-list .glyph { width: 52px; }
 .lay-portrait #sell .ticket { min-height: 46px; }
 .lay-portrait #sell .sheet-foot { padding-top: 8px; }
+
+/* ---------- catch victory (docs/catch_study.md) ---------- */
+/* extra stamps on the specimen card (RECORD / PERFECT) thump in after the first */
+.specimen .stamps .stamp.more { font-size: var(--fs-16); padding: 1px 8px; border-width: 3px; }
+.specimen .stamps .stamp.s0 { top: 62px; left: 26px; transform: rotate(6deg); }
+.specimen .stamps .stamp.s1 { top: 100px; left: 18px; transform: rotate(-4deg); border-color: var(--kelp); color: var(--kelp); }
+.card-wrap.in .specimen .stamps .stamp.more { animation: stamp-more var(--t-stamp) var(--ease-pop) var(--d, 480ms) both; }
+@keyframes stamp-more { 0% { scale: 1.8; opacity: 0; } 60% { scale: .95; opacity: 1; } 100% { scale: 1; opacity: .92; } }
+.lay-landscape .specimen .stamps .stamp.s0 { top: 44px; }
+.lay-landscape .specimen .stamps .stamp.s1 { top: 76px; }
+
+/* the skipper's line: Animal Crossing–style speech panel in Logbook paper, low on the screen */
+.catchline {
+  position: fixed; left: 0; right: 0; bottom: calc(22px + var(--safe-b)); z-index: 11; display: flex; justify-content: center;
+  pointer-events: none; padding: 0 12px;
+}
+.lay-landscape .catchline, .lay-desktop .catchline { bottom: calc(14px + var(--safe-b)); }
+.catchline .cl-box {
+  position: relative; width: min(370px, 100%); min-height: 96px; padding: 14px 22px 12px; text-align: center; color: var(--ink);
+  background: var(--paper); border: 2px solid var(--ink); border-radius: 30px 26px 32px 24px / 26px 30px 24px 32px;
+  box-shadow: var(--shadow), inset 0 0 0 5px var(--paper), inset 0 0 0 6.5px rgba(133, 126, 114, .45);
+}
+.lay-desktop .catchline .cl-box { width: 460px; }
+.catchline:not(.hidden) .cl-box { animation: cl-in 260ms var(--ease-pop) both; }
+.catchline.out .cl-box { animation: cl-out 180ms var(--ease-out) both; }
+@keyframes cl-in { from { transform: translateY(18px) scale(.85, .6); opacity: 0; } }
+@keyframes cl-out { to { transform: translateY(10px) scale(.96); opacity: 0; } }
+.catchline .cl-head { display: none; margin: 4px 0 2px; font: 700 calc(34px * var(--ui-scale)) / 1.05 var(--f-display); letter-spacing: -.01em; }
+.catchline.has-head .cl-head { display: block; }
+.catchline.has-head .cl-text, .catchline.has-head .cl-foot { display: none; }
+.catchline .cl-head.pop { animation: cl-head 420ms var(--ease-pop) both; }
+@keyframes cl-head { 0% { scale: .4; opacity: 0; } 55% { scale: 1.12; opacity: 1; } 100% { scale: 1; } }
+.catchline.t-legendary .cl-head { font-size: calc(38px * var(--ui-scale)); color: var(--ochre-red); }
+.catchline .cl-text { margin: 2px 0 6px; min-height: 2.3em; font: 650 var(--fs-18) / 1.28 var(--f-ui); }
+.catchline .cl-text .ink { color: var(--ochre-red); font-weight: 850; }
+.catchline .cl-foot { display: flex; justify-content: center; align-items: center; gap: 6px; font: 800 var(--fs-14) var(--f-ui); color: var(--ink-soft); opacity: 0; transition: opacity 200ms; }
+.catchline.done .cl-foot { opacity: 1; }
+.catchline .cl-foot .glyph .plate { width: 40px; height: 20px; }
+.catchline .tag { padding: 1px 7px; border-radius: 4px; color: var(--paper); background: var(--ochre-red); font: 850 calc(12px * var(--ui-scale)) var(--f-ui); letter-spacing: .05em; text-transform: uppercase; }
+.catchline .tag-perfect { background: var(--kelp); }
+.catchline .tag-new { background: var(--teal); }
+.catchline .cl-more { position: absolute; left: 50%; bottom: -3px; margin-left: -6px; color: var(--mat-gold); font-style: normal; font-size: 16px; opacity: 0; }
+.catchline.done .cl-more { opacity: 1; animation: bob 900ms ease-in-out infinite; }
+/* rarity accents: the box frame warms with the tier (a pencil frame → gold → red-and-gold) */
+.catchline.t-rare .cl-box { box-shadow: var(--shadow), inset 0 0 0 5px var(--paper), inset 0 0 0 7px var(--mat-gold); }
+.catchline.t-legendary .cl-box { box-shadow: var(--shadow), inset 0 0 0 4px var(--paper), inset 0 0 0 6px var(--mat-gold), inset 0 0 0 9px var(--paper), inset 0 0 0 10.5px var(--ochre-red); }
+
+/* reveal flash: a warm paper glow, never white (Screen flashes off / reduced motion: not used) */
+.catch-flash { position: fixed; inset: 0; z-index: 10; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse at 50% 32%, rgba(255, 246, 220, .95), rgba(244, 222, 160, .55) 45%, rgba(244, 239, 227, 0) 80%); }
+.catch-flash.go { animation: catch-flash 420ms var(--ease-out) both; }
+@keyframes catch-flash { 0% { opacity: 0; } 18% { opacity: calc(.6 * var(--k, 1)); } 100% { opacity: 0; } }

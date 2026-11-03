@@ -28,3 +28,9 @@ export function fx(name: FxName, v = 0) {
   if (WORLD[name]) return;
   try { gameAudio.ui(name); } catch { /* ignore */ }
 }
+
+/** A one-off vibration pattern (the catch show's per-tier buzz); respects Settings → Vibration. */
+export function haptic(pattern: number[]) {
+  if (!prefs.vibration || !canVibrate || !pattern.length) return;
+  try { navigator.vibrate(pattern); } catch { /* ignore */ }
+}
