@@ -18,6 +18,31 @@ export interface UIHandlers {
   /** Music / Sound volume 0..1 (persisted in the save's settings) */
   volume(which: 'music' | 'sound', v: number): void;
   reset(): void;
+  /** Settings > Screen flashes (lightning) */
+  flashes(on?: boolean): boolean;
+  /** Developer tab (temporary): weather, tide, clock, rendering toggles */
+  dev: DevHandlers;
+}
+
+export type DevWeather = 'auto' | 'clear' | 'drizzle' | 'rain' | 'storm';
+export type DevMist = 'auto' | 'light' | 'medium' | 'heavy';
+export type DevTide = 'auto' | 'high' | 'mid' | 'low' | 'lowest';
+export interface DevState {
+  weather: DevWeather; mist: DevMist; tide: DevTide;
+  clock: string; day: number; weatherWords: string; tideLevel: number; tideTrend: 'rising' | 'falling'; mistNow: number;
+  sunShading: boolean; wind: boolean; fps: boolean;
+}
+export interface DevHandlers {
+  state(): DevState;
+  weather(v: DevWeather): void;
+  mist(v: DevMist): void;
+  tide(v: DevTide): void;
+  clock(hour: number): void;
+  nextDay(): void;
+  lightning(near: boolean): void;
+  sunShading(on: boolean): void;
+  wind(on: boolean): void;
+  shells(n: number): void;
 }
 
 export interface ChartSource {

@@ -5,7 +5,7 @@ import { buildShoreField } from './render/shorefield';
 import type { SeaVariant, CrestMode } from './render/sea';
 import { backdropHaze, setTint } from './render/materials';
 import { InstanceField } from './render/instances';
-import { makeTestFlag, mountSunShadingSetting, mountWindSetting, setLightingBlend, updateLighting } from './render/lighting';
+import { makeTestFlag, setLightingBlend, setSunShading, setWind, sunShadingEnabled, windOn, updateLighting } from './render/lighting';
 import { setLineContext, setNpcRoster } from './game/onfoot/npclines';
 import { DAY_REAL_MIN, LOOK_HOUR, START_HOUR, clockText, lookAt, lookWords, mistAt, wrapHour, type ClockLook } from './game/clock';
 import { flutterMat } from './render/materials';
@@ -19,7 +19,7 @@ import { CAMERA_TUNING, ChaseCamera } from './game/camera';
 import { Fishing } from './game/fishing';
 import { HotspotFX, hideBakedHotspotMarkers } from './game/hotspots';
 import { Skipper } from './game/skipper';
-import { reduceMotion } from './ui/ctx';
+import { reduceMotion, type DevWeather, type DevMist, type DevTide } from './ui/ctx';
 import { Wildlife } from './game/wildlife';
 import { Floaters } from './game/floaters';
 import { flotsamId, kindOf, noteFor, isGone } from './game/flotsam';
@@ -158,6 +158,8 @@ let flashSetting: 'on' | 'off' = 'on';
 try { flashSetting = localStorage.getItem(FLASH_KEY) === 'off' ? 'off' : 'on'; } catch { /* private mode */ }
 let weatherNow: WeatherNow = { rain: 0, storm: 0, trend: 0, shower: false };
 let rainOverride: number | null = null;
+/** Developer tab selections (Log > Developer); 'auto' = the clock / weather / tide models decide */
+const dev = { weather: 'auto' as DevWeather, mist: 'auto' as DevMist, tide: 'auto' as DevTide };
 let stormOverride: number | null = null;
 const SMOKE_WIND_BASE = SMOKE_WIND.clone();
 rain.onStrike = (s) => {
@@ -695,6 +697,28 @@ hud.init({
     autoReel: () => { save.settings.autoReel = !save.settings.autoReel; fishing.autoReel = save.settings.autoReel; writeSave(save); },
     tod: () => cycleTOD(),
     fps: () => { save.settings.showFps = !save.settings.showFps; writeSave(save); refreshSettingsUI(); },
+    flashes: (on?: boolean) => { if (on !== undefined) { flashSetting = on ? 'on' : 'off'; try { localStorage.setItem(FLASH_KEY, flashSetting); } catch { /* ignore */ } } return flashSetting === 'on'; },
+    dev: {
+      state: () => ({
+        weather: dev.weather, mist: dev.mist, tide: dev.tide, clock: clockText(clockHour), day: save.day ?? 0,
+        weatherWords: weatherWords(weatherNow) ?? lookWords(look.key), tideLevel: +WATER.y.toFixed(2), tideTrend: WATER.rate >= 0 ? 'rising' : 'falling', mistNow: +mistNow.toFixed(2),
+        sunShading: sunShadingEnabled(), wind: windOn(), fps: save.settings.showFps,
+      }),
+      weather: (v) => {
+        dev.weather = v;
+        const W = { auto: [null, null], clear: [0, 0], drizzle: [0.3, 0], rain: [0.8, 0], storm: [1, 1] } as const;
+        [rainOverride, stormOverride] = W[v] as [number | null, number | null];
+        applyTOD();
+      },
+      mist: (v) => { dev.mist = v; mistOverride = ({ auto: null, light: 0.22, medium: 0.5, heavy: 0.9 } as const)[v]; applyTOD(); },
+      tide: (v) => { dev.tide = v; WATER.pinned = ({ auto: null, high: 0, mid: -0.85, low: -1.45, lowest: -1.72 } as const)[v]; tides.frame(0, clockHour, save.day ?? 0); applyTOD(); },
+      clock: (h) => { clockHour = wrapHour(h); save.clock = clockHour; writeSave(save); applyTOD(); },
+      nextDay: () => { save.day = (save.day ?? 0) + 1; writeSave(save); applyTOD(); },
+      lightning: (near) => { rain.strike(near, camera); },
+      sunShading: (on) => setSunShading(on),
+      wind: (on) => setWind(on),
+      shells: (n) => { save.shells += n; writeSave(save); hud.setShells(save.shells); },
+    },
     volume: (which, v) => { save.settings[which] = Math.min(1, Math.max(0, v)); writeSave(save); gameAudio.setVolumes(save.settings.music, save.settings.sound); },
     reset: () => { clearSave(); location.reload(); },
   },
@@ -711,22 +735,6 @@ const upg = createUpgrades({
   modelChanged: () => skipper.attachTo(boat.modelObject),
 });
 initTuneOverlay();
-mountSunShadingSetting();
-mountWindSetting();
-mountFlashSetting();
-/** "Screen flashes" On/Off (lightning lifts the whole screen; Off keeps only the bolts). Reduced motion softens it either way. */
-function mountFlashSetting() {
-  const windRow = document.getElementById('set-wind')?.closest('.row');
-  if (!windRow || document.getElementById('set-flash')) return;
-  const row = document.createElement('div');
-  row.className = 'row';
-  row.innerHTML = '<span>Screen flashes</span><button class="btn small" id="set-flash"></button>';
-  windRow.parentElement!.insertBefore(row, windRow.nextSibling);
-  const btn = row.querySelector('button')!;
-  const refresh = () => { btn.textContent = flashSetting === 'on' ? 'On' : 'Off'; };
-  btn.onclick = () => { flashSetting = flashSetting === 'on' ? 'off' : 'on'; try { localStorage.setItem(FLASH_KEY, flashSetting); } catch { /* ignore */ } refresh(); };
-  refresh();
-}
 window.addEventListener('keydown', (e) => {
   if (e.key === 't' || e.key === 'T') cycleTOD();
   if (e.key === 'f' || e.key === 'F') { save.settings.showFps = !save.settings.showFps; refreshSettingsUI(); }

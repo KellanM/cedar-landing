@@ -64,6 +64,7 @@
 .ribbon[data-tab="map"] { background: #6B4A2E; }
 .ribbon[data-tab="pages"] { background: var(--ochre-red); }
 .ribbon[data-tab="settings"] { background: var(--ink-soft); }
+.ribbon[data-tab="dev"] { background: #4A5A60; }
 .ribbon.on { transform: translateY(6px); box-shadow: inset 0 4px 0 rgba(255, 255, 255, .25); }
 .ribbon.on .rl { text-decoration: underline 2px; text-underline-offset: 3px; }
 .lay-landscape .ribbons, .lay-desktop .ribbons {
@@ -75,6 +76,9 @@
   clip-path: polygon(0 0, 100% 0, 88% 50%, 100% 100%, 0 100%);
 }
 .lay-landscape .ribbon { min-height: 0; height: 72px; }
+/* six tabs (Dev) must fit the short landscape height: share it */
+.lay-landscape .ribbons { bottom: 4px; }
+.lay-landscape .ribbon { height: auto; flex: 1 1 0; max-height: 72px; }
 .lay-landscape .ribbon.on, .lay-desktop .ribbon.on { transform: translateX(8px); }
 
 .page-title { margin: 0 0 8px; font: 650 var(--fs-22) var(--f-display); }
@@ -227,3 +231,8 @@
 .cslot .pr .ico { width: 15px; height: 15px; display: inline-flex; }
 .cslot .pr i { font: 700 15px var(--f-hand); color: var(--ink-soft); }
 .fchip .num { opacity: .7; font-weight: 700; }
+
+/* Developer tab: label above its control so segments get the full width (and wrap if needed) */
+.set-row.stack { flex-direction: column; align-items: stretch; gap: 6px; }
+.set-row.stack .seg { flex-wrap: wrap; }
+.set-row.stack .seg button { flex: 1 1 auto; }

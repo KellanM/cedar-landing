@@ -4,11 +4,11 @@
  * Landscape / desktop: two-page spread (list left, detail right), ribbons on the right edge.
  * Tabs: Errands · Fish · Map · Pages · Settings.
  */
-import { $, ctx, esc, h, setModal, reduceMotion } from './ctx';
+import { $, ctx, esc, h, setModal, reduceMotion, type DevWeather, type DevMist, type DevTide } from './ctx';
 import { fx, canVibrate } from './fx';
 import { ICONS, hydrateIcons } from './icons';
 import { fishSketch, fishSilhouette, starsSvg } from './fishart';
-import { prefs, savePrefs, log, saveLog, resetUIProgress, debugMode, type Units } from './prefs';
+import { prefs, savePrefs, log, saveLog, resetUIProgress, type Units } from './prefs';
 import { chart } from './chart';
 import { mapView, mapItems, chartDebug, type MapItem } from './mapview';
 import { glyphSvg, type Glyph } from './mapglyphs';
@@ -17,7 +17,7 @@ import { pinChip } from './chip';
 import { SPECIES, type Species } from '../game/fishdata';
 import { tideTableHtml, shoreNotesHtml, critterPlate } from './tidelog';
 
-export type Tab = 'errands' | 'fish' | 'map' | 'pages' | 'settings';
+export type Tab = 'errands' | 'fish' | 'map' | 'pages' | 'settings' | 'dev';
 type Filter = 'all' | 'caught' | 'missing' | 'here' | 'cooler';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
@@ -26,6 +26,8 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'map', label: 'Map', icon: 'map' },
   { id: 'pages', label: 'Pages', icon: 'page' },
   { id: 'settings', label: 'Settings', icon: 'wheel' },
+  // temporary: weather / tide / clock / rendering controls while the game is in development
+  { id: 'dev', label: 'Dev', icon: 'compass' },
 ];
 
 let root: HTMLElement;
@@ -108,6 +110,7 @@ function show(t: Tab, keepScroll = false) {
     case 'map': mapTab(L, R); break;
     case 'pages': pagesTab(L, R); break;
     case 'settings': settingsTab(L, R); break;
+    case 'dev': devTab(L, R); break;
   }
   L.scrollTop = sl;
   hydrateIcons(root);
@@ -366,6 +369,7 @@ function settingsTab(L: HTMLElement, R: HTMLElement) {
   <div class="settings">
     ${seg('set-text', [['1', '100%'], ['1.15', '115%'], ['1.3', '130%']], String(prefs.textScale), 'Text size')}
     ${toggle('set-motion', prefs.reduceMotion, 'Reduce motion')}
+    ${toggle('set-flash', ctx.h?.flashes() ?? true, 'Screen flashes')}
     ${seg('set-music', VOL, volKey(s.music), 'Music')}
     ${seg('set-sound', VOL, volKey(s.sound), 'Sound')}
     ${canVibrate ? toggle('set-vibe', prefs.vibration, 'Vibration') : ''}
@@ -378,17 +382,13 @@ function settingsTab(L: HTMLElement, R: HTMLElement) {
     <div class="set-row"><span>Reset progress</span><button class="btn ghost danger" id="set-reset">Reset…</button></div>
   </div>`;
   R.innerHTML = `<h3 class="page-title">About this logbook</h3>
-    <p class="hand">Kept by Gran, found by you.</p>
-    <p class="small">Type: Fraunces, Nunito and Caveat (SIL Open Font Licence). Ornaments are placeholders awaiting a commissioned artist.</p>
-    ${debugMode ? `<h4>Debug</h4><div class="settings">
-      <div class="set-row"><span>Time of day</span><button class="btn ghost" id="set-tod">${ctx.tod}</button></div>
-      ${toggle('set-fps', s.showFps, 'Show FPS')}
-      <div class="set-row"><span>World data</span><span class="small">${esc(ctx.worldInfo)}</span></div></div>` : ''}`;
+    <p class="hand">Kept by Gran, found by you.</p>`;
 
   const sw = (id: string, f: () => void) => { const b = document.getElementById(id); if (b) b.onclick = () => { f(); savePrefs(); applyPrefsCb(); show('settings', true); }; };
   const sg = (id: string, f: (v: string) => void) => document.getElementById(id)?.querySelectorAll<HTMLButtonElement>('button').forEach((b) => (b.onclick = () => { f(b.dataset.v!); savePrefs(); applyPrefsCb(); show('settings', true); }));
   sg('set-text', (v) => { prefs.textScale = Number(v) as 1 | 1.15 | 1.3; });
   sw('set-motion', () => { prefs.reduceMotion = !prefs.reduceMotion; });
+  sw('set-flash', () => { ctx.h?.flashes(!(ctx.h?.flashes() ?? true)); });
   sg('set-music', (v) => ctx.h?.volume('music', Number(v)));
   sg('set-sound', (v) => ctx.h?.volume('sound', Number(v)));
   sw('set-vibe', () => { prefs.vibration = !prefs.vibration; });
@@ -401,13 +401,52 @@ function settingsTab(L: HTMLElement, R: HTMLElement) {
     else document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
   });
   sw('set-lefty', () => { prefs.leftHanded = !prefs.leftHanded; });
-  sw('set-fps', () => ctx.h?.fps());
-  const tod = document.getElementById('set-tod');
-  if (tod) tod.onclick = () => { ctx.h?.tod(); show('settings', true); };
   $('set-reset').onclick = () => {
     const b = $('set-reset');
     if (b.dataset.sure) { resetUIProgress(); ctx.h?.reset(); return; }
     b.dataset.sure = '1';
     b.textContent = 'Tap again to wipe';
   };
+}
+
+// ------------------------------------------------------------------ Developer (temporary)
+const CLOCK_PRESETS: [string, string][] = [['6.67', 'Dawn'], ['10.67', 'Morning'], ['13.33', 'Afternoon'], ['19.83', 'Dusk'], ['23.17', 'Night']];
+const stack = (row: string) => row.replace('class="set-row"', 'class="set-row stack"');
+function devTab(L: HTMLElement, R: HTMLElement) {
+  const d = ctx.h?.dev;
+  if (!d) { L.innerHTML = '<h3 class="page-title">Developer</h3><p class="hand">Not ready yet.</p>'; R.innerHTML = ''; return; }
+  const st = d.state();
+  L.innerHTML = `<h3 class="page-title">Developer</h3>
+  <p class="small">Temporary controls while the game is being built. "Auto" lets the clock, weather and tide run on their own.</p>
+  <div class="settings">
+    <div class="set-row"><span>Now</span><span class="num">Day ${st.day + 1} · ${esc(st.clock)} · ${esc(st.weatherWords)}</span></div>
+    ${stack(seg('dev-clock', CLOCK_PRESETS, '', 'Time of day'))}
+    <div class="set-row"><span>Day</span><button class="btn ghost" id="dev-nextday">Next day →</button></div>
+    ${stack(seg('dev-weather', [['auto', 'Auto'], ['clear', 'Clear'], ['drizzle', 'Drizzle'], ['rain', 'Rain'], ['storm', 'Storm']], st.weather, 'Weather'))}
+    <div class="set-row"><span>Lightning</span><span class="row-btns"><button class="btn ghost" id="dev-bolt-far">Far</button> <button class="btn ghost" id="dev-bolt-near">Near</button></span></div>
+    ${stack(seg('dev-mist', [['auto', 'Auto'], ['light', 'Light'], ['medium', 'Medium'], ['heavy', 'Heavy']], st.mist, `Mist (now ${Math.round(st.mistNow * 100)}%)`))}
+  </div>`;
+  R.innerHTML = `<h3 class="page-title">Tide &amp; rendering</h3>
+  <div class="settings">
+    ${stack(seg('dev-tide', [['auto', 'Auto'], ['high', 'High'], ['mid', 'Mid'], ['low', 'Low'], ['lowest', 'Lowest']], st.tide, `Tide (${st.tideLevel.toFixed(2)} m, ${st.tideTrend})`))}
+    ${toggle('dev-sun', st.sunShading, 'Sun shading')}
+    ${toggle('dev-wind', st.wind, 'Wind in trees')}
+    ${toggle('dev-fps', st.fps, 'Show FPS')}
+    <div class="set-row"><span>Shells</span><button class="btn ghost" id="dev-shells">+100</button></div>
+    <div class="set-row"><span>World data</span><span class="small">${esc(ctx.worldInfo)}</span></div>
+  </div>`;
+  const re = () => show('dev', true);
+  const sg = (id: string, f: (v: string) => void) => document.getElementById(id)?.querySelectorAll<HTMLButtonElement>('button').forEach((b) => (b.onclick = () => { fx('tap'); f(b.dataset.v!); re(); }));
+  const bt = (id: string, f: () => void) => { const b = document.getElementById(id); if (b) b.onclick = () => { fx('tap'); f(); re(); }; };
+  sg('dev-clock', (v) => d.clock(Number(v)));
+  sg('dev-weather', (v) => d.weather(v as DevWeather));
+  sg('dev-mist', (v) => d.mist(v as DevMist));
+  sg('dev-tide', (v) => d.tide(v as DevTide));
+  bt('dev-nextday', () => d.nextDay());
+  bt('dev-bolt-far', () => d.lightning(false));
+  bt('dev-bolt-near', () => d.lightning(true));
+  bt('dev-sun', () => d.sunShading(!st.sunShading));
+  bt('dev-wind', () => d.wind(!st.wind));
+  bt('dev-fps', () => ctx.h?.fps());
+  bt('dev-shells', () => d.shells(100));
 }
