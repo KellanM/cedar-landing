@@ -40,6 +40,8 @@ export interface TideHost {
   note: (who: string, text: string) => void;
   shells: (n: number) => void;
   reduceMotion: () => boolean;
+  /** camera: look down into the pool while its note is open (docs/camera_study.md F8) */
+  peek?: (x: number, y: number, z: number, r: number) => void;
 }
 
 const BOAT_R = 1.1;
@@ -186,7 +188,8 @@ export class Tides {
   }
 
   /** Catch-and-look: name what is in the pool, log anything new (a few Shells for Gran's notes). */
-  observe(p: { id: string; critters: CritterId[]; zone: string; orange: boolean }) {
+  observe(p: { id: string; critters: CritterId[]; zone: string; orange: boolean; x?: number; z?: number; h?: number; r?: number }) {
+    if (p.x !== undefined && p.z !== undefined) this.host.peek?.(p.x, p.h ?? 0, p.z, p.r ?? 0.8);
     const s = this.host.save;
     const seen = (s.tidepools ??= {});
     const fresh = p.critters.filter((c) => !seen[c]);

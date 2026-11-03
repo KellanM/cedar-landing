@@ -12,6 +12,8 @@ export interface UIPrefs {
   tensionHC: boolean;
   units: Units;
   leftHanded: boolean;
+  /** camera re-centre after a drag, s (0 = off) */
+  recentre: number;
 }
 
 export interface LogData {
@@ -43,7 +45,7 @@ const MASK_KEY = 'salish-sea-map-v1';
 const HINT_KEY = 'seenHints';
 
 const defPrefs = (): UIPrefs => ({
-  textScale: 1, reduceMotion: false, vibration: true, sound: true, tensionHC: false, units: 'words', leftHanded: false,
+  textScale: 1, reduceMotion: false, vibration: true, sound: true, tensionHC: false, units: 'words', leftHanded: false, recentre: 4,
 });
 const defLog = (): LogData => ({ first: {}, perfect: {}, pages: [], places: [], sold: 0, tiedUp: false, struck: [], dest: null, path: [], pinned: null, seen: { opened: false, struck: 0, pages: 0, species: 0 } });
 

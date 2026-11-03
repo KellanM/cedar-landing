@@ -16,6 +16,10 @@ import { Input } from './game/input';
 import { LandCollision } from './game/collision';
 import { Boat, BOAT_TUNING } from './game/boat';
 import { CAMERA_TUNING, ChaseCamera } from './game/camera';
+import { cameraFrame, cameraSubject, smallThingCull } from './game/camerahooks';
+import { updateSeeThrough } from './render/seethrough';
+import { PhotoMode } from './ui/photo';
+import { chart } from './ui/chart';
 import { Fishing } from './game/fishing';
 import { HotspotFX, hideBakedHotspotMarkers } from './game/hotspots';
 import { Skipper } from './game/skipper';
@@ -282,6 +286,22 @@ foot.onTalk = (name) => crowd?.react(name);
 foot.onFootstep = (sp, feet, surf) => gameAudio.step(surfaceFromColor(surf, feet.y), sp);
 foot.onSay = (name, text, role, x, z) => gameAudio.talk(name, text, role, x, z);
 let footCtx: FootContext | null = null;
+// Photo mode (src/ui/photo.ts): HUD hidden, world held still, orbit / pinch, filters + frames, PNG out
+const photo = new PhotoMode({
+  camera,
+  subject: (out) => (foot.active ? out.copy(foot.feet).setY(foot.feet.y + 1.1) : out.set(boat.pos.x, boat.root.position.y + 1.2, boat.pos.z)),
+  canEnter: () => !!world && !!boat && !titleOpen && !modalOpen && !chase.inShot && !fishing.active && !pendingCatch,
+  render: () => { renderer.render(scene, camera); return renderer.domElement; },
+  waterY: () => WATER.y,
+  clip: (from, dir, far) => (foot.active ? foot.world.raycast(from, dir, far) : far),
+  place: () => {
+    const p = foot.active ? foot.feet : boat.pos;
+    let best = 'The Salish Sea', bd = Infinity;
+    for (const pl of chart.places) { if (pl.kind !== 'town' && pl.kind !== 'island') continue; const d = Math.hypot(pl.x - p.x, pl.z - p.z); if (d < Math.max(260, pl.r * 1.5) && d < bd) { bd = d; best = pl.name; } }
+    return best;
+  },
+}, canvas);
+photo.mountButton();
 /** the runner-up in reach (hud_flow_study P2): a second, smaller context button */
 let footCtx2: FootContext | null = null;
 // ---------------------------------------------------------------- tides (src/game/tides.ts)
@@ -291,6 +311,7 @@ const tides = new Tides({
   boat: () => boat, floaters: () => floaters, wildlife: () => wildlife, hotspots: () => hotspotFX?.group ?? null, crowd: () => crowd,
   wake, fishing, foot, toast: (m, k) => hud.toast(m, k), camera, renderer, save, writeSave: () => writeSave(save),
   note: (who, text) => { void hud.readNote(who, text); }, shells: (n) => hud.setShells(n), reduceMotion,
+  peek: (x, y, z, r) => foot.cam.peek(new THREE.Vector3(x, y, z), r, () => modalOpen), // camera: look into the pool while its note is open
 });
 
 // ---------------------------------------------------------------- world
@@ -1010,6 +1031,8 @@ function frame(now: number) {
   let dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (stepClock) { if (stepClock.steps > 0) { stepClock.steps--; dt = stepClock.dt; } else dt = 0; }
+  const realDt = dt;
+  if (photo.active && photo.still) dt = 0; // photo mode: the world holds its breath
   input.update();
 
   if (world && !hud.paused()) {
@@ -1032,6 +1055,7 @@ function frame(now: number) {
       $('skip-hint').classList.add('hidden');
     }
 
+    if (photo.active) { input.consumeAction(); input.consumeInteract(); input.takeOrbit(); }
     if (input.consumeAction() && !foot.active) onAction();
     if (input.consumeInteract() && !modalOpen && !fishing.active) {
       if (footCtx) footCtx.run();
@@ -1040,7 +1064,7 @@ function frame(now: number) {
 
     let throttle = input.throttle, steer = input.steer;
     lastThrottle = 0;
-    if (modalOpen || chase.inShot || foot.active || titleOpen) { throttle = 0; steer = 0; }
+    if (modalOpen || chase.inShot || foot.active || titleOpen || photo.active) { throttle = 0; steer = 0; }
     if (fishing.active) {
       // Paddling away while waiting reels the line in; during the fight the boat holds still.
       if ((fishing.phase === 'casting' || fishing.phase === 'waiting' || fishing.phase === 'missed') && Math.abs(throttle) > 0.3) {
@@ -1052,6 +1076,7 @@ function frame(now: number) {
 
     updateSwell(dt, weatherNow, LIGHT_U.uWindDir.value, reduceMotion()); // ocean experiment: before anything reads the water
     boat.update(dt, throttle, steer, land);
+    cameraFrame({ chase, foot, boat, world, tides, reduce: reduceMotion() });
     lastThrottle = throttle;
     const adt = dt * actorScale(now);
     fishingCastT = fishing.phase === 'casting' ? fishingCastT + adt : 0;
@@ -1082,13 +1107,16 @@ function frame(now: number) {
     floaters?.update(dt, camera.position);
     crowd?.update(dt, camera.position, foot.active ? foot.feet : null);
     titleCamera(dt);
+    photo.update(realDt);
     cull();
+    smallThingCull(realDt, camera.position, floaters?.group ?? null, crowd?.group ?? null);
     if (!titleOpen) updateUI(dt);
     upg.tick(dt, camera, window.innerHeight > window.innerWidth);
   }
 
   updateLighting(dt);
   applyDebugCam();
+  if (boat) { const sub = cameraSubject({ chase, foot, boat, titleOpen: titleOpen || titleBlend < 1, debugCam: !!debugCam }); updateSeeThrough(renderer, camera, sub?.at ?? null, sub?.r); }
   sepia.update(dt);
   // the Logbook HUD arrives once the colour has (it would sit on the drawing otherwise)
   if (sepia.progress > 0.55 && document.body.classList.contains('title-bloom')) document.body.classList.remove('title-bloom');
@@ -1248,6 +1276,42 @@ window.__debug = {
     return out;
   },
   /** GPU bench (water study): ms per synchronous render of the current view, with and without the sea. */
+  /** photo mode (src/ui/photo.ts) */
+  photo: {
+    enter: () => { photo.enter(); return photo.active; },
+    exit: () => photo.exit(),
+    set: (o: { filter?: 'none' | 'logbook' | 'mono' | 'warm' | 'dusk'; frame?: 'none' | 'postcard' | 'logbook'; still?: boolean }) => { if (o.filter) photo.setFilter(o.filter); if (o.frame) photo.setFrame(o.frame); if (o.still !== undefined) photo.still = o.still; },
+    nudge: (y: number, p: number, z = 1) => photo.nudge(y, p, z),
+    capture: async () => { const b = await photo.compose(); return await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(b); }); },
+    get active() { return photo.active; },
+  },
+  /** camera study: draw calls by layer (all minus the count with that layer hidden) */
+  drawSplit: () => {
+    const count = () => { renderer.render(scene, camera); return renderer.info.render.calls; };
+    const all = count();
+    const parts: Record<string, THREE.Object3D[]> = {
+      chunks: world?.chunks.map((c) => c.object) ?? [], instances: instances ? [instances.group] : [], backdrops: world?.backdrops ?? [], clouds: world?.clouds ?? [],
+      wildlife: wildlife ? [wildlife.group] : [], sea: [sea.group], npcs: crowd ? [crowd.group] : [], fx: [smoke?.mesh, fogBanks?.mesh, rain.group, wake.mesh].filter((o): o is THREE.Mesh => !!o),
+      floaters: floaters ? [floaters.group] : [], tides: tides.pools ? [tides.pools.group] : [],
+    };
+    const out: Record<string, number> = { all };
+    for (const [k, os] of Object.entries(parts)) { const v = os.map((o) => o.visible); os.forEach((o) => (o.visible = false)); out[k] = all - count(); os.forEach((o, i) => (o.visible = v[i])); }
+    out.instBatches = instances?.batches.filter((b) => b.mesh.visible).length ?? 0;
+    return out;
+  },
+  /** camera study: instance batches inside the view frustum, by proto and distance band */
+  instProbe: () => {
+    const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const by: Record<string, number> = {}, band: Record<string, number> = {};
+    for (const m of instances?.group.children ?? []) {
+      const im = m as THREE.InstancedMesh;
+      if (!im.visible || !im.boundingSphere || !fr.intersectsSphere(im.boundingSphere)) continue;
+      const k = im.name.replace(/_\d.*$/, '').slice(0, 14); by[k] = (by[k] ?? 0) + 1;
+      const d = Math.hypot(im.boundingSphere.center.x - camera.position.x, im.boundingSphere.center.z - camera.position.z);
+      const bk = d < 120 ? '<120' : d < 240 ? '<240' : d < 480 ? '<480' : '480+'; band[bk] = (band[bk] ?? 0) + 1;
+    }
+    return { by: Object.fromEntries(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 14)), band };
+  },
   benchFrame: (n = 60) => {
     const gl = renderer.getContext(), px = new Uint8Array(4);
     const time = () => { gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); const t = performance.now(); for (let i = 0; i < n; i++) renderer.render(scene, camera); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return (performance.now() - t) / n; };
