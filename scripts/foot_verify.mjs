@@ -73,13 +73,13 @@ async function run(name, viewport, isMobile) {
   log(`[${name}] at mooring: boat`, s.boat.x.toFixed(1), s.boat.z.toFixed(1), 'interact', s.interact, 'ctx', s.foot.ctx, 'bvh', s.foot.bvhChunks, s.foot.bvhMs + 'ms');
   await shot('01_mooring');
 
-  // 2) Step ashore with real input. With fish in the cooler the context button sells from the
-  //    boat, so "Ashore" moves to the action button (Space / tap).
-  const actionLabel = await page.textContent('#action-label');
+  // 2) Step ashore with real input. Ashore is a context action (hud_flow_study P8): the main
+  //    context button when nothing else is in reach, else the second button (Q / tap).
+  const actionLabel = await page.textContent('#interact2-label');
   log(`[${name}] buttons: interact`, JSON.stringify(await page.textContent('#interact-label')), 'action', JSON.stringify(actionLabel));
   if (s.interact === 'step_ashore') await page.keyboard.press('e');
-  else if (isMobile) await page.tap('#btn-action');
-  else await page.keyboard.press('Space');
+  else if (isMobile) await page.tap('#btn-interact2');
+  else await page.keyboard.press('q');
   await sleep(300);
   await shot('02_hop');
   await sleep(1100);
