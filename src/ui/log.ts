@@ -429,6 +429,7 @@ function devTab(L: HTMLElement, R: HTMLElement) {
   R.innerHTML = `<h3 class="page-title">Tide &amp; rendering</h3>
   <div class="settings">
     ${stack(seg('dev-tide', [['auto', 'Auto'], ['high', 'High'], ['mid', 'Mid'], ['low', 'Low'], ['lowest', 'Lowest']], st.tide, `Tide (${st.tideLevel.toFixed(2)} m, ${st.tideTrend})`))}
+    ${stack(seg('dev-ocean', [['classic', 'Classic'], ['swell', 'Swell']], st.ocean, `Ocean (experiment${st.ocean === 'swell' ? `, sea ${Math.round(st.seaState * 100)}%` : ''})`))}
     ${toggle('dev-sun', st.sunShading, 'Sun shading')}
     ${toggle('dev-wind', st.wind, 'Wind in trees')}
     ${toggle('dev-fps', st.fps, 'Show FPS')}
@@ -442,6 +443,7 @@ function devTab(L: HTMLElement, R: HTMLElement) {
   sg('dev-weather', (v) => d.weather(v as DevWeather));
   sg('dev-mist', (v) => d.mist(v as DevMist));
   sg('dev-tide', (v) => d.tide(v as DevTide));
+  sg('dev-ocean', (v) => d.ocean(v as 'classic' | 'swell'));
   bt('dev-nextday', () => d.nextDay());
   bt('dev-bolt-far', () => d.lightning(false));
   bt('dev-bolt-near', () => d.lightning(true));

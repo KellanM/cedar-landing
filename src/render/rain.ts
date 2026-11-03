@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WATER } from '../game/tide';
+import { SWELL_GLSL, SWELL_U } from '../game/swell';
 
 /**
  * Rain, rain marks on the sea, distant rain veils, lightning (docs/rain_study.md).
@@ -95,6 +96,7 @@ varying vec3 vL; // life t, rand, alpha
 // fract-only hash (no sin of large arguments: on some GPUs that collapses to a few values and the
 // marks stack into bullseyes)
 uniform float uWaterY; // the tide (game/tide.ts WATER.y)
+${SWELL_GLSL}
 float hh(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 void main() {
   float cyc = uTime / (uLife * (0.8 + 0.4 * iSeed.w)) + iSeed.z;
@@ -106,6 +108,7 @@ void main() {
   vec2 p = xz + position.xy * size;
   float w = sin(p.x * 0.21 + uSeaTime * 0.9) * 0.5 + sin(p.y * 0.17 - uSeaTime * 0.7) * 0.35 + sin((p.x + p.y) * 0.43 + uSeaTime * 1.6) * 0.15;
   vec4 wp = vec4(p.x, uWaterY + w * 0.07 + 0.035, p.y, 1.0);
+  if (uSwOn > 0.5) wp.y += swellEval(p).x - w * 0.07 + 0.03; // ocean experiment: lie on the swell
   vP = position.xy;
   vXZ = p;
   // fade out close under the camera (a ring there would be a hoop across the screen) and toward the tile edge
@@ -291,6 +294,7 @@ export class RainFX {
       vertexShader: MARK_VERT, fragmentShader: MARK_FRAG, fog: true, transparent: true, depthWrite: false, side: THREE.DoubleSide,
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     });
+    Object.assign(this.mMat.uniforms, SWELL_U);
     Object.assign(this.mMat.uniforms, { uSeaTime: seaUniforms.uTime, uField: seaUniforms.uField, uFieldRect: seaUniforms.uFieldRect, uHasField: seaUniforms.uHasField });
     this.marks = new THREE.Mesh(this.mGeo, this.mMat);
     this.marks.name = 'rain_marks';

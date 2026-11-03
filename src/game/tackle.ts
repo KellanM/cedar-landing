@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { register } from '../render/materials';
+import { swellAt } from './swell';
 
 /**
  * Bobber + fishing line, built for readability at phone size (docs/study/fishing_polish.md):
@@ -106,7 +107,8 @@ export class Bobber {
     const s = this.screenK;
     const bob = onWater ? Math.sin(this.t * 2.6) * 0.025 + Math.sin(this.t * 1.7 + 1) * 0.012 : 0;
     const y = onWater ? SEA_Y + 0.07 * s + (this.dipY + bob) * s : airY;
-    this.group.position.set(x, 0, z);
+    const sw = onWater ? swellAt(x, z) : 0; // ocean experiment: the float rides the swell (x, z are world; the rig sits at the tide level)
+    this.group.position.set(x, sw, z);
     this.body.position.set(0, y, 0);
     const sq = Math.sin(this.squash * Math.PI) * 0.35;
     this.body.scale.set(s * (1 + sq * 0.6), s * (1 - sq), s * (1 + sq * 0.6));
@@ -127,7 +129,7 @@ export class Bobber {
     this.ripple.scale.setScalar(s * (0.4 + rk * 0.9));
     this.ripple.material.opacity = 0.55 * (1 - rk);
     // stick tip in world (for the line)
-    this.top.set(x, y + (0.17 + 0.25) * s, z);
+    this.top.set(x, sw + y + (0.17 + 0.25) * s, z);
   }
 }
 
