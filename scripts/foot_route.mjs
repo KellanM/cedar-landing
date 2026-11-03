@@ -93,7 +93,7 @@ let stuckFrames = 0, stuckEvents = [], total = 0, held = false, fails = [];
 const t0 = Date.now();
 const ANCH = await D(() => window.__debug.opening.anchors);
 for (const wp of ROUTE) {
-  if (typeof wp.p === 'string') { const a = ANCH[wp.p]; wp.p = [a[0] - 0.9, a[1] + 0.7]; } // stand beside the item
+  if (typeof wp.p === 'string') { const a = ANCH[wp.p]; wp.p = [a[0] - 0.3, a[1] + 1.4]; } // stand on the beach side of the item
   const start = Date.now();
   let last = null, lastMoveT = Date.now(), reached = false;
   while (Date.now() - start < WPT) {
@@ -118,7 +118,7 @@ for (const wp of ROUTE) {
     if (last) {
       const moved = Math.hypot(f.x - last.x, f.z - last.z);
       if (moved > 0.04) lastMoveT = Date.now();
-      else { stuckFrames++; if (Date.now() - lastMoveT > 700) { stuckEvents.push(`${wp.n} @ (${f.x.toFixed(2)}, ${f.z.toFixed(2)}, y ${f.y.toFixed(2)})`); lastMoveT = Date.now(); } }
+      else { stuckFrames++; if (Date.now() - lastMoveT > 700) { stuckEvents.push(`${wp.n} @ (${f.x.toFixed(2)}, ${f.z.toFixed(2)}, y ${f.y.toFixed(2)}) ${s.f.block ?? ""}`); lastMoveT = Date.now(); } }
     }
     last = { ...f };
     await grab();
