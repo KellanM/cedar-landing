@@ -23,6 +23,8 @@ import { chart } from './ui/chart';
 import { Fishing } from './game/fishing';
 import { HotspotFX, hideBakedHotspotMarkers } from './game/hotspots';
 import { Skipper } from './game/skipper';
+import type { Expr } from './game/face';
+import { WOBBLE, setWobble } from './game/wobble';
 import { CatchShow, planCatch, type CatchPlan } from './game/catchshow';
 import { CatchFX } from './game/catchfx';
 import { reduceMotion, type DevWeather, type DevMist, type DevTide } from './ui/ctx';
@@ -728,6 +730,8 @@ function rodTip() {
 const headPosV = new THREE.Vector3();
 const fishFace = new THREE.Vector3(), handsV = new THREE.Vector3(), headV = new THREE.Vector3(), fwdV = new THREE.Vector3(), leanV = new THREE.Vector3();
 let landingShot = false, reframed = false;
+let reelT = 0;
+let dbgExpr: Expr | null = null; // debug: hold an expression (captures)
 const landFwd = new THREE.Vector3();
 /** Skipper pose + camera layers that follow the fishing state (runs after fishing.update). */
 function fishingDirector(adt: number) {
@@ -750,6 +754,18 @@ function fishingDirector(adt: number) {
   }
   // the rod is in hand only while fishing (it rests in the holder otherwise; hidden in the hold-up)
   skipper.showRod(fishing.active && !(ph === 'landed' && fishing.handTarget));
+  // expressions on the beat (docs/character_study.md, Friendslop): AC bean eyes for calm / happy,
+  // friendslop googly eyes for everything else
+  reelT = ph === 'reeling' ? reelT + adt : 0;
+  let ex: Expr = 'neutral';
+  if (fishing.active) {
+    if (ph === 'bite' || (ph === 'reeling' && reelT < 0.7)) ex = 'surprised'; // Strike!
+    else if (ph === 'reeling') ex = fishing.tension > 0.82 ? 'worried' : 'effort';
+    else if (ph === 'missed') ex = 'sad'; // it got away
+    else if (ph === 'landed') ex = fishing.species && (fishing.species.rarity === 'legendary' || fishing.species.rarity === 'rare') ? 'joy' : 'happy';
+  } else if (pendingCatch) ex = 'happy';
+  if ((ex === 'neutral' || ex === 'effort') && SWELL.state > 0.7) ex = 'worried'; // rough seas
+  skipper.setExpr(dbgExpr ?? ex);
   // two-hand hold: the fists close in to cradle a short fish (about half its drawn length apart)
   skipper.gripSpread = ph === 'landed' && fishing.holdMode === 'hoist' ? Math.max(0.3, 0.5 * fishing.shownLen + 0.08) : null;
   skipper.update(adt);
@@ -849,7 +865,7 @@ hud.init({
         weather: dev.weather, mist: dev.mist, tide: dev.tide, clock: clockText(clockHour), day: save.day ?? 0,
         weatherWords: weatherWords(weatherNow) ?? lookWords(look.key), tideLevel: +WATER.y.toFixed(2), tideTrend: WATER.rate >= 0 ? 'rising' : 'falling', mistNow: +mistNow.toFixed(2),
         sunShading: sunShadingEnabled(), wind: windOn(), fps: save.settings.showFps,
-        ocean: sea.ocean, seaState: +SWELL.state.toFixed(2),
+        ocean: sea.ocean, seaState: +SWELL.state.toFixed(2), wobble: WOBBLE.k,
       }),
       weather: (v) => {
         dev.weather = v;
@@ -866,6 +882,7 @@ hud.init({
       ocean: (v) => { sea.setOcean(v); try { localStorage.setItem(OCEAN_KEY, v); } catch { /* ignore */ } },
       wind: (on) => setWind(on),
       shells: (n) => { save.shells += n; writeSave(save); hud.setShells(save.shells); },
+      wobble: (k) => setWobble(k),
     },
     volume: (which, v) => { save.settings[which] = Math.min(1, Math.max(0, v)); writeSave(save); gameAudio.setVolumes(save.settings.music, save.settings.sound); },
     reset: () => { clearSave(); location.reload(); },
@@ -1388,6 +1405,9 @@ window.__debug = {
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,
+  skipperExpr: (e: Expr | null) => { dbgExpr = e; },
+  wobble: (k: number) => setWobble(k),
+  faces: () => ({ skipper: skipper.expr?.current, npcs: crowd?.actors.filter((a) => a.face?.has).length ?? 0, lod: crowd?.stats.lod ?? 0 }),
   /** the fish shadow vs the float: nose gap (m) — 0 means the mouth is on the float */
   shadowNose: () => fishing.shadowNoseGap(),
   /** captures (app icon etc.): override chase-camera tuning */
