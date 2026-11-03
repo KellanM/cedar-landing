@@ -173,6 +173,20 @@ export class Fishing {
     this.fish.group.visible = false;
   }
 
+  /** debug: distance from the shadow's nose (the end facing the float) to the float */
+  shadowNoseGap() {
+    const half = this.shadow.scale.z;
+    const dx = this.bobberPos.x - this.shadowPos.x, dz = this.bobberPos.z - this.shadowPos.z, d = Math.hypot(dx, dz);
+    return { centre: +d.toFixed(2), half: +half.toFixed(2), gap: +(d - half).toFixed(2), phase: this.phase };
+  }
+  /** where the shadow's centre must sit for its nose to touch the float: half its length back along the approach */
+  private mouthTarget(out: THREE.Vector3) {
+    const half = this.shadow.scale.z * 0.92; // geometry radius 1 along z, scaled per fish size
+    let dx = this.bobberPos.x - this.shadowFrom.x, dz = this.bobberPos.z - this.shadowFrom.z;
+    const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+    return out.set(this.bobberPos.x - dx * half, 0.01, this.bobberPos.z - dz * half);
+  }
+
   private startApproach() {
     this.phase = 'waiting';
     this.t = 0;
@@ -296,7 +310,8 @@ export class Fishing {
       case 'waiting': {
         const k = Math.min(1, this.t / this.approachDur);
         const e = THREE.MathUtils.smoothstep(k, 0, 1);
-        this.shadowPos.copy(this.shadowFrom).lerp(this.v1.set(this.bobberPos.x, 0.01, this.bobberPos.z), e * 0.88);
+        // swim in so the fish's NOSE (the end of the shadow facing the float) arrives at the float, not its middle
+        this.shadowPos.copy(this.shadowFrom).lerp(this.mouthTarget(this.v1), e);
         this.shadow.material.opacity = Math.min(0.45, this.t * 0.4);
         while (this.nibbles.length && this.t >= this.nibbles[0]) {
           this.nibbles.shift();
@@ -401,7 +416,9 @@ export class Fishing {
     this.bobber.position.y = this.phase === 'casting' ? airY : 0.25;
     this.shadow.position.set(this.shadowPos.x, 0.01, this.shadowPos.z);
     this.shadow.visible = this.phase !== 'casting' && this.phase !== 'landed';
-    this.shadow.lookAt(this.bobberPos.x, 0.01, this.bobberPos.z);
+    // face the float; once nose-to-float keep the approach heading (lookAt at ~0 distance would spin)
+    const fdx = this.bobberPos.x - this.shadowPos.x, fdz = this.bobberPos.z - this.shadowPos.z;
+    if (fdx * fdx + fdz * fdz > 0.04) this.shadow.lookAt(this.bobberPos.x, 0.01, this.bobberPos.z);
 
     // line: rod tip → float tip (or the fish during the landing arc)
     const lineTo = this.land_ && !this.land_.done ? this.fish.group.position : this.float.top;

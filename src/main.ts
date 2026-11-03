@@ -1137,6 +1137,8 @@ window.__debug = {
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,
+  /** the fish shadow vs the float: nose gap (m) — 0 means the mouth is on the float */
+  shadowNose: () => fishing.shadowNoseGap(),
   /** captures (app icon etc.): override chase-camera tuning */
   camTune: (o: Partial<typeof CAMERA_TUNING>) => { Object.assign(CAMERA_TUNING, o); chase.snap(boat); },
   /** tides: pin the water level (world y; null = back to the clock); tideAt(h, day) = the model's level */
