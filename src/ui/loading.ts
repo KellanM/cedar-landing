@@ -42,9 +42,10 @@ export function setLoadProgress(msg: string, f: number) {
 /**
  * Call when the world is ready. With `title`, shows the title screen and resolves on the player's
  * tap (or at once if they already tapped while loading); otherwise resolves straight away.
- * Either way the card has faded by the time play is visible.
+ * Either way the card has faded by the time play is visible. Resolves true if the title was shown
+ * (and set out from), false if it was skipped.
  */
-export function loadingDone(title: boolean): Promise<void> {
+export function loadingDone(title: boolean): Promise<boolean> {
   const el = $('loading');
   setLoadProgress('Ready', 1);
   el.removeAttribute('aria-busy');
@@ -56,7 +57,7 @@ export function loadingDone(title: boolean): Promise<void> {
   };
   if (!title || tappedAhead) {
     // let the boat arrive at the landing before the card lifts (short, and only once)
-    return new Promise((res) => setTimeout(() => { finish(); res(); }, tappedAhead ? 0 : 350));
+    return new Promise((res) => setTimeout(() => { finish(); res(false); }, tappedAhead ? 0 : 350));
   }
   return new Promise((res) => {
     setTimeout(() => {
@@ -74,7 +75,7 @@ export function loadingDone(title: boolean): Promise<void> {
         el.removeEventListener('click', set);
         window.removeEventListener('keydown', set, true);
         finish();
-        res();
+        res(true);
       };
       el.addEventListener('click', set);
       window.addEventListener('keydown', set, true);
