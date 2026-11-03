@@ -261,7 +261,8 @@ function installWorld(w: LoadedWorld) {
   // rigged NPCs (world/npcs.glb); older exports bake their NPCs into the chunks and have none
   crowd = w.npcs ? new NpcCrowd(w.npcs, w.gameplay.npcs ?? []) : null;
   if (crowd) scene.add(crowd.group); // not in worldRoot: the capture 'isolate' mode hides worldRoot only
-  gameAudio.setWorld(w.gameplay.interacts, w.gameplay.birds ?? [], (w.gameplay.mammals ?? []) as { species?: string; kind?: string; pos?: number[] }[], (x, z, r) => !!land && land.hitsCircle(x, z, r));
+  gameAudio.setWorld(w.gameplay.interacts, w.gameplay.birds ?? [], (w.gameplay.mammals ?? []) as { species?: string; kind?: string; pos?: number[] }[], (x, z, r) => !!land && land.hitsCircle(x, z, r),
+    (w.gameplay.npcs ?? []) as { pos?: number[]; props?: Record<string, unknown> }[], w.gameplay.spawn?.pos);
 
   const model = upg.pickModel(w) ?? w.boat ?? placeholderBoat();
   if (!boat) { boat = new Boat(model); scene.add(boat.root); } else boat.setModel(model);
@@ -1000,7 +1001,7 @@ function audioFrame(dt: number) {
     boat: { x: boat.pos.x, z: boat.pos.z, speed: boat.speed, maxSpeed: BOAT_TUNING.maxSpeed, throttle: lastThrottle, moored: boat.moored, heavy: boat.modelObject?.name === 'BOAT_T1' },
     onFoot: foot.active,
     feet: foot.active ? { x: foot.feet.x, z: foot.feet.z } : undefined,
-    tod: look.key,
+    tod: look.key, hour: clockHour,
     rain: rain.rain, storm: rain.storm,
     fishing: { phase: fishing.phase, tension: fishing.tension, reelHeld: fishing.reelHeld, thrashing: fishing.thrashing, distance: fishing.distance, bobber: { x: bp.x, z: bp.z } },
   });
@@ -1020,7 +1021,7 @@ async function boot() {
   const shown = await hud.loadingDone(title);
   titleOpen = false;
   // the drawing comes to life with the camera swing; a tap during loading skipped the title: no bloom
-  if (shown) { sepia.bloom(reduceMotion()); document.body.classList.add('title-bloom'); } else sepia.off();
+  if (shown) { sepia.bloom(reduceMotion()); document.body.classList.add('title-bloom'); gameAudio.title(); } else sepia.off();
   // Poll for a (new) export; swap in live when READY appears or changes.
   setInterval(() => { if (!fishing.active && !modalOpen) loadWorld(false); }, 5000);
 }
@@ -1195,10 +1196,11 @@ window.__debug = {
   /** Audio (src/audio): live state, forced music, and offline renders (WAV base64 + level stats). */
   audio: {
     state: () => gameAudio.state(),
-    forceMusic: (v: 'day' | 'night' | 'dusk' | 'town') => gameAudio.forceMusic(v),
+    forceMusic: (v: 'day' | 'night' | 'dusk' | 'town' | 'dawn' | 'village' | 'rain' | 'storm' | 'cove' | 'fog' | 'title') => gameAudio.forceMusic(v),
+    motif: (g: 'title' | 'landing' | 'firstfish' | 'gran' | 'sea') => gameAudio.motif(g),
     setGap: (min: number, max: number) => gameAudio.setGap(min, max),
     render: (kind: string, secs: number, seed?: number) => renderOffline(kind, secs, seed),
-    compose: (v: 'day' | 'night' | 'dusk' | 'town', seed: number) => { const p = composePiece(v, seed); return { ...p, events: p.events.length }; },
+    compose: (v: 'day' | 'night' | 'dusk' | 'town' | 'dawn' | 'village' | 'rain' | 'storm' | 'cove' | 'fog' | 'title', seed: number) => { const p = composePiece(v, seed); return { ...p, events: p.events.length }; },
     volumes: (m: number, s: number) => gameAudio.setVolumes(m, s),
     /** footstep surface probe: vertex colour under (x,z) and its class */
     surface: (x: number, z: number, y = 2) => { const c = foot.world.surfaceColor(x, z, y); return { ...c, s: surfaceFromColor(c, y) }; },

@@ -234,6 +234,7 @@ async function renders() {
   await page.waitForFunction(() => window.__debug && window.__debug.audio, null, { timeout: 120000 });
   const jobs = [
     ['music_day', 'music:day', 75, 11], ['music_day_b', 'music:day', 75, 23], ['music_night', 'music:night', 75, 5], ['music_town', 'music:town', 50, 3], ['music_dusk', 'music:dusk', 60, 8],
+    ['music_dawn', 'music:dawn', 60, 3], ['music_village', 'music:village', 60, 6], ['music_storm', 'music:storm', 60, 2], ['music_title', 'scene:title', 30, 1],
     ['fight', 'fight', 22, 4], ['fishing_sfx', 'fishing', 17, 1], ['boat', 'boat', 15, 1], ['wildlife', 'wildlife', 15, 1], ['foot_and_talk', 'foot', 13, 1], ['ui', 'ui', 12, 1],
     ['amb_open', 'amb:open', 30, 1], ['amb_harbour', 'amb:harbour', 30, 1], ['amb_forest', 'amb:forest', 30, 1], ['amb_forest_dusk', 'amb:forest_dusk', 30, 1], ['amb_night', 'amb:forest_night', 30, 1], ['amb_fog', 'amb:open_fog', 45, 1],
     ['rain_drizzle', 'rain:drizzle', 20, 1], ['rain_steady', 'rain:steady', 20, 1], ['rain_storm', 'rain:storm', 22, 1],
@@ -249,7 +250,7 @@ async function renders() {
     check(ok, `render ${file}`, `peak ${s.peakDb} dBFS, rms ${s.rmsDb} dBFS, clipped ${s.clipped}, silent ${s.silentPct}%, bands <200/mid/>4k ${s.bandPct.below200}/${s.bandPct.mid}/${s.bandPct.above4k}%, voices ${s.peakVoices}, dropped ${s.dropped} (${((Date.now() - t) / 1000).toFixed(1)} s)`);
   }
   // compose stats (form / event counts) for a few seeds
-  const forms = await page.evaluate(() => ['day', 'night', 'town', 'dusk'].flatMap((v) => [1, 2, 3].map((sd) => { const p = window.__debug.audio.compose(v, sd); return `${v}#${sd}: ${p.mode} ${p.bpm}bpm ${p.meter === 6 ? '6/8' : p.meter + '/4'} ${p.bars} bars ${p.length.toFixed(0)}s lead=${p.lead} [${p.form}] ${p.events} notes`; })));
+  const forms = await page.evaluate(() => ['dawn', 'day', 'town', 'village', 'dusk', 'night', 'rain', 'storm'].flatMap((v) => [1, 2, 3].map((sd) => { const p = window.__debug.audio.compose(v, sd); return `${v}#${sd}: ${p.mode} ${p.bpm}bpm ${p.meter === 6 ? '6/8' : p.meter + '/4'} ${p.bars} bars ${p.length.toFixed(0)}s lead=${p.lead} motif=${p.motif} [${p.form}] ${p.events} notes`; })));
   forms.forEach((f) => log('  compose', f));
   fs.writeFileSync(path.join(OUT, 'levels.json'), JSON.stringify(levels, null, 2));
   check(errors.length === 0, `[render] console errors: ${errors.length}`, errors.slice(0, 4).join(' | '));
