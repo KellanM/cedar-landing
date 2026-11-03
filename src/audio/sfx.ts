@@ -234,6 +234,14 @@ export function makeSfx(e: AudioEngine) {
       e.burst(at, 0.4 + 0.4 * big, 'lowpass', 380, 120, 0.3 * p.gain * big, B('sfx', p, { a: 0.04, kind: 'brown' }));
       e.log('sfx.blow', kind);
     },
+    /** ocean pass 3: the hull landing off a wave (k 0..1): a whoosh of spray, the splash, a thump in the hull (deeper for the Packer) */
+    hullSplash(at: number, k: number, heavy: boolean, p: Place = HERE) {
+      const g = p.gain * (0.35 + 0.65 * k);
+      e.burst(at - 0.04, 0.22 + 0.12 * k, 'highpass', 3200, 900, 0.22 * g, B('sfx', p, { a: 0.05, kind: 'white' })); // whoosh as she comes down
+      splash(at, 0.8 + 2.2 * k, { ...p, gain: g });
+      e.tone('sine', heavy ? 62 : 88, heavy ? 34 : 46, at, 0.16 + 0.12 * k, (0.25 + 0.45 * k) * p.gain, B('sfx', p, { a: 0.003 })); // thump
+      e.log('sfx.hullSplash');
+    },
     bigSplash(at: number, kind: 'breach' | 'slap', p: Place) {
       splash(at, kind === 'breach' ? 3 : 2, p);
       e.tone('sine', kind === 'breach' ? 70 : 120, 38, at, kind === 'breach' ? 0.6 : 0.25, 0.6 * p.gain, B('sfx', p, { a: 0.004 }));

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { toonMat, worldMat } from '../../render/materials';
-import { FaceRig } from '../face';
-import { WOBBLE } from '../wobble';
+import { FaceRig, type Expr } from '../face';
+import { MOTION, WOBBLE } from '../wobble';
+import { lineEmotion } from '../onfoot/npclines';
 import type { Npc } from '../../world/types';
 import { BONES, type BoneName, Spring, addLocal, ease, hash01, npcLimb } from './rigpose';
 
@@ -22,6 +23,16 @@ const NEAR = 22; // full rate within this many metres of the camera
 const FAR = 55; // frozen beyond
 const NOTICE = 7; // m: start watching the player
 const LOD_FAR = 40; // m: the decimated body (…_Mesh_LOD1) takes over beyond this
+const REACT_R = 15; // m: NPCs react to things happening this close
+const EXPR_CAP = 12; // most NPCs showing a non-neutral face at once (nearest to the camera win)
+/** Temperament (docs/character_study.md, personality hooks): how big their reactions are and their talk default. */
+type Temper = 'excitable' | 'dry' | 'cocky' | 'startled' | 'calm' | 'warm';
+const TEMPER: Record<string, Temper> = {
+  NPC_TheCrier: 'excitable', NPC_OldTess: 'dry', NPC_Pip: 'cocky', NPC_Filler_Town_01: 'startled', NPC_Marlo: 'dry', NPC_DockhandJuno: 'warm',
+  NPC_Coralie: 'warm', NPC_TheCartographer: 'calm', NPC_Fen: 'dry', NPC_ShellCollectorAma: 'warm', NPC_PV_StoryKeeper: 'calm', NPC_PV_Cook: 'warm',
+  NPC_PV_SmokehouseKeeper: 'calm', NPC_PV_Carver: 'calm', NPC_PV_NetMender: 'dry', NPC_Filler_Town_07: 'dry', NPC_Filler_Town_02: 'cocky',
+};
+export type WorldEvent = 'catch' | 'catch_big' | 'legendary' | 'thunder' | 'thunder_near';
 const D = Math.PI / 180;
 
 type Kind = 'stand' | 'hands_hips' | 'lean' | 'read' | 'carry' | 'carry_back' | 'sit' | 'wave' | 'wave_kid' | 'cry' | 'mend' | 'carve' | 'stir'
@@ -55,7 +66,10 @@ interface Actor {
   fwdYaw: number;
   /** friendslop: expression overlays + LOD swap */
   face: FaceRig | null;
-  lod0: THREE.Object3D | null; lod1: THREE.Object3D | null; lodOn: boolean; // world yaw the NPC faces at rest (three: forward = (sin, 0, cos))
+  lod0: THREE.Object3D | null; lod1: THREE.Object3D | null; lodOn: boolean;
+  /** NPC expressions: an event / talk emote (expr for emoT s, then `next`), priority, temperament, cooldowns */
+  emo: Expr; emoT: number; emoP: number; next: { e: Expr; t: number } | null; temper: Temper;
+  approachCD: number; want: Expr; dist: number; meta: Npc | undefined; // world yaw the NPC faces at rest (three: forward = (sin, 0, cos))
 }
 
 const _v = new THREE.Vector3();
@@ -72,7 +86,10 @@ export class NpcCrowd {
   actors: Actor[] = [];
   private byName = new Map<string, Actor>();
   /** stats for tests / perf */
-  stats = { actors: 0, animated: 0, frozen: 0, ms: 0, lod: 0 };
+  stats = { actors: 0, animated: 0, frozen: 0, ms: 0, lod: 0, expressive: 0 };
+  /** ambient mood from the weather (set by main) */
+  ambient = { rain: 0, storm: 0, rough: false };
+  pairT = 5;
 
   constructor(scene: THREE.Object3D, npcs: Npc[]) {
     this.group.name = 'NPCs';
@@ -132,6 +149,8 @@ export class NpcCrowd {
       interest: 0, noticeDelay: 0.25 + hash01(name, 11) * 0.35, glanceT: 2 + hash01(name, 13) * 5, glanceYaw: 0,
       talkT: 99, waveW: new Spring(1, 6, 0.8), greeted: false, pos, fwdYaw: Math.atan2(f.x, f.z),
       face: null, lod0: sm, lod1, lodOn: false,
+      emo: 'neutral', emoT: 0, emoP: 0, next: null, temper: TEMPER[name] ?? (String(ud.age ?? n?.props?.age ?? '') === 'child' ? 'excitable' : 'calm'),
+      approachCD: 0, want: 'neutral', dist: 99, meta: n,
     };
     const fr = new FaceRig(node, seed);
     if (fr.has) a.face = fr;
@@ -152,6 +171,56 @@ export class NpcCrowd {
     });
   }
 
+  /** Show an expression on one NPC for `sec` s (then `then` for `thenSec`). Higher priority wins. */
+  emote(name: string, e: Expr, sec: number, prio = 1, then?: Expr, thenSec = 0) {
+    const a = this.byName.get(name);
+    if (a) this.emoteA(a, e, sec, prio, then, thenSec);
+  }
+  private emoteA(a: Actor, e: Expr, sec: number, prio = 1, then?: Expr, thenSec = 0) {
+    if (a.emoT > 0 && a.emoP > prio) return;
+    a.emo = e; a.emoT = sec; a.emoP = prio; a.next = then ? { e: then, t: thenSec } : null;
+  }
+  private kick(a: Actor, hop: number, flinch: number) {
+    if (MOTION.reduced) return;
+    a.hop.kick(hop * WOBBLE.k);
+    a.nod.kick(-flinch * WOBBLE.k);
+  }
+  /** An NPC says a line (talk bubble or the opening's notes): show the line's emotion while it is up. */
+  speak(nameOrDisplay: string, line: string, sec = 5) {
+    const a = this.byName.get(nameOrDisplay) ?? this.actors.find((x) => (x.meta?.npc_name ?? x.meta?.props?.npc_name) === nameOrDisplay);
+    if (!a || a.kind === 'static') return;
+    let e: Expr = (lineEmotion(line) as Expr | null) ?? (a.temper === 'excitable' || a.temper === 'cocky' ? 'joy' : a.temper === 'dry' ? 'neutral' : 'happy');
+    if (a.temper === 'dry' && (e === 'joy' || e === 'happy')) e = 'neutral'; // Old Tess doesn't gush
+    if (a.temper === 'cocky' && e === 'happy') e = 'laugh';
+    this.emoteA(a, e, sec, 3);
+  }
+  /** Something happened at (x, z): NPCs within REACT_R react by temperament. */
+  reactAt(x: number, z: number, ev: WorldEvent) {
+    for (const a of this.actors) {
+      if (a.kind === 'static' || a.lodOn) continue;
+      const d = Math.hypot(a.pos.x - x, a.pos.z - z);
+      if (d > (ev.startsWith('thunder') ? 60 : REACT_R)) continue;
+      const late = 0.1 + hash01(a.name, Math.floor(performance.now() / 997)) * 0.35; // not in sync
+      const tp = a.temper;
+      switch (ev) {
+        case 'catch': if (tp === 'excitable' || tp === 'warm') this.emoteA(a, 'happy', 2.2 + late, 2); break;
+        case 'catch_big':
+          if (tp === 'dry') this.emoteA(a, 'surprised', 0.5 + late, 2, 'neutral', 1);
+          else this.emoteA(a, 'surprised', 0.45 + late, 2, tp === 'excitable' || tp === 'cocky' ? 'joy' : 'happy', 2.5);
+          if (tp === 'excitable') this.kick(a, 1.6, 0);
+          break;
+        case 'legendary':
+          this.emoteA(a, 'surprised', 0.4 + late, 2, tp === 'dry' ? 'happy' : 'joy', 3.2);
+          this.kick(a, tp === 'dry' ? 0.8 : 2.4, 0);
+          break;
+        case 'thunder': case 'thunder_near':
+          this.emoteA(a, 'surprised', (tp === 'startled' ? 1.4 : 0.7) + late * 0.3, 2, a.child || tp === 'startled' ? 'worried' : tp === 'cocky' ? 'laugh' : undefined, 1.6);
+          this.kick(a, ev === 'thunder_near' ? 1.4 : 0.7, ev === 'thunder_near' ? 3.2 : 1.8);
+          break;
+      }
+    }
+  }
+
   /** Player started talking to an NPC (by gameplay name). */
   react(name: string) {
     const a = this.byName.get(name);
@@ -169,6 +238,7 @@ export class NpcCrowd {
     for (const a of this.actors) {
       if (a.kind === 'static') continue;
       const dc = a.pos.distanceTo(cam);
+      a.dist = dc;
       // LOD: the decimated body beyond LOD_FAR (hysteresis 3 m)
       if (a.lod1 && a.lod0) {
         const want = a.lodOn ? dc > LOD_FAR - 3 : dc > LOD_FAR;
@@ -187,6 +257,28 @@ export class NpcCrowd {
     }
     this.stats.animated = animated;
     this.stats.lod = lods;
+    // NPC↔NPC: now and then a pair nearby shares a laugh / a bit of gossip; lone kids get excited
+    this.pairT -= dt;
+    if (this.pairT <= 0) {
+      this.pairT = 6 + Math.random() * 7;
+      const pool = this.actors.filter((x) => x.kind !== 'static' && !x.lodOn && x.dist < 25 && x.emoT <= 0 && x.talkT > 7);
+      const a = pool[Math.floor(Math.random() * pool.length)];
+      if (a) {
+        let b: Actor | null = null, bd = 5;
+        for (const x of pool) { if (x === a) continue; const d = x.pos.distanceTo(a.pos); if (d < bd) { bd = d; b = x; } }
+        if (b) { this.emoteA(a, 'laugh', 2.2, 1); this.emoteA(b, 'surprised', 0.5, 1, Math.random() < 0.6 ? 'laugh' : 'happy', 1.7); }
+        else if (a.child || a.temper === 'excitable') { this.emoteA(a, 'joy', 1.4, 1); this.kick(a, 1.2, 0); }
+      }
+    }
+    // resolve every NPC's face; cap how many show a non-neutral one (nearest win); LOD NPCs stay neutral
+    let ex = 0;
+    const order = this.actors.filter((x) => x.face && x.kind !== 'static').sort((p, q) => p.dist - q.dist);
+    for (const a of order) {
+      let e: Expr = a.lodOn ? 'neutral' : a.want;
+      if (e !== 'neutral') { if (ex >= EXPR_CAP) e = 'neutral'; else ex++; }
+      a.face!.set(e);
+    }
+    this.stats.expressive = ex;
     this.stats.frozen = frozen;
     this.stats.ms = performance.now() - t0;
   }
@@ -194,7 +286,20 @@ export class NpcCrowd {
   private animate(a: Actor, dt: number, player: THREE.Vector3 | null) {
     a.t += dt;
     a.talkT += dt;
-    if (a.face) { a.face.set(a.talkT < 6 ? 'happy' : 'neutral'); a.face.update(dt); }
+    // expression: event / talk emote > approach > weather mood > calm
+    if (a.emoT > 0) { a.emoT -= dt; if (a.emoT <= 0 && a.next) { a.emo = a.next.e; a.emoT = a.next.t; a.next = null; } }
+    a.approachCD -= dt;
+    if (player && a.approachCD <= 0 && a.talkT > 6 && a.emoT <= 0 && Math.hypot(player.x - a.pos.x, player.z - a.pos.z) < 2.6) {
+      this.emoteA(a, 'surprised', a.temper === 'startled' ? 0.8 : 0.35, 1, a.temper === 'dry' ? 'neutral' : 'happy', 2); // walking right up: blink of surprise, then a smile
+      a.approachCD = 25;
+    }
+    let want: Expr = 'neutral';
+    if (this.ambient.storm > 0.5 || this.ambient.rough) want = a.temper === 'cocky' ? 'neutral' : 'worried';
+    else if (this.ambient.rain > 0.35 && hash01(a.name, 17) < 0.45) want = 'grumpy'; // squinting into the rain
+    if (a.talkT < 6) want = 'happy';
+    if (a.emoT > 0) want = a.emo;
+    a.want = want;
+    if (a.face) a.face.update(dt);
     const t = a.t;
     const B = a.bones, R = a.rest;
 
@@ -365,7 +470,7 @@ export class NpcCrowd {
         break;
       }
     }
-    if (a.kind === 'wave_kid' || a.child) hipLift += Math.max(0, a.hop.x) * 0.05;
+    hipLift += Math.max(0, a.hop.x) * (a.kind === 'wave_kid' || a.child ? 0.05 : 0.035); // emote hops (kids bigger)
 
     // attention on top: chest takes 20 %, neck 35 %, head 45 % of the look; pitch on neck + head
     chY += ly * 0.2; nkY += ly * 0.35; hdY += ly * 0.45;

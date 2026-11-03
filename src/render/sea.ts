@@ -85,15 +85,20 @@ uniform float uWave;
 varying vec3 vWorld;
 #ifdef SWELL
 ${SWELL_GLSL}
-varying vec2 vSw;
+varying vec2 vUnd;
+varying vec3 vSwI; // shelter (chop, swell), swell height
 #endif
 #include <fog_pars_vertex>
 void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
 #ifdef SWELL
-  // ocean experiment (src/game/swell.ts): the real swell replaces the decorative ripple
-  vSw = swellEval(wp.xz);
-  wp.y += vSw.x;
+  // ocean pass 2 (src/game/swell.ts): the cascades displace the grid (choppy: x/z move too)
+  vec2 und = wp.xz;
+  vUnd = und;
+  vec2 shv = uSwOn > 0.5 ? swShelter(und) : vec2(1.0);
+  vec3 dd = uSwOn > 0.5 ? swellDispSh(und, shv) : vec3(0.0);
+  wp.xyz += dd;
+  vSwI = vec3(shv, dd.y);
 #else
   float w = sin(wp.x * 0.21 + uTime * 0.9) * 0.5 + sin(wp.z * 0.17 - uTime * 0.7) * 0.35 + sin((wp.x + wp.z) * 0.43 + uTime * 1.6) * 0.15;
   float fade = 1.0 - smoothstep(60.0, 140.0, length(wp.xz - cameraPosition.xz));
@@ -143,9 +148,22 @@ uniform float uLow;
 uniform float uDebug;
 varying vec3 vWorld;
 #ifdef SWELL
-varying vec2 vSw;
+varying vec2 vUnd;
+varying vec3 vSwI;
+uniform sampler2D uSwS0;
+uniform sampler2D uSwS1;
+uniform sampler2D uSwS2;
+uniform sampler2D uSwF0;
+uniform sampler2D uSwF1;
+uniform vec3 uSwL;
 uniform float uSwFoam;
-uniform float uSwState;
+uniform float uSwHs;
+uniform float uSwDanger;
+uniform float uSwFacet;
+uniform float uSwDetail;
+uniform vec3 uSkyCol;
+uniform vec3 uScatterCol;
+uniform vec3 uDangerCol;
 #endif
 #include <fog_pars_fragment>
 
@@ -268,7 +286,8 @@ void main() {
 
   float nearK = 1.0 - smoothstep(uCrestFar * 0.6, uCrestFar * 1.6, dist);
 
-  // ---- slow swell: 3 tones, banded
+  // ---- slow swell: 3 tones, banded (Classic only: the real swell replaces it)
+#ifndef SWELL
   if (uSwell > 0.0 && nearK > 0.0) {
     vec2 perp = vec2(-uWind.y, uWind.x);
     float s = sin(dot(wp.xz, uWind) * 0.06 - uTime * 0.55) * 0.6 + sin(dot(wp.xz, perp) * 0.037 + uTime * 0.31 + nz.r * 3.0) * 0.4;
@@ -276,21 +295,44 @@ void main() {
     float tone = smoothstep(0.35 - tw, 0.35 + tw, s) - smoothstep(0.35 - tw, 0.35 + tw, -s);
     col *= 1.0 + tone * uSwell * nearK;
   }
+#endif
 
 #ifdef SWELL
-  // ---- swell facets (docs/ocean_study.md): flat per-triangle normal, a few % of value toward the
-  // sun, and a lighter backlit tint high on the waves (SoT's subsurface mask, muted)
-  if (dist < 140.0) {
+  // ---- ocean pass 2 (docs/ocean_study.md): per-pixel normals from the cascades' slope textures
+  // (smooth geometry + detailed normals, as the PB oceans do), or flat facets + the fine cascade
+  // ("faceted but detailed"); then unlit stylised PB terms: value toward the sun, Fresnel to the
+  // sky, crest subsurface (Atlas' scatter term, muted), dark steep faces in dangerous seas.
+  vec3 swN = vec3(0.0, 1.0, 0.0);
+  float swFoam = 0.0;
+  {
+    vec2 u0 = vUnd / uSwL.x, u1 = vUnd / uSwL.y, u2 = vUnd / uSwL.z;
+    vec4 s0 = texture2D(uSwS0, u0);
+    vec4 s1 = texture2D(uSwS1, u1);
+    // each band fades once a pixel covers a fair part of its shortest wave (no shimmer)
+    float w1 = 1.0 - smoothstep(0.6, 2.6, footprint);
+    float w2 = (1.0 - smoothstep(0.07, 0.3, footprint)) * uSwDetail * 0.55;
+    vec4 s2 = w2 > 0.0 ? texture2D(uSwS2, u2) : vec4(0.0);
+    vec2 sl = s0.xy * vSwI.y + s1.xy * vSwI.x * w1 + s2.xy * vSwI.x * w2;
+    vec3 Ns = normalize(vec3(-sl.x, 1.0, -sl.y));
     vec3 fn = normalize(cross(dFdx(wp), dFdy(wp)));
     if (fn.y < 0.0) fn = -fn;
-    vec3 L = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.3), uSunDir.z));
-    float near2 = 1.0 - smoothstep(60.0, 135.0, dist);
-    col *= 1.0 + clamp((dot(fn, L) - L.y) * 2.2, -0.12, 0.09) * near2;
-    vec2 vd = -toCam.xz / max(dist, 1e-3);
-    vec2 sd2 = uSunDir.xz / max(length(uSunDir.xz), 1e-3);
-    float back = 0.35 + 0.65 * clamp(dot(vd, sd2), 0.0, 1.0);
-    float hi = smoothstep(0.04, 0.22 + 0.45 * uSwState, vSw.x);
-    col = mix(col, uShallow, hi * back * 0.24 * near2);
+    vec3 Nf = normalize(fn + vec3(-s2.x, 0.0, -s2.y) * vSwI.x * w2 * 0.8);
+    swN = normalize(mix(Ns, Nf, uSwFacet * (1.0 - smoothstep(60.0, 140.0, dist))));
+    vec3 V = normalize(toCam);
+    vec3 L = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.2), uSunDir.z));
+    col *= 1.0 + clamp((dot(swN, L) - L.y) * 0.8, -0.14, 0.1);
+    float fres = 0.02 + 0.98 * pow(1.0 - clamp(dot(swN, V), 0.0, 1.0), 5.0);
+    col = mix(col, uSkyCol, clamp(fres, 0.0, 1.0) * 0.55);
+    float H = clamp(vSwI.z / (uSwHs * 0.6), 0.0, 1.0);
+    float toward = pow(clamp(dot(normalize(vec2(-V.x, -V.z) + 1e-4), normalize(L.xz + 1e-4)), 0.0, 1.0), 2.0);
+    float sss = H * (0.35 + 0.65 * toward) * (0.6 + 0.4 * pow(clamp(dot(V, swN), 0.0, 1.0), 2.0));
+    col = mix(col, uScatterCol, sss * 0.45);
+    float steep = 1.0 - swN.y;
+    col = mix(col, uDangerCol, smoothstep(0.06, 0.3, steep) * uSwDanger * 0.7);
+    float f0 = 0.0, f1 = 0.0;
+    if (dist < 160.0) { f0 = texture2D(uSwF0, u0).r * vSwI.y; f1 = texture2D(uSwF1, u1).r * vSwI.x * w1; }
+    float jNow = clamp((uSwFoam - (s0.z + s1.z - 1.0)) * 5.0, 0.0, 1.0) * vSwI.x; // combined Jacobian (first order)
+    swFoam = max(max(f0, f1), jNow) * (1.0 - smoothstep(90.0, 160.0, dist)) * smoothstep(2.0, 6.0, sd);
   }
 #endif
 
@@ -328,19 +370,26 @@ void main() {
   col = mix(col, uCrestCol, crest);
 
 #ifdef SWELL
-  // ---- whitecaps where the crest's downward acceleration passes ~0.5 g (lower in storms): a
-  // crest-coloured core and a bead-coloured apron, broken by noise (our crest colours, not photoreal foam)
-  if (dist < 120.0 && vSw.y > uSwFoam * 0.6) {
-    vec4 fz = texture2D(uNoise, wp.xz * 0.11 + uWind * uTime * 0.02);
-    float fm = vSw.y + (fz.b - 0.5) * 0.22;
+  // ---- foam, drawn like the crests (a white stroke round each patch, a bead-tinted wash inside),
+  // persistent: it lingers and drifts after the crest has passed (src/render/oceangpu.ts)
+  if (swFoam > 0.02) {
+    vec4 fz = texture2D(uNoise, vUnd * 0.09 + uWind * uTime * 0.01);
+    float fm = swFoam + (fz.b - 0.5) * 0.5 + (fz.g - 0.5) * 0.25;
     float fw = max(fwidth(fm), 1e-3);
-    float fk = (1.0 - smoothstep(70.0, 120.0, dist)) * smoothstep(2.0, 6.0, sd);
-    // drawn like the crests: a white stroke round the breaking patch, a bead-tinted wash inside
-    float inside = smoothstep(uSwFoam - fw, uSwFoam + fw, fm);
-    float rim = inside * (1.0 - smoothstep(uSwFoam + 0.045 - fw, uSwFoam + 0.045 + fw, fm));
-    float core = smoothstep(uSwFoam + 0.2 - fw, uSwFoam + 0.2 + fw, fm);
-    col = mix(col, uBeadCol, inside * 0.55 * fk);
-    col = mix(col, uCrestCol, max(rim, core) * fk);
+    float inside = smoothstep(0.42 - fw, 0.42 + fw, fm);
+    float rim = inside * (1.0 - smoothstep(0.5 - fw, 0.5 + fw, fm));
+    float core = smoothstep(0.78 - fw, 0.78 + fw, fm);
+    col = mix(col, uBeadCol, inside * 0.6);
+    col = mix(col, uCrestCol, max(rim, core));
+  }
+  // wind-streaked foam lines in dangerous seas: long thin streaks along the wind
+  if (uSwDanger > 0.01 && dist < 160.0) {
+    vec2 wpp = vec2(-uWind.y, uWind.x);
+    vec2 q = vec2(dot(vUnd, wpp) * 0.3, dot(vUnd, uWind) * 0.02 - uTime * 0.02);
+    float st = texture2D(uNoise, q).b;
+    float sw2 = max(fwidth(st), 1e-3);
+    float streak = smoothstep(0.69 - sw2, 0.69 + sw2, st) * uSwDanger * (0.45 + 0.55 * clamp(swFoam * 3.0, 0.0, 1.0)) * (1.0 - smoothstep(70.0, 160.0, dist)) * smoothstep(2.0, 8.0, sd);
+    col = mix(col, uBeadCol, streak * 0.75);
   }
 #endif
 
@@ -371,6 +420,9 @@ void main() {
   if (uGlint > 0.0 && dist < (uLow > 0.5 ? 80.0 : 140.0)) {
     vec3 v = normalize(-toCam);
     vec3 r = vec3(v.x, -v.y, v.z);
+#ifdef SWELL
+    r = reflect(v, swN); // glints sparkle on the wave faces
+#endif
     float cone = smoothstep(uGlintCone, uGlintCone + (1.0 - uGlintCone) * 0.55, dot(r, uSunDir));
     if (cone > 0.0) {
       vec2 g = wp.xz / 1.4 + uScroll.xy * 0.35;
@@ -431,6 +483,7 @@ export class Sea {
       uShore: { value: 1 }, uSurfPeriod: { value: 5.5 }, uSurfReach: { value: 3.2 },
       uShallowAmt: { value: 1 }, uShallowDepth: { value: 4.5 }, uSwell: { value: 0.025 }, uMotion: { value: 1 }, uLow: { value: 0 },
       uDebug: { value: variant === 'field' ? 1 : 0 },
+      uSkyCol: { value: new THREE.Color(0xb8c4c8) }, uScatterCol: { value: new THREE.Color(0x6f9a8c) }, uDangerCol: { value: new THREE.Color(0x2f423e) },
     }]);
     this.uniforms.uNoise.value = noiseTexture();
     Object.assign(this.uniforms, SWELL_U); // ocean experiment: shared by reference
@@ -574,6 +627,10 @@ export class Sea {
     (u.uFoam.value as THREE.Color).copy(foam);
     (u.uCrestCol.value as THREE.Color).copy(sea).lerp(foam, this.crestMode === 'old' ? (night ? 0.35 : 0.5) : night ? 0.42 : 0.66);
     (u.uBeadCol.value as THREE.Color).copy(sea).lerp(foam, night ? 0.24 : 0.36);
+    // ocean pass 2: the sky the grazing faces mirror, the crest scatter tint, the dangerous-face tone
+    (u.uSkyCol.value as THREE.Color).copy(haze).lerp(new THREE.Color(t.horizon), 0.5).lerp(sea, 0.25);
+    (u.uScatterCol.value as THREE.Color).copy(shallow).lerp(new THREE.Color(0x7fb3a0), 0.35).multiplyScalar(night ? 0.5 : 1.08);
+    (u.uDangerCol.value as THREE.Color).copy(sea).lerp(new THREE.Color(0x24372f), 0.6);
     // glints by key (overcast / fog have no sun)
     const k = key.toLowerCase();
     const g = /night|moon/.test(k) ? { amt: 0.7, col: 0xcfdcf4 } : /dusk|sunset|golden/.test(k) ? { amt: 1, col: 0xffd8a6 } : /dawn|sunrise/.test(k) ? { amt: 1, col: 0xffe2c4 }

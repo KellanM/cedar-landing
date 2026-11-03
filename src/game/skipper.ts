@@ -60,6 +60,12 @@ export class Skipper {
   /** expression overlays (src/game/face.ts) */
   expr: FaceRig | null = null;
   setExpr(e: Expr) { this.expr?.set(e); }
+  /** world point to glance at over the shoulder (the camera, on expressive beats) so the face reads;
+   *  null = eyes front. The fishing camera sits behind him, so without this his face is never seen. */
+  glance: THREE.Vector3 | null = null;
+  private glanceYaw = 0;
+  private glanceV = 0;
+  private glanceTmp = new THREE.Vector3();
   /** landing squash (WOBBLE): kicked when a hop lands */
   private sq = 0; private sqV = 0; private lastHop = 0;
   private eul = new THREE.Euler();
@@ -226,6 +232,19 @@ export class Skipper {
     const breathe = Math.sin(this.t * 1.6) * 0.02;
     if (b.chest) b.chest.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(1, 0, 0), breathe - this.strain * 0.22));
     if (b.spine) b.spine.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(1, 0, 0), -this.strain * 0.12));
+    // glance at the camera: head 65 % / chest 35 % of the yaw (bone-local z = up), up to ~100° over the shoulder
+    let gy = 0;
+    if (this.glance) {
+      this.turn.updateWorldMatrix(true, false);
+      this.glanceTmp.copy(this.glance); this.turn.worldToLocal(this.glanceTmp);
+      gy = THREE.MathUtils.clamp(Math.atan2(this.glanceTmp.x, this.glanceTmp.z), -1.75, 1.75);
+    }
+    // critically damped follow (no overshoot: the head turns and stays put)
+    { const w = 9, h = Math.min(dt, 1 / 30); this.glanceV += (-2 * w * this.glanceV - w * w * (this.glanceYaw - gy)) * h; this.glanceYaw += this.glanceV * h; }
+    if (Math.abs(this.glanceYaw) > 1e-3) {
+      if (b.chest) b.chest.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(0, 0, 1), this.glanceYaw * 0.35));
+      if (b.head) b.head.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(0, 0, 1), this.glanceYaw * 0.65));
+    }
     if (this.crank > 0.01 && b.forearm_L) {
       const c = Math.sin(this.t * 14) * 0.35 * this.crank;
       b.forearm_L.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(1, 0, 0), c));
