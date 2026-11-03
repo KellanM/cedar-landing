@@ -13,6 +13,7 @@ import path from 'node:path';
 const BASE = process.argv[2] ?? 'http://localhost:5197/cedar-landing/';
 const ONLY = process.argv[3] ?? 'both';
 const RENDER = !process.argv.includes('--no-render');
+const ONLYJOBS = (process.argv.find((a) => a.startsWith('--jobs=')) ?? '').slice(7);
 const OUT = path.resolve('screenshots/audio');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -237,9 +238,11 @@ async function renders() {
     ['fight', 'fight', 22, 4], ['fishing_sfx', 'fishing', 17, 1], ['boat', 'boat', 15, 1], ['wildlife', 'wildlife', 15, 1], ['foot_and_talk', 'foot', 13, 1], ['ui', 'ui', 12, 1],
     ['amb_open', 'amb:open', 30, 1], ['amb_harbour', 'amb:harbour', 30, 1], ['amb_forest', 'amb:forest', 30, 1], ['amb_forest_dusk', 'amb:forest_dusk', 30, 1], ['amb_night', 'amb:forest_night', 30, 1], ['amb_fog', 'amb:open_fog', 45, 1],
     ['rain_drizzle', 'rain:drizzle', 20, 1], ['rain_steady', 'rain:steady', 20, 1], ['rain_storm', 'rain:storm', 22, 1],
+    // catch fanfares per tier (docs/catch_study.md F5): pull-out at 0.2 s, reveal after the tier's arc
+    ['catch_quick', 'catch:quick', 3, 1], ['catch_common', 'catch:common', 4, 1], ['catch_uncommon', 'catch:uncommon', 5, 1], ['catch_rare', 'catch:rare', 6, 1], ['catch_legendary', 'catch:legendary', 8, 1], ['catch_rare_pb_perfect', 'catch:rare+pb+perfect', 6, 1],
   ];
   const levels = {};
-  for (const [file, kind, secs, seed] of jobs) {
+  for (const [file, kind, secs, seed] of jobs.filter(([f]) => !ONLYJOBS || f.startsWith(ONLYJOBS))) {
     const t = Date.now();
     const r = await page.evaluate(([k, s, sd]) => window.__debug.audio.render(k, s, sd), [kind, secs, seed]);
     fs.writeFileSync(path.join(OUT, `${file}.wav`), Buffer.from(r.wav, 'base64'));

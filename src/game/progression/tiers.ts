@@ -28,12 +28,14 @@ export const BOAT_TIERS: Record<BoatTierId, BoatTier> = {
   T0: {
     id: 'T0', model: 'BOAT_T0', name: 'the Little Troller', plate: '22 ft · 4 hp gas engine · built 1912',
     note: "Gran's boat. Snug, nimble, and happiest in the channels.", opens: ['Inside waters and the channels'],
-    price: 0, hold: 0, roughWater: false, tuning: { ...BOAT_T0 },
+    price: 0, hold: 0, roughWater: false,
+    // as quick as the Packer (Kellan); she keeps her own nimble turning
+    tuning: { ...BOAT_T0, maxSpeed: 8.6, maxReverse: 2.8, camLookAhead: 6.5, camPullBack: 4, camFovBoost: 6 },
   },
   T1: {
     id: 'T1', model: 'BOAT_T1', name: 'the Packer', plate: '31 ft · 12 hp heavy-duty engine · wheelhouse',
     note: 'A cannery packer, re-planked. Carries a fish hold and rides out a chop.',
-    opens: ['The rough outer grounds (fog bank, drop-off, spires)', 'Fish hold: +6 cooler slots', 'Faster, steadier at speed'],
+    opens: ['The rough outer grounds (fog bank, drop-off, spires)', 'Fish hold: +6 cooler slots', 'Steadier at speed'],
     price: 1600, hold: 6, roughWater: true,
     tuning: {
       ...BOAT_T0,
