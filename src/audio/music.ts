@@ -435,11 +435,19 @@ export class MusicDirector {
   }
 
   /** The catch: the tension resolves into a cadence. big = rare species or a first catch. */
-  resolve(big: boolean) {
+  resolve(big: boolean, quiet = false) {
     const e = this.e;
     const F = this.fight;
     const tonic = F?.tonic ?? this.lastTonic, mode = F?.mode ?? 'major';
     if (F) this.stopFight(true);
+    if (quiet) {
+      // a catch fanfare is playing (src/audio/fanfare.ts): the fight just stops, no cadence on top
+      this.state = 'resolve';
+      this.resolveUntil = e.now + 3;
+      this.nextAt = Math.min(Math.max(this.nextAt, e.now + 25), e.now + 70);
+      e.log('music.resolve', 'quiet');
+      return;
+    }
     const sc = SCALES[mode];
     const t = e.now + 0.05;
     const dest = e.ctx.createGain(); // its own sub-mix: never revives tails of a faded piece

@@ -42,6 +42,8 @@ export interface SpecimenOpts {
   note?: string;
   extra?: string;
   isNew?: boolean;
+  /** more stamps after the first (RECORD / PERFECT), thumped in one after another */
+  stamps?: string[];
   primary: { html: string; disabled?: boolean; onClick: () => void };
   secondary?: { html: string; onClick: () => void };
   hint?: string;
@@ -54,6 +56,7 @@ export function buildCard() {
   <article class="specimen paper deckle" role="dialog" aria-modal="true" aria-labelledby="card-name">
     <div class="fold" aria-hidden="true"></div>
     <div class="stamp" id="card-stamp">NEW</div>
+    <div class="stamps" id="card-stamps"></div>
     <div class="datestamp num" id="card-date"></div>
     <div class="sketch" id="card-art"></div>
     <div class="slot" id="card-slot"></div>
@@ -114,6 +117,10 @@ export function showSpecimen(o: SpecimenOpts) {
   setModal('card');
   fx('catch');
   if (o.stamp) setTimeout(() => { if (ctx.modal === 'card') fx('stamp'); }, reduceMotion() ? 0 : 250);
+  // extra stamps: each thumps in 230 ms after the last (a drumroll of ink, not a pile-up)
+  const more = (o.stamps ?? []).filter((x) => x && x !== o.stamp);
+  $('card-stamps').innerHTML = more.map((x, i) => `<div class="stamp more s${i}" style="--d:${(o.stamp ? 480 : 250) + i * 230}ms">${x}</div>`).join('');
+  more.forEach((_, i) => setTimeout(() => { if (ctx.modal === 'card') fx('stamp'); }, reduceMotion() ? 0 : (o.stamp ? 480 : 250) + i * 230));
 }
 
 function wireCardButtons() {
@@ -180,12 +187,26 @@ function hideSlip() {
 let seq = 0;
 const timers: number[] = [];
 
-export function showCard(fish: CaughtFish, sp: Species, stamp: 'NEW!' | 'RECORD!' | null, coolerFull: boolean, perfect: boolean) {
+export interface CatchShowOpts {
+  /** the victory sequence (src/game/catchshow.ts) already did the hold-up, bubble and line: show the result now */
+  direct?: boolean;
+  /** 'slip' (repeat commons) or 'card' */
+  mode?: 'slip' | 'card';
+  /** extra stamps that thump in one after another (RECORD / PERFECT) */
+  stamps?: string[];
+}
+
+export function showCard(fish: CaughtFish, sp: Species, stamp: 'NEW!' | 'RECORD!' | null, coolerFull: boolean, perfect: boolean, o: CatchShowOpts = {}) {
   wireCardButtons();
   const my = ++seq;
   timers.splice(0).forEach(clearTimeout);
   window.dispatchEvent(new CustomEvent('ui:fishlanded', { detail: { fish, species: sp, stamp, perfect } }));
-  const tierB = !!stamp || fish.rarity === 'rare' || fish.rarity === 'legendary';
+  const tierB = o.mode ? o.mode === 'card' : !!stamp || fish.rarity === 'rare' || fish.rarity === 'legendary';
+  if (o.direct) {
+    if (tierB) showCatchCard(fish, sp, stamp, coolerFull, perfect, o.stamps ?? []);
+    else showSlip(fish, coolerFull);
+    return;
+  }
   Promise.resolve(catchHooks.holdUp(fish)).then(() => {
     if (my !== seq) return;
     const at = (ms: number, f: () => void) => timers.push(window.setTimeout(() => { if (my === seq) f(); }, reduceMotion() ? Math.min(ms, 150) : ms));
@@ -193,11 +214,19 @@ export function showCard(fish: CaughtFish, sp: Species, stamp: 'NEW!' | 'RECORD!
     const held = catchHooks.bubbleAt();
     at(300, () => bubble(`${fish.name}! ${fish.size.toFixed(1)} cm`, held ? () => catchHooks.bubbleAt() ?? boatAnchor() : boatAnchor, { lift: held ? 0 : undefined, ms: tierB ? 1800 : 3200, cls: 'catch', key: 'catch', pre: fishGlyph(fish.speciesId) }));
     if (!tierB) { at(600, () => showSlip(fish, coolerFull)); return; }
-    at(900, () => { killBubble('catch'); showCatchCard(fish, sp, stamp, coolerFull, perfect); });
+    at(900, () => { killBubble('catch'); showCatchCard(fish, sp, stamp, coolerFull, perfect, []); });
   });
 }
 
-function showCatchCard(fish: CaughtFish, sp: Species, stamp: 'NEW!' | 'RECORD!' | null, coolerFull: boolean, perfect: boolean) {
+/** World bubble over the held fish: "Pile Perch! 27.5 cm" (the quick tier's whole line). */
+export function catchBubble(fish: CaughtFish, ms = 3200) {
+  const boatAnchor = () => new THREE.Vector3(ctx.boat.x, 0.6, ctx.boat.z);
+  const held = catchHooks.bubbleAt();
+  bubble(`${fish.name}! ${fish.size.toFixed(1)} cm`, held ? () => catchHooks.bubbleAt() ?? boatAnchor() : boatAnchor, { lift: held ? 0 : undefined, ms, cls: 'catch', key: 'catch', pre: fishGlyph(fish.speciesId) });
+}
+export const killCatchBubble = () => killBubble('catch');
+
+function showCatchCard(fish: CaughtFish, sp: Species, stamp: 'NEW!' | 'RECORD!' | null, coolerFull: boolean, perfect: boolean, extra: string[]) {
   const now = new Date();
   const k = Math.min(1, Math.max(0, (fish.size - sp.size[0]) / Math.max(1, sp.size[1] - sp.size[0])));
   const isNew = stamp === 'NEW!' && !log.first[fish.speciesId];
@@ -216,6 +245,7 @@ function showCatchCard(fish: CaughtFish, sp: Species, stamp: 'NEW!' | 'RECORD!' 
     note: `“${sp.flavor}” — G.`,
     extra: perfect ? '<p class="pencil">✓ perfect reel</p>' : '',
     isNew,
+    stamps: extra,
     primary,
     secondary: { html: 'Let go', onClick: () => ctx.h?.release() },
     hint,

@@ -80,7 +80,13 @@ export class ChaseCamera {
   /** stable fishing axis point (the cast point): the camera angle comes from this, not the wobbling fish */
   fishAxis: THREE.Vector3 | null = null;
   // hold-up shot
-  private land = { eye: new THREE.Vector3(), at: new THREE.Vector3(), k: 0, dir: 0 };
+  private land = { eye: new THREE.Vector3(), at: new THREE.Vector3(), tEye: new THREE.Vector3(), tAt: new THREE.Vector3(), k: 0, dir: 0, inT: FISH_CAM.landIn, dolly: 0, dollyT: 0 };
+  private bA = new THREE.Vector3();
+  private bB = new THREE.Vector3();
+  /** landscape: which side the catch card covers (+1 right, -1 left, 0 none) */
+  cardSide = 0;
+  /** hold-up shot occlusion test (from → to blocked by the boat?); null = don't check */
+  blocked: ((from: THREE.Vector3, to: THREE.Vector3) => boolean) | null = null;
   /** set false to drop shake/punch (prefers-reduced-motion) */
   motion = true;
 
@@ -174,27 +180,53 @@ export class ChaseCamera {
   /** Hold-up shot: a 3/4 front view of the skipper (`head`, facing `fwd`) and the fish in their hands. */
   /** Hold-up shot. `len` = drawn fish length (m): small fish in one hand get a close shot, big ones
    *  pull the camera back until the whole fish fits the frame width (portrait included). */
-  landing(head: THREE.Vector3, fwd: THREE.Vector3, fish: THREE.Vector3, len = 0.4, mode: 'hand' | 'hoist' = 'hoist') {
+  /** `tight` (catch show, docs/catch_study.md F2): 0 = the usual framing, 1 = the fish fills the frame
+   *  width and the camera keeps creeping in during the hold; `inT` = blend time (s). */
+  landing(head: THREE.Vector3, fwd: THREE.Vector3, fish: THREE.Vector3, len = 0.4, mode: 'hand' | 'hoist' = 'hoist', tight = 0, inT = FISH_CAM.landIn) {
     const F = FISH_CAM, L = this.land;
     const portrait = this.cam.aspect < 1;
     // pick the side the camera is already on, so the swing is short
     const s0 = Math.atan2(fwd.x, fwd.z);
     const cur = Math.atan2(this.cam.position.x - head.x, this.cam.position.z - head.z);
     const side = wrap(cur - s0) >= 0 ? 1 : -1;
-    const az = s0 + side * F.landSide * D2R;
+    let az = s0 + side * F.landSide * D2R;
     // frame-width fit: the fish (+ margin) spans at most ~80 % of the horizontal field of view
     const tanH = Math.tan((F.landFov * D2R) / 2) * this.cam.aspect;
-    const fit = (len * 1.05 + 0.35) / (2 * tanH * 0.8);
-    const base = mode === 'hand' ? F.landNear + 1.6 * len : F.landDist * (0.62 + 0.25 * len);
+    const fill = 0.8 + 0.14 * tight; // fraction of the frame width the fish (+ margin) may span
+    const fit = (len * 1.05 + 0.35) / (2 * tanH * fill);
+    const base = (mode === 'hand' ? F.landNear + 1.6 * len : F.landDist * (0.62 + 0.25 * len)) * (1 - 0.35 * tight);
     const d = Math.max(base * (portrait ? 1.15 : 0.75), fit);
     // looks down ~10° (mostly sea behind, not the whole horizon); the close one-hand shot stays near
     // face height so the sou'wester brim does not hide the face
     const up = mode === 'hand' ? 0.3 : 0.45 + 0.1 * d;
-    L.eye.set(head.x + Math.sin(az) * d, head.y + up, head.z + Math.cos(az) * d);
-    L.at.copy(head).lerp(fish, mode === 'hand' ? 0.6 : 0.5);
+    // the cabin roof / wheelhouse must not sit between the lens and the hold-up: try the preferred
+    // side, the other side, then wider angles (`blocked` is a raycast against the boat, set by main)
+    if (this.blocked) {
+      const tries = [side * F.landSide, -side * F.landSide, side * 70, -side * 70, side * 15, -side * 105, side * 105].map((a) => s0 + a * D2R);
+      const target = this.bA.copy(head).lerp(fish, 0.5);
+      for (const a of tries) {
+        this.bB.set(head.x + Math.sin(a) * d, head.y + up, head.z + Math.cos(a) * d);
+        if (!this.blocked(target, this.bB)) { az = a; break; }
+      }
+    }
+    L.tEye.set(head.x + Math.sin(az) * d, head.y + up, head.z + Math.cos(az) * d);
+    L.tAt.copy(head).lerp(fish, mode === 'hand' ? 0.6 : 0.5);
     // portrait: put the hold-up in the top third, clear of the catch card / slip below
-    if (portrait) L.at.y -= d * (mode === 'hand' ? 0.2 : 0.14);
+    if (portrait) L.tAt.y -= d * (mode === 'hand' ? 0.13 : 0.14);
+    // landscape: the specimen card sits at the side (right, or left when left-handed), so the subject
+    // is framed toward the other side instead of under the card
+    else if (this.cardSide) {
+      const ex = L.tEye.x - L.tAt.x, ez = L.tEye.z - L.tAt.z, el = Math.hypot(ex, ez) || 1;
+      const rx = -ez / el, rz = ex / el; // camera-LEFT on the ground plane: aim right of the subject
+      const k = d * 0.3 * this.cardSide;
+      L.tAt.x -= rx * k; L.tAt.z -= rz * k;
+    }
+    // a re-frame while the shot is up (the catch show re-aims at the reveal) glides, never snaps
+    if (L.k <= 0 || L.dir <= 0) { L.eye.copy(L.tEye); L.at.copy(L.tAt); }
     L.dir = 1;
+    L.inT = inT;
+    L.dolly = this.motion ? 0.1 * tight : 0; // slow creep toward the subject during the hold
+    L.dollyT = 0;
   }
   endLanding() { if (this.land.k > 0 || this.land.dir > 0) this.land.dir = -1; }
   get landingK() { return this.land.k; }
@@ -232,7 +264,9 @@ export class ChaseCamera {
     this.leanC.lerp(this.leanT, 1 - Math.exp(-dt * 3));
     const L = this.land;
     if (L.dir) {
-      L.k = Math.min(1, Math.max(0, L.k + (L.dir * dt) / (L.dir > 0 ? FISH_CAM.landIn : 0.8)));
+      L.k = Math.min(1, Math.max(0, L.k + (L.dir * dt) / (L.dir > 0 ? L.inT : 0.8)));
+      if (L.dir > 0 && L.k >= 1) L.dollyT += dt;
+      if (L.dir > 0) { const g = 1 - Math.exp(-dt * 4); L.eye.lerp(L.tEye, g); L.at.lerp(L.tAt, g); }
       if (L.k <= 0 && L.dir < 0) L.dir = 0;
     }
 
@@ -261,7 +295,17 @@ export class ChaseCamera {
     const e = L.k < 0.5 ? 2 * L.k * L.k : 1 - Math.pow(-2 * L.k + 2, 2) / 2; // ease in-out
     this.cam.position.copy(this.pos).add(this.kick);
     this.st.copy(this.look).add(this.leanC);
-    if (e > 0) { this.cam.position.lerp(L.eye, e); this.st.lerp(L.at, e); }
+    if (e > 0) {
+      // orbit in around the subject instead of a straight line (the straight blend from the chase
+      // view used to pass through the wheelhouse): interpolate direction and distance from L.at
+      const a = this.bA.copy(this.cam.position).sub(L.at), b = this.bB.copy(L.eye).sub(L.at);
+      const la = a.length(), lb = b.length() * (1 - L.dolly * (1 - Math.exp(-L.dollyT * 0.5)));
+      a.normalize(); b.normalize();
+      const dir = a.lerp(b, e).normalize();
+      this.cam.position.copy(L.at).addScaledVector(dir, la + (lb - la) * e);
+      this.cam.position.y += Math.sin(e * Math.PI) * 0.12 * la; // lift over the gunwale/cabin mid-swing
+      this.st.lerp(L.at, e);
+    }
     if (this.trauma > 0) {
       const s = FISH_CAM.shake * this.trauma * this.trauma, t = this.noiseT * 23;
       this.cam.position.x += s * (Math.sin(t) * 0.6 + Math.sin(t * 2.3 + 1) * 0.4);
