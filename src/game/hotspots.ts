@@ -7,18 +7,21 @@ import { register } from '../render/materials';
  * The spot is drawn the way the wave crests are (docs/crest_study.md): marks that are events with a
  * life, in one stroke language, on one instanced quad pool (one draw call):
  *  - slick: the standing patch where the bait is held up. A wobbling, slowly morphing outline with a
- *    darker bait-cloud core, "nervous water" (short chop dashes that jitter and flicker, drifting
- *    against the wind) and a broken drawn rim. It is what reads from afar and in fog.
+ *    darker bait-cloud core and a broken drawn rim. It is what reads from afar and in fog.
  *  - boil: a fish takes bait from below. The water wells up as a disc, its glassy middle opens and the
  *    rim spreads, the rim breaks into fingers, and beads of foam drift out and pop one by one.
  *  - dimple: a small fish sips at the surface; a dot, a ring and a lagging inner ring that break into
  *    dashes as they spread. Scattered over the whole patch (they mark its extent, not a bullseye).
- *  - flick: bait skips out of the way in a fan, leaving a row of tiny splashes.
+ *  - school (docs/bait_study.md): one tight school of small fish just under the surface, swimming as one.
+ *    It holds a heading, then jinks; each fish follows at its own rate (front first), so a flash of
+ *    silver flank runs through the school on every turn. Bodies sway; colours from the herring plate.
+ *  - leapers: chased bait jumps out of the school edge in a fan of low arcs, twisting (flank flashes),
+ *    with a splash in and out.
+ *  - predators: two fish-shaped shadows below that dart and glide round the ball (fins on good/rare).
  *  - contour (`?spot=contour`, the alternative direction): A Short Hike style drawn loops that draw
  *    on, wobble, break into segments and fade, in place of boils.
- * Feeding comes in bursts (a slow per-spot intensity), so the patch is never the same twice. Fish
- * shadows, dorsal fins and silver glints (fish turning flank-up) stay from the first pass; a fin leaves
- * dimples behind it instead of a V of foam blobs.
+ * Feeding comes in bursts (a slow per-spot intensity), so the patch is never the same twice. A fin
+ * leaves dimples behind it. Everything but the fins is one draw call.
  */
 export const HOTSPOT_FX = {
   activity: 1, // event rate multiplier
@@ -26,20 +29,20 @@ export const HOTSPOT_FX = {
   fogK: 0.75, // fog depth scale for the spot (below 1 = the spot shows a little further into mist)
   clearR: 1.3, // m: marks part around the float so it always reads
   drawDist: 260, // m: slick drawn within this
-  eventDist: 150, // m: boils/dimples/flicks spawn within this
+  eventDist: 150, // m: school, boils, dimples and leapers within this
 };
 
 export type SpotMode = 'boil' | 'contour';
 
 const SEA_Y = -0.06;
 const TAU = Math.PI * 2;
-const SLICK = 0, BOIL = 1, DIMPLE = 2, FLICK = 3, CONTOUR = 4;
+const SLICK = 0, BOIL = 1, DIMPLE = 2, CONTOUR = 4, SCHOOL = 5, PRED = 6, LEAP = 7;
 
 type Tier = 'common' | 'good' | 'rare';
 const TIER = {
-  common: { boil: 0.6, dimple: 2.4, flick: 0.28, contour: 0.22, glints: 12, fins: 0, shadows: 3, r: 1, bait: 2.0 },
-  good: { boil: 0.72, dimple: 3.0, flick: 0.36, contour: 0.26, glints: 18, fins: 1, shadows: 3, r: 1.2, bait: 2.6 },
-  rare: { boil: 0.85, dimple: 3.4, flick: 0.45, contour: 0.3, glints: 24, fins: 2, shadows: 2, r: 1.35, bait: 3.0 },
+  common: { boil: 0.6, dimple: 2.4, leap: 0.3, contour: 0.22, school: 22, fins: 0, preds: 2, r: 1 },
+  good: { boil: 0.72, dimple: 3.0, leap: 0.38, contour: 0.26, school: 28, fins: 1, preds: 2, r: 1.2 },
+  rare: { boil: 0.85, dimple: 3.4, leap: 0.45, contour: 0.3, school: 34, fins: 2, preds: 2, r: 1.35 },
 } as const;
 const SLICK_R = 5.4; // m at tier r 1
 
@@ -68,7 +71,9 @@ varying vec2 vW;
 #include <fog_pars_vertex>
 void main() {
   float c = cos(iA.w), s = sin(iA.w);
-  vec2 lp = position.xy * (mod(iB.y, 10.0) < 0.5 ? 1.25 : 1.6); // slick outline stays inside 1.2; events' beads reach 1.5
+  float type = mod(iB.y, 10.0);
+  // slick outline stays inside 1.2; events' beads reach 1.5; a fish (+sway) fits in 1.1
+  vec2 lp = position.xy * (type < 0.5 ? 1.25 : type > 4.5 ? 1.1 : 1.6);
   vP = lp; vB = iB; vR = iA.z;
   vec2 xz = iA.xy + vec2(c * lp.x - s * lp.y, s * lp.x + c * lp.y) * iA.z;
   vW = xz;
@@ -76,6 +81,8 @@ void main() {
   float w = sin(xz.x * 0.21 + uTime * 0.9) * 0.5 + sin(xz.y * 0.17 - uTime * 0.7) * 0.35 + sin((xz.x + xz.y) * 0.43 + uTime * 1.6) * 0.15;
   float fade = 1.0 - smoothstep(60.0, 140.0, length(xz - cameraPosition.xz));
   vec4 wp = vec4(xz.x, w * 0.07 * fade * uWave + 0.035, xz.y, 1.0);
+  // a leaping baitfish: a low arc, about three body lengths high at the top
+  if (type > 6.5) wp.y += 4.0 * iB.x * (1.0 - iB.x) * 1.5 * iA.z;
   if (iB.w <= 0.0) wp = vec4(0.0, -1e4, 0.0, 1.0);
   vec4 mvPosition = viewMatrix * wp;
   gl_Position = projectionMatrix * mvPosition;
@@ -91,6 +98,9 @@ uniform vec3 uBead;
 uniform vec3 uDark;
 uniform vec3 uTint;
 uniform vec3 uGold;
+uniform vec3 uBack;
+uniform vec3 uSilver;
+uniform vec3 uShade;
 uniform float uT;
 uniform vec2 uWind;
 uniform vec4 uClear; // float x, z, radius, on
@@ -101,6 +111,15 @@ varying vec2 vW;
 #include <fog_pars_fragment>
 ${GLSL}
 float fill(float d, float w) { return clamp(0.5 - d / w, 0.0, 1.0); }
+// a small fish from above, head toward +y, in half lengths: a lens body and a forked tail.
+// sway bends the body (more at the tail), so it swims instead of skating.
+float fishD(vec2 p, float wid, float sway) {
+  float u = clamp((0.95 - p.y) / 1.95, 0.0, 1.0);
+  p.x -= sway * u * u * 0.4;
+  float body = (length(vec2(p.x / wid, (p.y - 0.12) / 0.78)) - 1.0) * wid;
+  float tail = min(capsule(p, vec2(0.0, -0.62), vec2(0.17, -0.94), 0.065), capsule(p, vec2(0.0, -0.62), vec2(-0.17, -0.94), 0.065));
+  return min(body, tail);
+}
 void main() {
   float type = mod(vB.y, 10.0);
   float t = vB.x, seed = vB.z;
@@ -117,18 +136,6 @@ void main() {
     float dS = r - edge;
     float core = r - (0.36 + 0.3 * loopN(a, 1.8, vec2(seed * 3.0 + 4.0, uT * 0.1)));
     over(acc, uDark, 0.13 * fill(dS, w) + 0.16 * fill(core, w));
-    // nervous water: one short chop dash per 0.75 m world cell, jittering, flickering, clumped
-    vec2 g = vW / 0.9 - uWind * uT * 0.3;
-    vec2 id = floor(g), f = fract(g) - 0.5;
-    float h = hsH(id + seed * 31.0), h2 = hsH(id.yx + 7.3);
-    float ang = h * 6.2832 + sin(uT * (2.5 + 2.0 * h2) + h * 40.0) * 0.5;
-    vec2 dir = vec2(cos(ang), sin(ang));
-    vec2 cc = (vec2(h2, h) - 0.5) * 0.3;
-    float on = smoothstep(0.1, 0.7, sin(uT * (1.3 + 2.2 * h) + h2 * 30.0)) * smoothstep(0.4, 0.55, hsN(g * 0.35 + seed * 9.0 + uT * 0.15));
-    float inside = 1.0 - smoothstep(-0.4, -0.05, dS);
-    float L = 0.2 * on;
-    float dD = capsule(f, cc - dir * L, cc + dir * L, 0.07 * on - 0.01) * 0.9 / vR;
-    over(acc, uBead, fill(dD, w) * 0.7 * inside * clear);
     // rim: one drawn, broken line along the outline whose gaps travel round it
     float dR = abs(dS + 0.03) - 0.016;
     float rimOn = smoothstep(0.46, 0.54, loopN(a, 3.0, vec2(seed * 11.0, uT * 0.22)));
@@ -194,7 +201,7 @@ void main() {
       }
     }
     over(acc, head, fill(dF, w) * clear);
-  } else {
+  } else if (type < 4.5) {
     // ---- contour: an A Short Hike loop that draws on, wobbles, breaks into segments and fades
     float R = (0.85 + 0.15 * t) * (0.82 + 0.3 * loopN(a, 1.6, vec2(seed * 13.0, uT * 0.08)));
     float da = fract((a - seed * 6.2832) / 6.2832);
@@ -202,6 +209,23 @@ void main() {
     float seg = smoothstep(0.4, 0.5, loopN(a, 4.0, vec2(seed * 5.0, uT * 0.2)) + 0.6 - 1.1 * smoothstep(0.45, 1.0, t));
     float th = 0.022 * (1.0 - smoothstep(0.7, 1.0, t)) - 0.003;
     over(acc, uBead, fill(abs(r - R) - th, w) * drawn * seg * 0.85 * clear);
+  } else if (type < 5.5) {
+    // ---- school fish just under the surface: dark back; a silver flank shows as it turns (t = flash)
+    float d = fishD(p, 0.2, sin(uT * 9.0 + seed * 40.0) * 0.55);
+    vec3 fl = vB.y >= 9.5 && seed > 0.75 ? mix(uSilver, uGold, 0.6) : uSilver;
+    over(acc, mix(uBack, fl, t), fill(d, w) * (0.62 + 0.35 * t) * clear);
+  } else if (type < 6.5) {
+    // ---- predator shadow: a bigger fish lower down, darting and gliding
+    float d = fishD(p, 0.25, sin(uT * 4.0 + seed * 30.0) * (0.3 + 0.4 * t));
+    over(acc, uShade, fill(d, w) * 0.34);
+  } else {
+    // ---- leaper: a baitfish out of the water in a low arc, twisting so its flank flashes
+    float roll = t * 5.0 + seed * 6.0;
+    float ws = 0.35 + 0.65 * abs(cos(roll));
+    float d = fishD(vec2(p.x / ws, p.y), 0.2, sin(t * 20.0) * 0.4) * ws;
+    float back = (1.0 - smoothstep(0.04, 0.08, abs(p.x) / ws)) * (1.0 - abs(cos(roll)) * 0.6) * step(-0.55, p.y);
+    float a2 = smoothstep(0.0, 0.08, t) * (1.0 - smoothstep(0.9, 1.0, t));
+    over(acc, mix(uSilver, uBack, back), fill(d, w) * a2);
   }
   float alpha = acc.a * vB.w;
   if (alpha < 0.01) discard;
@@ -214,17 +238,20 @@ function mulberry(seed: number) {
   return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
+const wrapA = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-interface Ev { x: number; z: number; r: number; rot: number; age: number; life: number; type: number; seed: number; spot: number; alive: boolean }
-interface Glint { a: number; r: number; s: number; ph: number; hz: number }
-interface Shadow { r: number; w: number; a: number; s: number; fin: boolean; wakeT: number }
+interface Ev { x: number; z: number; r: number; rot: number; age: number; life: number; type: number; seed: number; spot: number; alive: boolean; dx: number; dz: number }
+interface Fish { x: number; z: number; h: number; flash: number; sl: number; sa: number; k: number; seed: number; half: number }
+interface Pred { r: number; w: number; a: number; s: number; fin: boolean; wakeT: number; ph: number; seed: number }
 interface Spot {
   hs: Hotspot; x: number; z: number; tier: Tier; rnd: () => number; near: boolean; seed: number; R: number;
   acc: number[]; feedPh: number; bx: number; bz: number;
-  g0: number; glints: Glint[]; s0: number; shadows: Shadow[]; f0: number;
+  // the school: a centre that swims and turns, fish that follow it
+  sx: number; sz: number; H: number; Hgoal: number; turnT: number; fish: Fish[]; schoolOn: boolean;
+  preds: Pred[]; f0: number;
 }
 
-const MAXN = 220;
+const MAXN = 420;
 
 export class HotspotFX {
   group = new THREE.Group();
@@ -237,8 +264,6 @@ export class HotspotFX {
   private iB: THREE.InstancedBufferAttribute;
   private mat: THREE.ShaderMaterial;
   private marks: THREE.Mesh;
-  private glintM: THREE.InstancedMesh;
-  private shadowM: THREE.InstancedMesh;
   private finM: THREE.InstancedMesh;
   private sea: Record<string, THREE.IUniform> | null = null;
   private m = new THREE.Matrix4();
@@ -249,7 +274,8 @@ export class HotspotFX {
   private c0 = new THREE.Color();
   private c1 = new THREE.Color();
   private zero = new THREE.Matrix4().makeScale(0, 0, 0);
-  private finScratch: { x: number; z: number; yaw: number; fx: number; fz: number }[] = [];
+  private herringBack = new THREE.Color(0x4e7489);
+  private herringSilver = new THREE.Color(0xc9d3d6);
   /** events alive last frame (debug) */
   live = 0;
 
@@ -269,6 +295,7 @@ export class HotspotFX {
         uTime: { value: 0 }, uWave: { value: 1 }, uFogK: { value: HOTSPOT_FX.fogK }, uT: { value: 0 },
         uHead: { value: new THREE.Color(0xeef1ec) }, uBead: { value: new THREE.Color(0xb8c6c4) }, uDark: { value: new THREE.Color(0x24363c) },
         uTint: { value: new THREE.Color(0x8aa0a2) }, uGold: { value: new THREE.Color(0xf2c94c) },
+        uBack: { value: new THREE.Color(0x2c4450) }, uSilver: { value: new THREE.Color(0xc9d3d6) }, uShade: { value: new THREE.Color(0x0d1a1f) },
         uWind: { value: new THREE.Vector2(0.62, -0.78).normalize() }, uClear: { value: new THREE.Vector4() },
       }]),
       vertexShader: VERT, fragmentShader: FRAG, fog: true, transparent: true, depthWrite: false,
@@ -278,49 +305,40 @@ export class HotspotFX {
     this.marks.frustumCulled = false;
     this.marks.renderOrder = 1;
     this.marks.name = 'hotspot_marks';
-    for (let i = 0; i < MAXN; i++) this.pool.push({ x: 0, z: 0, r: 1, rot: 0, age: 0, life: 1, type: 0, seed: 0, spot: 0, alive: false });
+    for (let i = 0; i < MAXN; i++) this.pool.push({ x: 0, z: 0, r: 1, rot: 0, age: 0, life: 1, type: 0, seed: 0, spot: 0, alive: false, dx: 0, dz: 0 });
 
-    let nG = 0, nS = 0, nF = 0;
+    let nF = 0;
     const tiers = hotspots.map((h) => (h.tier === 'rare' ? 'rare' : h.tier === 'good' || h.tier === 'uncommon' ? 'good' : 'common') as Tier);
-    tiers.forEach((t) => { const T = TIER[t]; nG += T.glints; nS += T.shadows; nF += T.fins; });
-    const glintG = new THREE.BufferGeometry();
-    glintG.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 1, 0.45, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, -1, -0.45, 0, 0], 3));
-    this.glintM = new THREE.InstancedMesh(glintG, register(new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })), Math.max(1, nG));
-    this.shadowM = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 12).scale(0.3, 1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0d1a1f, transparent: true, opacity: 0.24, depthWrite: false }), Math.max(1, nS));
+    tiers.forEach((t) => { nF += TIER[t].fins; });
     const finG = new THREE.BufferGeometry();
     finG.setAttribute('position', new THREE.Float32BufferAttribute([0.12, 0, 0, -0.16, 0, 0, -0.1, 1, 0], 3));
     this.finM = new THREE.InstancedMesh(finG, register(new THREE.MeshBasicMaterial({ color: 0x2a3438, side: THREE.DoubleSide })), Math.max(1, nF));
-    for (const im of [this.glintM, this.shadowM, this.finM]) {
-      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      im.frustumCulled = false;
-      for (let i = 0; i < im.count; i++) im.setMatrixAt(i, this.zero);
-    }
-    this.shadowM.renderOrder = 0;
-    this.glintM.renderOrder = 2;
-    this.group.add(this.shadowM, this.marks, this.glintM, this.finM);
+    this.finM.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.finM.frustumCulled = false;
+    for (let i = 0; i < this.finM.count; i++) this.finM.setMatrixAt(i, this.zero);
+    this.group.add(this.marks, this.finM);
 
-    let gi = 0, si = 0, fi = 0;
-    const silver = [new THREE.Color(0xf1f5f6), new THREE.Color(0xc9d6db), new THREE.Color(0xffffff)];
-    const gold = new THREE.Color(0xf2c94c);
+    let fi = 0;
     hotspots.forEach((hs, k) => {
       const tier = tiers[k], T = TIER[tier], rnd = mulberry(hash(hs.name));
       const sp: Spot = {
         hs, x: hs.pos[0], z: hs.pos[2], tier, rnd, near: false, seed: rnd(), R: SLICK_R * T.r,
         acc: [rnd(), rnd(), rnd(), rnd()], feedPh: rnd() * 100, bx: 0, bz: 0,
-        g0: gi, glints: [], s0: si, shadows: [], f0: fi,
+        sx: hs.pos[0], sz: hs.pos[2], H: rnd() * TAU, Hgoal: 0, turnT: 0, fish: [], schoolOn: false,
+        preds: [], f0: fi,
       };
-      for (let i = 0; i < T.glints; i++) {
-        sp.glints.push({ a: rnd() * TAU, r: Math.sqrt(rnd()) * T.bait * 0.75, s: 0.1 + rnd() * 0.1, ph: rnd() * TAU, hz: 0.6 + rnd() * 1.4 });
-        this.glintM.setColorAt(gi++, tier === 'rare' && i % 4 === 0 ? gold : silver[i % 3]);
+      sp.Hgoal = sp.H;
+      // formation slots in a tight lens, longer than wide; front fish react first
+      for (let i = 0; i < T.school; i++) {
+        const sl = rnd() * 2 - 1, sa = (rnd() * 2 - 1) * Math.sqrt(1 - sl * sl * 0.6);
+        sp.fish.push({ x: sp.x, z: sp.z, h: sp.H, flash: 0, sl, sa, k: 3 + (sl + 1) * 3 + rnd() * 1.5, seed: rnd(), half: 0.17 + rnd() * 0.05 });
       }
-      for (let i = 0; i < T.shadows; i++) {
-        sp.shadows.push({ r: 1.6 + rnd() * 3 * T.r, w: (0.25 + rnd() * 0.3) * (rnd() < 0.5 ? -1 : 1), a: rnd() * TAU, s: (0.5 + rnd() * 0.5) * (tier === 'good' ? 1.25 : tier === 'rare' ? 1.6 : 1), fin: i < T.fins, wakeT: rnd() * 0.3 });
-        si++;
+      for (let i = 0; i < T.preds; i++) {
+        sp.preds.push({ r: 1.8 + rnd() * 2.6 * T.r, w: (0.3 + rnd() * 0.25) * (rnd() < 0.5 ? -1 : 1), a: rnd() * TAU, s: (0.5 + rnd() * 0.5) * (tier === 'good' ? 1.25 : tier === 'rare' ? 1.5 : 1), fin: i < T.fins, wakeT: rnd() * 0.3, ph: rnd() * TAU, seed: rnd() });
       }
       fi += T.fins;
       this.spots.push(sp);
     });
-    if (this.glintM.instanceColor) this.glintM.instanceColor.needsUpdate = true;
   }
 
   /** Share the sea's live uniforms: ripple clock, wave amount, wind, and the time-of-day colours. */
@@ -351,12 +369,18 @@ export class HotspotFX {
     if (night) (mu.uDark.value as THREE.Color).copy(sea).lerp(foam, 0.45);
     else (mu.uDark.value as THREE.Color).copy(sea).multiplyScalar(0.5);
     (mu.uTint.value as THREE.Color).copy(sea).lerp(foam, night ? 0.3 : 0.26);
+    // baitfish (the Logbook herring plate: blue-grey back, silver flank), pulled into the sea's light
+    (mu.uBack.value as THREE.Color).copy(sea).lerp(this.herringBack, night ? 0.1 : 0.3).multiplyScalar(night ? 0.6 : 0.62);
+    (mu.uSilver.value as THREE.Color).copy(this.herringSilver).lerp(foam, 0.35);
+    if (night) (mu.uSilver.value as THREE.Color).copy(foam).multiplyScalar(1.3);
+    (mu.uShade.value as THREE.Color).copy(sea).multiplyScalar(0.3);
   }
 
   private spawn(sp: Spot, si: number, type: number, x: number, z: number, r: number, life: number, rot = sp.rnd() * TAU) {
     const ev = this.pool.find((p) => !p.alive);
-    if (!ev) return;
-    Object.assign(ev, { x, z, r, rot, life, type, seed: sp.rnd(), spot: si, age: 0, alive: true });
+    if (!ev) return null;
+    Object.assign(ev, { x, z, r, rot, life, type, seed: sp.rnd(), spot: si, age: 0, alive: true, dx: 0, dz: 0 });
+    return ev;
   }
 
   private put(im: THREE.InstancedMesh, i: number, x: number, y: number, z: number, rotY: number, sx: number, sy: number, sz: number) {
@@ -366,6 +390,48 @@ export class HotspotFX {
     this.s.set(sx, sy, sz);
     this.m.compose(this.v, this.q, this.s);
     im.setMatrixAt(i, this.m);
+  }
+
+  /** The school swims as one: the centre holds a heading, then turns sharply (a flash runs through the fish as they follow). */
+  private swim(sp: Spot, dt: number, burst: number) {
+    const R = sp.R * HOTSPOT_FX.slick, rnd = sp.rnd;
+    const ballX = sp.x + sp.bx, ballZ = sp.z + sp.bz;
+    if (!sp.schoolOn) {
+      sp.schoolOn = true;
+      sp.sx = ballX; sp.sz = ballZ;
+      const c = Math.cos(sp.H), s = Math.sin(sp.H);
+      for (const f of sp.fish) { f.x = sp.sx + c * f.sl * 1.05 - s * f.sa * 0.65; f.z = sp.sz + s * f.sl * 1.05 + c * f.sa * 0.65; f.h = sp.H; }
+    }
+    sp.turnT -= dt * (0.6 + burst);
+    const off = Math.hypot(sp.sx - ballX, sp.sz - ballZ);
+    if (sp.turnT <= 0) {
+      // straying from the bait ball: turn back toward it; otherwise a sharp jink either way
+      sp.Hgoal = off > R * 0.35 ? Math.atan2(ballZ - sp.sz, ballX - sp.sx) + (rnd() - 0.5) * 0.8 : sp.H + (rnd() < 0.5 ? -1 : 1) * (0.9 + rnd() * 1.6);
+      sp.turnT = 1.4 + rnd() * 2.6;
+    }
+    const dH = wrapA(sp.Hgoal - sp.H);
+    sp.H += dH * Math.min(1, dt * 3);
+    const speed = (0.55 + 0.5 * burst) * (1 + Math.min(1, Math.abs(dH)) * 0.8);
+    sp.sx += Math.cos(sp.H) * speed * dt;
+    sp.sz += Math.sin(sp.H) * speed * dt;
+    const c = Math.cos(sp.H), s = Math.sin(sp.H);
+    const L = 1.05 * (1 + 0.3 * Math.sin(this.t * 0.4 + sp.feedPh)), W = 0.65 * (1 - 0.2 * Math.sin(this.t * 0.4 + sp.feedPh)); // the ball breathes
+    for (const f of sp.fish) {
+      const tx = sp.sx + c * f.sl * L - s * f.sa * W, tz = sp.sz + s * f.sl * L + c * f.sa * W;
+      const prev = f.h;
+      // each fish turns to the school heading at its own rate (front first), then steers to its slot
+      const toSlot = Math.atan2(tz - f.z, tx - f.x), dist = Math.hypot(tx - f.x, tz - f.z);
+      const want = dist > 0.25 ? toSlot : sp.H;
+      f.h += wrapA(want - f.h) * Math.min(1, dt * f.k);
+      const v = speed * (0.85 + Math.min(1, dist) * 0.8);
+      f.x += Math.cos(f.h) * v * dt;
+      f.z += Math.sin(f.h) * v * dt;
+      if (dist > 2) { f.x = tx; f.z = tz; } // never strand a fish
+      // flank-up flash while turning, plus the odd single fish flicking over
+      const turn = Math.abs(wrapA(f.h - prev)) / Math.max(dt, 1e-3);
+      const spark = rnd() < dt * 0.06 ? 1 : 0;
+      f.flash = Math.max(Math.min(1, Math.max(0, turn - 1.6) * 0.8), spark, f.flash - dt * 3);
+    }
   }
 
   /** @param clear the float position (marks part around it), or null */
@@ -380,12 +446,12 @@ export class HotspotFX {
     this.colours();
     let n = 0;
     const A = this.iA, B = this.iB;
-    const fins = this.finScratch;
     this.spots.forEach((sp, si) => {
       const dist = Math.hypot(sp.x - cam.x, sp.z - cam.z);
       if (dist > HOTSPOT_FX.drawDist) {
         if (sp.near) this.collapse(sp);
         sp.near = false;
+        sp.schoolOn = false;
         return;
       }
       sp.near = true;
@@ -399,78 +465,102 @@ export class HotspotFX {
       A.setXYZW(n, sp.x + sp.bx * 0.4, sp.z + sp.bz * 0.4, R, sp.seed * TAU);
       B.setXYZW(n, 0, SLICK + gold, sp.seed, fade);
       n++;
+      const hide = sp.hs === hideShadowsOf;
+      const f = 0.5 + 0.32 * Math.sin(t * 0.21 + sp.feedPh) + 0.18 * Math.sin(t * 0.53 + sp.feedPh * 1.7);
+      // ---- predators: fish-shaped shadows that dart and glide round the ball; fins leave dimples
+      let fins = 0;
+      sp.preds.forEach((p) => {
+        const dart = 0.5 + 0.9 * Math.max(0, Math.sin(t * 0.8 + p.ph));
+        p.a += p.w * dart * dt;
+        const x = sp.x + sp.bx * 0.5 + Math.cos(p.a) * p.r, z = sp.z + sp.bz * 0.5 + Math.sin(p.a) * p.r;
+        const head = p.a + (p.w > 0 ? Math.PI / 2 : -Math.PI / 2);
+        const half = 0.32 + 0.3 * p.s;
+        if (!hide && n < MAXN) {
+          A.setXYZW(n, x, z, half, head - Math.PI / 2);
+          B.setXYZW(n, Math.min(1, dart - 0.5), PRED, p.seed, Math.min(1, fade));
+          n++;
+        }
+        if (p.fin) {
+          const yaw = -head + Math.PI / 2;
+          const up = hide ? 0 : 0.28 * p.s * (0.75 + 0.25 * Math.sin(t * 0.7 + p.ph));
+          this.put(this.finM, sp.f0 + fins++, x, SEA_Y, z, yaw + Math.PI / 2, up, up, up);
+          p.wakeT -= dt;
+          if (!hide && p.wakeT <= 0 && dist < HOTSPOT_FX.eventDist) {
+            p.wakeT = 0.28 + sp.rnd() * 0.12;
+            this.spawn(sp, si, DIMPLE, x - Math.cos(head) * half * 0.8, z - Math.sin(head) * half * 0.8, 0.3 * p.s + 0.12, 1.1);
+          }
+        }
+      });
+      if (dist >= HOTSPOT_FX.eventDist) { sp.schoolOn = false; return; }
+      // ---- the school
+      this.swim(sp, dt, f);
+      const str = Math.min(1, (HOTSPOT_FX.eventDist - dist) / 25);
+      for (const fsh of sp.fish) {
+        if (n >= MAXN) break;
+        A.setXYZW(n, fsh.x, fsh.z, fsh.half, fsh.h - Math.PI / 2);
+        B.setXYZW(n, fsh.flash, SCHOOL + gold, fsh.seed, str);
+        n++;
+      }
       // ---- events: feeding comes in bursts (slow intensity per spot)
-      if (dist < HOTSPOT_FX.eventDist) {
-        const f = 0.5 + 0.32 * Math.sin(t * 0.21 + sp.feedPh) + 0.18 * Math.sin(t * 0.53 + sp.feedPh * 1.7);
-        const calm = sp.hs === hideShadowsOf ? 0.35 : 1;
-        const k = (0.45 + 1.25 * f * f) * HOTSPOT_FX.activity * calm * dt;
-        const rnd = sp.rnd;
-        const cx = sp.x + sp.bx, cz = sp.z + sp.bz;
-        const okAt = (x: number, z: number) => !clear || Math.hypot(x - clear.x, z - clear.z) > HOTSPOT_FX.clearR * 1.2;
-        const rates = [this.mode === 'boil' ? T.boil : T.boil * 0.25, T.dimple, T.flick, this.mode === 'contour' ? T.contour : 0];
-        for (let ty = 0; ty < 4; ty++) {
-          sp.acc[ty] += rates[ty] * k;
-          while (sp.acc[ty] >= 1) {
-            sp.acc[ty] -= 1;
-            const a = rnd() * TAU;
-            if (ty === 0) {
-              const d = Math.sqrt(rnd()) * R * 0.45, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
-              const r = (0.9 + rnd() * 0.8) * T.r;
-              // keep boils apart (crest lesson: overlapping marks stack into blobs)
-              const apart = !this.pool.some((o) => o.alive && o.spot === si && o.type % 10 === BOIL && Math.hypot(o.x - x, o.z - z) < (o.r + r) * 1.1);
-              if (okAt(x, z) && apart) this.spawn(sp, si, BOIL + gold, x, z, r, 2.6 + rnd() * 1.2);
-            } else if (ty === 1) {
-              const d = Math.sqrt(rnd()) * R * 1.12, x = sp.x + Math.cos(a) * d, z = sp.z + Math.sin(a) * d;
-              if (okAt(x, z)) this.spawn(sp, si, DIMPLE, x, z, 0.32 + rnd() * 0.32, 1.0 + rnd() * 0.6);
-            } else if (ty === 2) {
-              const d = Math.sqrt(rnd()) * R * 0.7, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
-              if (okAt(x, z)) this.spawn(sp, si, FLICK, x, z, 0.9 + rnd() * 0.5, 0.75);
-            } else {
-              this.spawn(sp, si, CONTOUR, sp.x + sp.bx * 0.5, sp.z + sp.bz * 0.5, R * (0.55 + rnd() * 0.6), 6.5 + rnd() * 2.5);
+      const calm = hide ? 0.35 : 1;
+      const k = (0.45 + 1.25 * f * f) * HOTSPOT_FX.activity * calm * dt;
+      const rnd = sp.rnd;
+      const cx = sp.x + sp.bx, cz = sp.z + sp.bz;
+      const okAt = (x: number, z: number) => !clear || Math.hypot(x - clear.x, z - clear.z) > HOTSPOT_FX.clearR * 1.2;
+      const rates = [this.mode === 'boil' ? T.boil : T.boil * 0.25, T.dimple, T.leap, this.mode === 'contour' ? T.contour : 0];
+      for (let ty = 0; ty < 4; ty++) {
+        sp.acc[ty] += rates[ty] * k;
+        while (sp.acc[ty] >= 1) {
+          sp.acc[ty] -= 1;
+          const a = rnd() * TAU;
+          if (ty === 0) {
+            const d = Math.sqrt(rnd()) * R * 0.45, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+            const r = (0.9 + rnd() * 0.8) * T.r;
+            // keep boils apart (crest lesson: overlapping marks stack into blobs)
+            const apart = !this.pool.some((o) => o.alive && o.spot === si && o.type % 10 === BOIL && Math.hypot(o.x - x, o.z - z) < (o.r + r) * 1.1);
+            if (okAt(x, z) && apart) this.spawn(sp, si, BOIL + gold, x, z, r, 2.6 + rnd() * 1.2);
+          } else if (ty === 1) {
+            // half the sips are over the school (nervous water), half anywhere on the patch
+            const near = rnd() < 0.5;
+            const d = near ? Math.sqrt(rnd()) * 1.2 : Math.sqrt(rnd()) * R * 1.12;
+            const x = (near ? sp.sx : sp.x) + Math.cos(a) * d, z = (near ? sp.sz : sp.z) + Math.sin(a) * d;
+            if (okAt(x, z)) this.spawn(sp, si, DIMPLE, x, z, near ? 0.22 + rnd() * 0.18 : 0.32 + rnd() * 0.32, 0.9 + rnd() * 0.6);
+          } else if (ty === 2) {
+            // chased bait: 1-4 fish jump out of the school edge in a fan, each in a low arc
+            const nL = 1 + Math.floor(rnd() * rnd() * 4);
+            const ox = sp.sx + Math.cos(a) * 0.7, oz = sp.sz + Math.sin(a) * 0.7;
+            if (!okAt(ox, oz)) continue;
+            for (let j = 0; j < nL; j++) {
+              const h = a + (rnd() - 0.5) * 1.0, len = 0.8 + rnd() * 0.8;
+              const ev = this.spawn(sp, si, LEAP, ox, oz, 0.2 + rnd() * 0.05, 0.42 + len * 0.12, h - Math.PI / 2);
+              if (ev) { ev.dx = Math.cos(h) * len; ev.dz = Math.sin(h) * len; ev.age = -j * (0.09 + rnd() * 0.08); }
             }
+          } else {
+            this.spawn(sp, si, CONTOUR, sp.x + sp.bx * 0.5, sp.z + sp.bz * 0.5, R * (0.55 + rnd() * 0.6), 6.5 + rnd() * 2.5);
           }
         }
       }
-      // ---- fish shadows circle; fins leave dimples
-      fins.length = 0;
-      const hide = sp.hs === hideShadowsOf;
-      sp.shadows.forEach((s, i) => {
-        s.a += s.w * dt;
-        const x = sp.x + Math.cos(s.a) * s.r, z = sp.z + Math.sin(s.a) * s.r;
-        const yaw = -s.a + (s.w > 0 ? Math.PI : 0);
-        this.put(this.shadowM, sp.s0 + i, x, SEA_Y + 0.01, z, yaw, hide ? 0 : s.s, 1, hide ? 0 : s.s);
-        if (s.fin) {
-          const up = hide ? 0 : 0.28 * s.s * (0.75 + 0.25 * Math.sin(t * 0.7 + i));
-          this.put(this.finM, sp.f0 + fins.length, x, SEA_Y, z, yaw + Math.PI / 2, up, up, up);
-          const fx = Math.sin(yaw + Math.PI / 2), fz = Math.cos(yaw + Math.PI / 2);
-          fins.push({ x, z, yaw, fx, fz });
-          s.wakeT -= dt;
-          if (!hide && s.wakeT <= 0 && dist < HOTSPOT_FX.eventDist) {
-            s.wakeT = 0.28 + sp.rnd() * 0.12;
-            this.spawn(sp, si, DIMPLE, x - fx * 0.35 * s.s, z - fz * 0.35 * s.s, 0.3 * s.s + 0.12, 1.1);
-          }
-        }
-      });
-      // glints: flat diamonds flicking on and off over the bait cloud (fish turning flank-up)
-      sp.glints.forEach((g, i) => {
-        const on = Math.sin(t * g.hz * TAU + g.ph);
-        const vis = on > 0.55 ? (on - 0.55) / 0.45 : 0;
-        const x = sp.x + sp.bx + Math.cos(g.a + t * 0.2) * g.r, z = sp.z + sp.bz + Math.sin(g.a + t * 0.2) * g.r * 0.8;
-        const cd = clear ? Math.hypot(x - clear.x, z - clear.z) : 99;
-        const sc = g.s * vis * THREE.MathUtils.smoothstep(cd, HOTSPOT_FX.clearR * 0.6, HOTSPOT_FX.clearR * 1.4);
-        this.put(this.glintM, sp.g0 + i, x, SEA_Y + 0.05, z, g.a + t, sc, sc, sc * 1.4);
-      });
     });
-    // live events after every slick (instance order = draw order: slicks underneath)
+    // live events after the slicks, predators and schools (instance order = draw order)
     let live = 0;
     for (const ev of this.pool) {
       if (!ev.alive) continue;
+      const was = ev.age;
       ev.age += dt;
-      const lt = ev.age / ev.life;
       const sp = this.spots[ev.spot];
-      if (lt >= 1 || !sp.near || n >= MAXN) { ev.alive = false; continue; }
-      const dist = Math.hypot(ev.x - cam.x, ev.z - cam.z);
-      A.setXYZW(n, ev.x, ev.z, ev.r, ev.rot);
+      if (!sp.near) { ev.alive = false; continue; }
+      if (ev.age < 0) continue; // a leaper waiting its turn
+      const lt = ev.age / ev.life;
+      if (ev.type === LEAP) {
+        // splash in, splash out
+        if (was <= 0) this.spawn(sp, ev.spot, DIMPLE, ev.x, ev.z, 0.18, 0.7);
+        if (lt >= 1) { ev.alive = false; this.spawn(sp, ev.spot, DIMPLE, ev.x + ev.dx, ev.z + ev.dz, 0.26, 0.9); continue; }
+      }
+      if (lt >= 1 || n >= MAXN) { ev.alive = false; continue; }
+      const k = ev.type === LEAP ? lt : 0;
+      const x = ev.x + ev.dx * k, z = ev.z + ev.dz * k;
+      const dist = Math.hypot(x - cam.x, z - cam.z);
+      A.setXYZW(n, x, z, ev.r, ev.rot);
       B.setXYZW(n, lt, ev.type, ev.seed, Math.min(1, (HOTSPOT_FX.eventDist - dist) / 25));
       n++;
       live++;
@@ -479,17 +569,17 @@ export class HotspotFX {
     this.geo.instanceCount = n;
     A.needsUpdate = true; B.needsUpdate = true;
     this.marks.visible = n > 0;
-    for (const im of [this.glintM, this.shadowM, this.finM]) im.instanceMatrix.needsUpdate = true;
+    this.finM.instanceMatrix.needsUpdate = true;
   }
 
   private collapse(sp: Spot) {
-    for (let i = 0; i < sp.glints.length; i++) this.glintM.setMatrixAt(sp.g0 + i, this.zero);
-    for (let i = 0; i < sp.shadows.length; i++) this.shadowM.setMatrixAt(sp.s0 + i, this.zero);
-    const nf = sp.shadows.filter((s) => s.fin).length;
+    const nf = sp.preds.filter((s) => s.fin).length;
     for (let i = 0; i < nf; i++) this.finM.setMatrixAt(sp.f0 + i, this.zero);
   }
 
   stats() { return { live: this.live, near: this.spots.filter((s) => s.near).length, mode: this.mode }; }
+  /** captures: where a spot's school is now */
+  school(name: string) { const sp = this.spots.find((x) => x.hs.name === name || x.hs.name.includes(name)); return sp ? { x: sp.sx, z: sp.sz, on: sp.schoolOn } : null; }
 }
 
 /**
