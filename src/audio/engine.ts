@@ -43,7 +43,7 @@ export interface VoiceOpts {
   dest?: AudioNode;
 }
 
-const POOL_CAP: Record<string, number> = { music: 48, sfx: 24, amb: 14, ui: 10, engine: 8, blip: 36, rain: 10, thunder: 16 };
+const POOL_CAP: Record<string, number> = { music: 48, sfx: 24, amb: 14, ui: 10, engine: 8, blip: 36, rain: 10, thunder: 24 };
 
 export class AudioEngine {
   readonly ctx: BaseAudioContext;

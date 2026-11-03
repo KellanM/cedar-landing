@@ -202,7 +202,7 @@ export function makeSfx(e: AudioEngine) {
     thunder(at: number, distM: number, near: boolean, pan = 0) {
       // far: a low rolling rumble of a few irregular swells; near: a bright crack, a boom, then the roll
       const far = Math.min(1, distM / 3000);
-      const g = 0.9 / (1 + distM / 1400);
+      const g = 1.7 / (1 + distM / 2200);
       const len = 2.4 + 3.5 * far + e.rand() * 1.5;
       if (near) {
         e.burst(at, 0.22, 'bandpass', 3200, 900, 0.5 * g * 1.4, { bus: 'sfx', pool: 'thunder', q: 0.6, a: 0.003, kind: 'white', pan, wet: 0.35 });
@@ -216,8 +216,8 @@ export function makeSfx(e: AudioEngine) {
         const d = (len / n) * (0.9 + e.rand() * 0.9);
         const lp = (near ? 520 : 420 - 200 * far) * (0.8 + e.rand() * 0.4);
         // low body (felt) + a mid growl so phone speakers hear it too
-        e.burst(at + t, d, 'lowpass', lp, lp * 0.4, 0.75 * g * k * (0.7 + e.rand() * 0.5), { bus: 'sfx', pool: 'thunder', a: 0.12 + e.rand() * 0.25, kind: 'brown', pan: pan * 0.6 + (e.rand() - 0.5) * 0.4, wet: 0.5 });
-        e.burst(at + t + 0.05, d * 0.8, 'bandpass', 260 + e.rand() * 160, 160, 0.35 * g * k, { bus: 'sfx', pool: 'thunder', q: 0.9, a: 0.1 + e.rand() * 0.2, kind: 'pink', pan: pan * 0.5, wet: 0.5 });
+        e.burst(at + t, d, 'lowpass', lp, lp * 0.4, 1.15 * g * k * (0.7 + e.rand() * 0.5), { bus: 'sfx', pool: 'thunder', a: 0.12 + e.rand() * 0.25, kind: 'brown', pan: pan * 0.6 + (e.rand() - 0.5) * 0.4, wet: 0.5 });
+        e.burst(at + t + 0.05, d * 0.8, 'bandpass', 260 + e.rand() * 160, 160, 0.55 * g * k, { bus: 'sfx', pool: 'thunder', q: 0.9, a: 0.1 + e.rand() * 0.2, kind: 'pink', pan: pan * 0.5, wet: 0.5 });
         t += d * (0.45 + e.rand() * 0.4);
       }
       e.log('sfx.thunder', near ? 'near' : `far ${Math.round(distM)}m`);

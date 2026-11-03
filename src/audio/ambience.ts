@@ -76,9 +76,9 @@ export class Ambience {
     const patter = Math.max(0, (R - 0.28) / 0.6) * (0.8 + 0.3 * swell(0.17, 0.06));
     const roar = Math.max(0, (R - 0.6) / 0.4) * 0.5 + S * (0.6 + 0.5 * gust);
     this.set(this.beds.hiss, hiss * 0.09, 1.2);
-    this.set(this.beds.patter, patter * 0.2, 1.2);
-    this.set(this.beds.roar, roar * 0.22, 1.2);
-    if (S > 0) this.set(this.beds.wind, (wind + S * (0.5 + 0.9 * gust * gust)) * 0.32);
+    this.set(this.beds.patter, patter * 0.45, 1.2);
+    this.set(this.beds.roar, roar * 0.09, 1.2);
+    if (S > 0) this.set(this.beds.wind, (wind + S * (0.15 + 0.5 * gust * gust)) * 0.32);
     this.levels = { sea: +sea.toFixed(2), wind: +wind.toFixed(2), trees: +trees.toFixed(2), wake: +sp.toFixed(2), hiss: +hiss.toFixed(2), patter: +patter.toFixed(2), roar: +roar.toFixed(2) };
 
     // ---- one-shot events: rate per minute

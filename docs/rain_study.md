@@ -55,8 +55,93 @@ are in `screenshots/rain_ref_*.png` (gitignored like all captures).
 
 ## Build
 
-*(filled in after the experiments)*
+- `src/game/weather.ts`: weather rolled per day from `save.day` (nothing new saved). A day may have a main
+  spell (chance 0.3 + 0.45 × the day's mistiness): morning (ends before the sunbreak), evening or overnight,
+  2–5 game hours, drizzle (peak 0.30–0.44) or steady rain (0.62–0.82, likelier on misty days), ~1 h onset and
+  clear, breathing ±12 %. A passing shower in the sunbreak afternoon (25 % of days, 0.6–1.2 h, light). Storm
+  days (20 % roll, never the day after a storm roll, none on days 0–1, ≈ 17 % of days): steady rain builds
+  from 14:00–19:30, the storm rises over the next hour, holds 1–2 h, eases before the rain clears (~5 game h).
+  Day 0 is dry. Simulated over 1000 days: rain on 67 % of days (showers included), storms on 17 %, never two
+  running, ~2 wet game hours per day (~8 % of play time). `__debug.weatherStats()`.
+- `src/render/rain.ts` (each layer one draw call, motion on the GPU from a clock):
+  - streaks (H1, H2): world-stable streaks in a 40×17×40 m box anchored 13 m ahead of the camera
+    (on foot: a 0.55× box 7 m ahead, wider and stronger, H1 failed there at first, see Results); one
+    alpha for all (WW), length 0.4→1.7× with distance, slant = wind × (1 + 2.2 × storm); pale core + faint
+    darker rim so they read over pale planks; count ∝ rain^1.25 (drizzle ≈ 245, rain ≈ 590, storm 760; low
+    quality halves);
+  - sea marks (H3): pop (2–3 dots, ACNH) → broken ring that opens fast, thins and splits into 2–3 arcs
+    (real drops), 0.6–0.9 s; 0.55 m radius (a true-size ring is sub-pixel at 10–25 m); only on water (shore
+    field), faded under the camera and at the tile edge; count ∝ rain² (drizzle 63, rain 234, storm 300);
+  - veils (H5): ≤ 6 fogged curtain cards out on the water, a shade darker and greyer than the haze,
+    streaked vertically, faded at the foot and into the cloud;
+  - lightning (H6): flat drawn zigzag bolts with forks and a soft halo standing in the camera's picture
+    plane on a sea point in view (a world-vertical bolt looked like a diagonal scratch from the 41° chase
+    camera); 1–3 per far strike, appearing together and fading with the flash; a full-screen lift toward
+    pale blue-grey: near 0.42 (whole frame) + far 0.24 (weighted to the top of the frame), attack 0.08 s,
+    decay τ 0.3 s, one re-flare at 0.2 s; at least 3.2 s between flashes (auto strikes ≈ 9/min at the peak,
+    gated by that); reduced motion: half amplitude, no re-flare; Settings → Screen flashes Off: bolts only.
+- `main.ts applyTOD`: rain greys (0.3–0.55 × R), darkens (10–16 %) and pulls the sky toward the horizon /
+  haze (lower contrast); storm lerps to `STORM_SKY` (bruised grey-green) by daylight; world tint × (1 − 0.09R
+  − 0.06S) (wet docks); fog closes to at least 0.5R + 0.3S of the way to the mist minimum; light flattened
+  toward the fog preset by 0.85R; wind amplitude × (1 + 1.5S + 0.2R); smoke/fog-bank wind × (1 + 1.6S).
+- Sea (H4): glints off under rain; steady rain calms crests (× 1 − 0.55(R − S)) and wind lines; storms add
+  crests (+1.0 × S) and wind lines (spawn rate × 3.2). Boat bob/roll × (1 + 2.6S), Packer × (1 + 1.6S).
+- Rough-water rare spots (tier `rare`) feed 1 + 1.6 × storm as often (H8). No damage anywhere.
+- Audio (H7, H8): beds `hiss` (white, HP 3.8 k), `patter` (pink, BP 1.5 k), `roar` (brown, LP 700); ticks
+  (filtered clicks) and drips (falling "plink") up to 260/min when still or on foot; gulls/songbirds/crows
+  quieter in rain; thunder = delay distance/343 s (near 250–600 m: 0.7–1.8 s; far 1.2–4.5 km: 3.5–13 s), near
+  = white crack + boom then roll, far = 3–5 irregular brown-noise swells (LP 220–520 Hz) + a mid growl
+  (260–420 Hz) so phone speakers hear it; music bus × (1 − 0.28R − 0.12S).
+- UI: clock words (Drizzle / Rain setting in / Steady rain / A shower coming / Passing shower / Clearing /
+  Storm brewing / Thunderstorm / Storm passing) and rain/storm icons; Log weather note by weather and trend
+  (storm note points at the rough grounds); NPC weather lines (town / village / kid × drizzle / rain / storm)
+  every other chat while it rains, replacing the sunny hour lines.
+- Knobs: `?tune` → "Weather: rain + lightning" (`RAIN_TUNE`) and "Weather: schedule" (`WEATHER_TUNE`).
+  Debug: `__debug.rain(v|null)`, `storm(v|null)`, `lightning(near)`, `weatherSnap(autoStrikes)`,
+  `weatherFx()`, `weatherStats(days)`.
 
 ## Results
 
-*(filled in after the experiments)*
+Captures: `scripts/rain_capture.mjs` (stepped 0.1 s clock), `scripts/rain_perf.mjs`, `scripts/rain_probe.mjs`.
+
+| Experiment | What happened | Decision |
+|---|---|---|
+| First stills (`rain_v1_*`) | Streaks and marks **invisible**: both quads were back-face culled (a billboard's and a flat quad's winding). | DoubleSide. |
+| Marks after the fix | Barely any: the GPU hash used `sin()` of large arguments, which on this GPU collapsed to a few values (marks stacked on one spot). | Fract-only hash. Then 0.34 m marks were 1–2 px rings: raised to 0.55 m, thicker, and faded under the camera (they became hoops across the screen). |
+| Streak contrast on foot (`rain_final_phone_foot_*`) | H1 held at sea, **failed on the pale boardwalk**: pale streaks vanish on pale planks. | Pale core + darker rim, wider streaks and a smaller, denser box near the lens when on foot. Better, still the weakest view (below). |
+| Bolt shape (`rain_v4`) | A world-vertical bolt seen from the 41° chase camera read as one long diagonal scratch. | Picture-plane zigzag sprite (WW's drawn bolts). Reads as lightning on the phone and lands on the far shore in a horizon view (`rain_horizon_storm_desktop.png`). |
+| Flash timing (`rain_v4_phone_boat_storm` frames 25–39, mean luma) | Near strike 93 → 142 → 129/128 (re-flare) → 111 → 100 → 95 over ~0.9 s; far strike +11. WW measured 58 → 138, ~1.4 s. | Kept; far lift raised 0.17 → 0.24 and far bolts moved lower in the frame so they are not hidden behind the top HUD. |
+| Marks vs crests (H3/H4) | At 0.62 alpha the rings dominated the sea; at 0.45 they sit under crests and the wake. | 0.45. |
+| Veils (H5) | At 0.55–0.95 of the fog distance they fogged into pale haze smudges. Nearer (0.4–0.75) and darker they read as a streaky curtain over the town (`veil` horizon still). Invisible in the normal portrait chase (no horizon in frame). | Kept, cheap; honest: mostly a landscape / look-up feature. |
+| Palette | Dry / drizzle / rain / storm read as four different days at the same spot (`rain_stills_*_sheet.png`); dusk turns violet-grey, night near-black with streaks still visible, heavy mist + rain goes pale grey. | Kept. |
+
+Perf (phone profile 390×844 @3x, chase view, GPU ms per synchronous render, median of 5 × 120; noisy ±0.3 ms):
+dry 2.34, drizzle 2.01, rain 2.38, storm 2.42, mid-flash 3.12; weather CPU 0.01–0.03 ms/frame. Horizon view: dry
+2.86, rain 3.59, storm 3.52, mid-flash 4.70. Low quality: chase storm 2.06, horizon storm 2.14. Draw calls +2–4.
+The flash is a full-screen blend at 3× density (~0.7 ms in the chase view while it is up, ≤ 1 s in every ≥ 3.2 s).
+
+Audio (`scripts/audio_verify.mjs` offline renders, 0 clipped samples, all PASS): drizzle peak −11.0 / RMS −26.4 dBFS
+(12.6 % energy above 4 kHz: the hiss), steady peak −10.9 / RMS −25.1 (more mid: the patter), storm peak −1.1 / RMS −21.6
+with thunder at the expected delays (2.4 km strike at 1 s → rumble from ~8 s; a 1.5 km one at 12.5 s → ~17 s); the near
+crack + roll sits ~7 dB over the storm bed, far rolls ~3–4 dB. First pass had the thunder buried (+3 dB) and dropped
+voices: thunder raised, storm roar / wind lowered, thunder pool 24.
+
+Weak spots (honest): thunder is quieter against the bed than WW's ~15–20 dB (the master glue compressor and limiter
+squash it); veils only show when the horizon is in frame (landscape, dragging the camera up); drizzle on foot is
+subtle; rings are uniform in size, so over a long look in the storm they can read as a pattern; the flash costs
+~0.7 ms GPU at 3x phone density while it is up.
+
+## Which decisions trace to which evidence
+
+| Decision | Evidence |
+|---|---|
+| Mood first, sparse faint streaks at one alpha | WW footage (`rain_ref_ww_rain.png`) + WW source (alpha 14/255, ≤ 250); PNW drizzle clip |
+| Streak length grows with distance, wind slant | WW source; ACNH frames (~20° slant) |
+| Rain marks = dot pop then broken opening ring, short life | ACNH splash frames; real pond drops; WW sibuki rings |
+| No glints, calmer small sea in steady rain; more caps in storms | real drops (dimpled, not choppy); WW fair vs storm (crest study) |
+| Grey veils far out | real rain-curtain clip |
+| Flash = lift toward pale blue-grey, soft attack / slow decay, far = top of frame only | WW frames 841–899 (luma) and decompiled flash (rise 0.3 / fade 0.1, far touches sky/fog only) |
+| One re-flare, ≥ 3.2 s apart, Screen flashes toggle, soft under reduced motion | real slow-motion return strokes; SoT white-out as the boundary; WCAG 2.3.1 |
+| Zigzag bolts, 1–3 at once, fading with the flash | WW near-flash frames (three bolts); our 41° camera experiment |
+| Thunder delay distance/343, crack near / roll far | NWS thunder page |
+| Music softens, birds quieter, no danger | Sasquatch rainy theme, ACNH storm without lightning (cozy event = atmosphere) |
