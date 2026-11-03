@@ -26,6 +26,11 @@ export const FOOT = {
   edgeLook: 0.22, // keep this far back from a drop-off / water edge
 };
 
+/** Slide directions tried when the straight step is blocked: [cos, sin] of ±25°, ±50°, ±75°. */
+const SLIDE = [25, -25, 50, -50, 75, -75].map((d) => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)] as const);
+/** Boardwalk magnet: probe this far either side; drift toward the open side at this speed (m/s). */
+export const MAGNET = { reach: 0.62, speed: 0.9 };
+
 /** Interacts that only make sense from the boat. */
 /** Interact kinds that actually do something today (everything else toasts "not open yet"). */
 export const OPEN_INTERACTS = new Set(['sell_fish', 'moor_boat', 'read_sunstone', 'read_message_bottle', 'read_warning', 'trade_rumours',
@@ -364,6 +369,21 @@ export class OnFoot {
     return g;
   }
 
+  /** Narrow-walkway centring: probe the boards either side of the walking line; if one side drops away
+   *  within MAGNET.reach and the other doesn't, drift toward the open side (never off the deck). */
+  private centreOnNarrow(wx: number, wz: number, dt: number) {
+    const px = -wz, pz = wx; // perpendicular to the walking direction
+    const y = this.feet.y, R = MAGNET.reach;
+    const L = this.world.walkable(this.feet.x + px * R, this.feet.z + pz * R, y);
+    const Rr = this.world.walkable(this.feet.x - px * R, this.feet.z - pz * R, y);
+    if ((!!L) === (!!Rr)) return; // open (or a plank too narrow to matter) both sides: leave it
+    const side = L ? 1 : -1;
+    const step = MAGNET.speed * dt * side;
+    const nx = this.feet.x + px * step, nz = this.feet.z + pz * step;
+    const g = this.world.walkable(nx, nz, y);
+    if (g && Math.abs(g.y - y) < 0.2) { this.feet.x = nx; this.feet.z = nz; }
+  }
+
   update(dt: number, frozen: boolean) {
     const input = this.host.input;
     if (this.mode === 'hopOut' || this.mode === 'hopIn') {
@@ -406,11 +426,22 @@ export class OnFoot {
       const ox = this.feet.x, oz = this.feet.z;
       const ix = stepX / n, iz = stepZ / n;
       let g = this.tryMove(ox + ix, oz + iz, ix, iz);
+      // Slide along whatever stopped us (a plank edge, a railing, a diagonal boardwalk): try the step
+      // turned ±25°/±50°/±75° (shortened by the cosine) before the old axis-only fallback.
+      for (let k = 0; !g && k < SLIDE.length; k++) {
+        this.feet.x = ox; this.feet.z = oz;
+        const c = SLIDE[k][0], sn = SLIDE[k][1];
+        const rx = (ix * c - iz * sn) * c, rz = (ix * sn + iz * c) * c;
+        g = this.tryMove(ox + rx, oz + rz, rx, rz);
+      }
       if (!g) { this.feet.x = ox; this.feet.z = oz; g = this.tryMove(ox + ix, oz, ix, 0); }
       if (!g) { this.feet.x = ox; this.feet.z = oz; g = this.tryMove(ox, oz + iz, 0, iz); }
       if (!g) { this.feet.x = ox; this.feet.z = oz; break; }
       groundY = g.y;
     }
+    // Boardwalk magnet: on a narrow deck / plank run, ease the walker toward the middle of the boards
+    // (sideways to the stick), so a thumb that's a few degrees off doesn't walk you into the lip.
+    if (mag > 0.2) this.centreOnNarrow(wx, wz, dt);
     if (groundY === null) {
       // standing still (or blocked): keep resolving overlaps + ground
       const p = _v.copy(this.feet);
@@ -500,7 +531,7 @@ export class OnFoot {
     return {
       mode: this.mode, feet: this.saved(), speed: +this.lastSpeed.toFixed(2), ctx: this.ctx?.prompt ?? null,
       bvhChunks: this.world.built, bvhMs: Math.round(this.world.buildMs), steps: this.steps,
-      bubble: this.bubble.text, model: this.character.source, autoWalk: !!this.autoWalk,
+      bubble: this.bubble.text, model: this.character.source, autoWalk: !!this.autoWalk, camYaw: +this.cam.viewYaw.toFixed(3),
     };
   }
 }
