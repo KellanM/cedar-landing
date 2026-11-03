@@ -11,6 +11,7 @@ import { $, h, esc } from './ctx';
 import { fx } from './fx';
 import { ICONS } from './icons';
 import { Sheet } from './sheet';
+import { confirmBill } from './confirm';
 import { ensureUpg } from '../game/progression/gear';
 import { BOAT_TIERS, TIER_ORDER, type BoatTierId } from '../game/progression/tiers';
 import { FLAGS, PAINTABLE, PALETTE, applyPaint, drawFlag, factoryHex, isPaintable, setFlag, type PaintGroup } from '../game/progression/boatpaint';
@@ -176,7 +177,7 @@ function render() {
       card.innerHTML = `<canvas width="128" height="80"></canvas><b>${esc(f.name)}</b><span>${esc(f.note)}</span>${on ? '<span class="upg-stamp red">Flying</span>' : ''}${have ? '' : `<span class="ticket">${shellIco}<b class="num">${f.price}</b></span>`}`;
       drawFlag(card.querySelector('canvas')!.getContext('2d')!, f, 128, 80);
       card.disabled = !have && save.shells < f.price;
-      card.onclick = () => chooseFlag(f.id);
+      card.onclick = () => (have ? chooseFlag(f.id) : askFlag(f.id));
       list.appendChild(card);
     }
     $('sw-note').textContent = 'Hoisting a flag you own is free.';
@@ -196,7 +197,7 @@ function render() {
       body.appendChild(card);
     }
     body.querySelectorAll<HTMLButtonElement>('[data-take]').forEach((b) => (b.onclick = () => takeBoat(b.dataset.take as BoatTierId)));
-    body.querySelectorAll<HTMLButtonElement>('[data-buyboat]').forEach((b) => (b.onclick = () => buyBoat(b.dataset.buyboat as BoatTierId)));
+    body.querySelectorAll<HTMLButtonElement>('[data-buyboat]').forEach((b) => (b.onclick = () => askBoat(b.dataset.buyboat as BoatTierId)));
     $('sw-note').textContent = 'Paint and flags are kept per boat.';
   }
 }
@@ -245,6 +246,30 @@ export function chooseFlag(id: string): boolean {
   host.toast(`${f.name} hoisted`, 'good');
   render();
   return true;
+}
+
+/** Bill of sale before a new flag (hud_flow_study P4); the flag flies on the boat while you decide. */
+export async function askFlag(id: string) {
+  if (!host) return;
+  const f = FLAGS.find((x) => x.id === id);
+  const u = ensureUpg(host.save);
+  if (!f || u.flags.includes(id) || host.save.shells < f.price) return;
+  setFlag(host.boatModel(), id);
+  const ok = await confirmBill({ kicker: 'Shipwright · bill of sale', title: f.name, sub: f.note, price: f.price, balance: host.save.shells,
+    note: '“Run it up and see how she wears it.” — Ada', yes: 'Buy & hoist', no: 'Not yet' });
+  if (ok) chooseFlag(id); else { setFlag(host.boatModel(), u.flag); render(); }
+}
+
+/** Bill of sale before a boat (hud_flow_study P4). */
+export async function askBoat(id: BoatTierId) {
+  if (!host) return;
+  const t = BOAT_TIERS[id];
+  const u = ensureUpg(host.save);
+  if (u.boats.includes(id) || host.save.shells < t.price) return;
+  const cur = BOAT_TIERS[u.boat];
+  const ok = await confirmBill({ kicker: 'Shipwright · bill of sale', title: t.name.replace(/^the /, 'The '), sub: `${t.plate} · ${t.opens.join(' · ')}`, price: t.price, balance: host.save.shells,
+    note: `“She'll be at the slip by morning. ${cur.name.replace(/^the /, 'The ')} stays moored here.” — Ada`, yes: 'Buy & launch', no: 'Not yet' });
+  if (ok) buyBoat(id);
 }
 
 export function buyBoat(id: BoatTierId): boolean {

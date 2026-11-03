@@ -136,6 +136,8 @@
 .catch-slip .who b { font: 650 var(--fs-16) var(--f-display); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .catch-slip .sub { display: flex; gap: 4px; align-items: center; white-space: nowrap; font: 750 var(--fs-14) var(--f-ui); color: var(--ink-soft); }
 .catch-slip .chip-btn { padding: 0 9px; }
+.catch-slip.swap .sub { white-space: normal; }
+.catch-slip .swap-for { font: 750 var(--fs-14) / 1.15 var(--f-ui); color: var(--ochre-red); }
 .chip-btn {
   min-height: 48px; padding: 0 12px; border: 2px solid var(--ink); border-radius: var(--r-s); box-shadow: 0 3px 0 rgba(43, 38, 34, .4);
   font: 850 var(--fs-16) var(--f-ui); display: inline-flex; align-items: center; gap: 3px; background: var(--paper-2);
@@ -236,3 +238,25 @@
 .price-board .slip.unknown .nm { color: var(--ink-soft); letter-spacing: .1em; }
 
 .fly-shell { position: fixed; left: -13px; top: -13px; width: 26px; height: 26px; z-index: 40; pointer-events: none; }
+
+/* ---------- market (hud_flow_study P5): cooler / prices as tabs, Sell all on the thumb side ---------- */
+.market-tabs { display: flex; gap: 6px; padding: 2px 12px 8px; }
+.mtab {
+  flex: 1; min-height: 44px; border: 2px solid var(--ink); border-radius: var(--r-m); background: var(--paper-2); color: var(--ink);
+  font: 800 var(--fs-16) var(--f-ui); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.mtab[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+.mtab b { font-weight: 900; }
+#sell .sheet-foot #sell-all { flex: 1 1 auto; }
+#sell .sheet-foot #sell-close { flex: 0 0 96px; }
+.lefty #sell .sheet-foot { flex-direction: row-reverse; }
+/* portrait: a compact label + 54 px rows so a 6-fish cooler fits the 70% sheet (tickets stay 46 px) */
+.lay-portrait #sell .label-band { padding: 5px 8px; }
+.lay-portrait #sell .label-band .inset { padding: 4px 8px 5px; }
+.lay-portrait #sell .skin-label h2 .what, .lay-portrait #sell h2 .what { font-size: var(--fs-22); }
+.lay-portrait #sell .quote { margin: 4px 14px 2px; font-size: calc(18px * var(--ui-scale)); }
+.lay-portrait #sell .market-tabs { padding-bottom: 6px; }
+.lay-portrait #sell .sell-list li.row { min-height: 54px; padding: 2px 0; }
+.lay-portrait #sell .sell-list .glyph { width: 52px; }
+.lay-portrait #sell .ticket { min-height: 46px; }
+.lay-portrait #sell .sheet-foot { padding-top: 8px; }

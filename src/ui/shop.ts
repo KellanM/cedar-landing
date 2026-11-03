@@ -66,7 +66,7 @@ export function openShop(h0: ShopHost, where: Interact | null, start: Track = 'r
   just = null;
   shopPos = where?.pos ?? null;
   const pr = (where?.props ?? {}) as Record<string, unknown>;
-  const npc = typeof pr.npc === 'string' ? pr.npc : 'Old Pell';
+  const npc = typeof pr.npc === 'string' ? pr.npc : 'Old Tess';
   $('shop-town').textContent = typeof pr.poi === 'string' ? pr.poi.replace(/([a-z])([A-Z])/g, '$1 $2') : 'Cedar Landing';
   $('shop-quote').innerHTML = start === 'bait' ? `“Herring's fresh, spoons are polished.” <span>— ${esc(npc)}</span>` : `“Gear that's older than me, and twice as honest.” <span>— ${esc(npc)}</span>`;
   render();

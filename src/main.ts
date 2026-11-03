@@ -213,7 +213,8 @@ foot.onTalk = (name) => crowd?.react(name);
 foot.onFootstep = (sp, feet, surf) => gameAudio.step(surfaceFromColor(surf, feet.y), sp);
 foot.onSay = (name, text, role, x, z) => gameAudio.talk(name, text, role, x, z);
 let footCtx: FootContext | null = null;
-let ashoreOnAction: FootContext | null = null;
+/** the runner-up in reach (hud_flow_study P2): a second, smaller context button */
+let footCtx2: FootContext | null = null;
 // ---------------------------------------------------------------- tides (src/game/tides.ts)
 // ?tide=<y> pins the water level (captures / tests at a fixed tide)
 { const t = new URLSearchParams(location.search).get('tide'); if (t !== null && t !== '' && isFinite(Number(t))) WATER.pinned = Number(t); }
@@ -568,7 +569,7 @@ function onLanded(fish: CaughtFish, sp: ReturnType<typeof lookupSpecies>, perfec
   hud.showCard(fish, sp, stamp, save.cooler.length >= save.coolerCap, perfect);
 }
 let pendingPerfect = false;
-function closeCard(keep: boolean) {
+function closeCard(keep: boolean, swapOut = -1) {
   const f = pendingCatch;
   pendingCatch = null;
   hud.hideCard();
@@ -579,24 +580,26 @@ function closeCard(keep: boolean) {
   const rec = save.records[f.speciesId] ?? { size: 0, stars: 0, count: 0 };
   save.records[f.speciesId] = { size: Math.max(rec.size, f.size), stars: Math.max(rec.stars, f.stars), count: rec.count + 1 };
   hud.logCatch(f, pendingPerfect);
+  // full cooler (P3): swap the new fish in for the one the player chose to give back
+  const swapped = keep && !f.releaseOnly && save.cooler.length >= save.coolerCap && swapOut >= 0 && save.cooler[swapOut] ? save.cooler.splice(swapOut, 1)[0] : null;
   if (keep && !f.releaseOnly && save.cooler.length < save.coolerCap) {
     gameAudio.keep();
     save.cooler.push(f);
     hud.renderCooler(save.cooler, save.coolerCap, true); // a full cooler shows on the strip, no toast
     hud.noteKept();
+    if (swapped) hud.toast(`Swapped in the ${f.name.toLowerCase()} · let the ${swapped.name.toLowerCase()} go`, 'good');
   } else { gameAudio.release(); hud.toast(`Let the ${f.name.toLowerCase()} go`); }
   writeSave(save);
 }
 
 function onAction() {
   if (modalOpen || chase.inShot) return;
-  if (ashoreOnAction && !fishing.active) { ashoreOnAction.run(); return; }
   if (fishing.active) { fishing.press(); return; }
   const near = nearestHotspot();
   // the button label already says why (Find ripples / Slow down / Cooler full): just shake it
   if (!near || near.d > HOTSPOT_RANGE) { hud.refuse(); return; }
   if (Math.abs(boat.speed) > CAST_MAX_SPEED) { hud.refuse(); return; }
-  if (save.cooler.length >= save.coolerCap) { hud.refuse(); return; }
+  // a full cooler doesn't stop the fishing (P3): the catch card offers a swap or a let-go
   if (!upg.canFish(near.hs)) { hud.refuse(); return; } // upgrades: rough water / line depth
   boat.speed = 0;
   fishing.cast(near.hs, rodTip(), boat.pos);
@@ -697,6 +700,7 @@ hud.init({
     setModal: (open) => { modalOpen = open; },
     keep: () => closeCard(true),
     release: () => closeCard(false),
+    swap: (i) => closeCard(true, i),
     sellAll: () => sellFish(save.cooler.map((_, i) => i)),
     sellOne: (i) => sellFish([i]),
     closeSell: () => hud.hideSell(),
@@ -755,6 +759,8 @@ const upg = createUpgrades({
   modelChanged: () => skipper.attachTo(boat.modelObject),
 });
 initTuneOverlay();
+// P6: a reload the player asked for (Log or update notice) keeps what they have
+window.addEventListener('ui:beforeupdate', () => writeSave(save));
 window.addEventListener('keydown', (e) => {
   if (e.key === 't' || e.key === 'T') cycleTOD();
   if (e.key === 'f' || e.key === 'F') { save.settings.showFps = !save.settings.showFps; refreshSettingsUI(); }
@@ -768,8 +774,14 @@ function updateUI(dt: number) {
   const canCast = !!near && near.d <= HOTSPOT_RANGE;
   currentInteract = fishing.active || foot.active ? null : nearestInteract();
   footCtx = fishing.active ? null : foot.active ? (tides.poolContext() ?? foot.context()) : foot.boatContext(boat, currentInteract, save.cooler.length > 0);
-  // When selling from the boat holds the context button, the idle Cast button offers "Ashore".
-  ashoreOnAction = !fishing.active && !foot.active && !canCast && !footCtx ? foot.ashoreContext(boat) : null;
+  // P2/P8: the big circle always means fishing. "Ashore" is a context action: the main button when
+  // nothing else is in reach, otherwise the second, smaller one beside it.
+  footCtx2 = null;
+  if (!fishing.active) {
+    if (foot.active) footCtx2 = tides.poolContext() ? foot.context() : foot.context2();
+    else if (!footCtx && currentInteract) footCtx2 = foot.ashoreContext(boat);
+  }
+  hud.setSecondary(footCtx2 && !modalOpen ? () => { if (!modalOpen && !fishing.active) footCtx2?.run(); } : null);
   if (landing && !save.reachedLanding && Math.hypot(landing.pos[0] - boat.pos.x, landing.pos[2] - boat.pos.z) < LANDING_REACHED) {
     save.reachedLanding = true;
     writeSave(save);
@@ -781,12 +793,20 @@ function updateUI(dt: number) {
     canCast,
     slowEnough: Math.abs(boat.speed) <= CAST_MAX_SPEED,
     coolerFull: save.cooler.length >= save.coolerCap,
-    action: ashoreOnAction ? 'Ashore' : null,
-    interact: footCtx ? { label: footCtx.label, kind: 'foot', pos: null } : currentInteract ? { label: boat.moored && currentInteract.kind === 'moor_boat' ? 'Untie' : labelFor(currentInteract), kind: currentInteract.kind, pos: currentInteract.pos } : null,
+    action: null,
+    interact: footCtx ? { label: footCtx.label, kind: footCtx.kind ?? (footCtx.name === 'step_ashore' ? 'step_ashore' : 'foot'), pos: null, tag: footCtx.pos ?? null } : currentInteract ? { label: boat.moored && currentInteract.kind === 'moor_boat' ? 'Untie' : labelFor(currentInteract), kind: currentInteract.kind, pos: currentInteract.pos } : null,
+    interact2: footCtx2 ? { label: pillLabel(footCtx2), kind: footCtx2.kind ?? footCtx2.name, pos: footCtx2.pos ?? null } : null,
     errand: landing && !save.reachedLanding ? { name: 'Cedar Landing', pos: landing.pos } : null,
     throttle: input.throttle,
     inShot: chase.inShot,
   });
+}
+
+/** Second-button label: short, names who/what ("Talk · Crier", "Ashore", "Buy bait"). */
+function pillLabel(c: FootContext) {
+  const m = /^Talk to (?:The )?(.+)$/.exec(c.prompt);
+  if (m) return `Talk · ${m[1]}`;
+  return c.label.split(/\s+/).slice(0, 2).join(' ');
 }
 
 // ---------------------------------------------------------------- reveal shot
@@ -1038,7 +1058,7 @@ window.__debug = {
       tod: look.key, clock: clockText(clockHour), nearestHotspot: nearestHotspot()?.hs.name, nearestHotspotDist: nearestHotspot()?.d,
       wildlife: wildlife ? { ...wildlife.birds.stats(), mammals: wildlife.mammals.count, blows: wildlife.mammals.blows.count, ms: +wildlife.cost.toFixed(3), squawks } : null,
       fx: { smokeEmitters: smoke?.emitterCount ?? 0, floaters: floaters?.count ?? 0, fogBanks: fogBanks?.mesh.visible ? fogBanks.mesh.count : 0 },
-      interact: footCtx?.name ?? currentInteract?.name, foot: foot.debugState, npcAnim: crowd ? { ...crowd.stats, ms: +crowd.stats.ms.toFixed(3) } : null, inShot: chase.inShot, seaField: seaFieldInfo, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
+      interact: footCtx?.name ?? currentInteract?.name, interact2: footCtx2?.name ?? null, foot: foot.debugState, npcAnim: crowd ? { ...crowd.stats, ms: +crowd.stats.ms.toFixed(3) } : null, inShot: chase.inShot, seaField: seaFieldInfo, drawCalls: renderer.info.render.calls, tris: renderer.info.render.triangles,
     };
   },
   key: (k: string, down: boolean) => input.setKey(k, down),

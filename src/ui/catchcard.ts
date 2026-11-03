@@ -7,7 +7,7 @@
  * Both ignore taps for 400 ms after appearing (input guard).
  */
 import * as THREE from 'three';
-import { $, ctx, h, setModal, guard, guarded, T, reduceMotion } from './ctx';
+import { $, ctx, esc, h, setModal, guard, guarded, T, reduceMotion } from './ctx';
 import { fx } from './fx';
 import { ICONS } from './icons';
 import { fishSketch, fishGlyph, starsSvg } from './fishart';
@@ -122,6 +122,15 @@ function wireCardButtons() {
   $('card-release').onclick = () => { if (!guarded(root)) cardSecondary?.(); };
 }
 
+// ------------------------------------------------------------------ full cooler: swap (hud_flow_study P3)
+/** The fish a full cooler would give back for a new one: the cheapest, then the smallest. */
+export function swapCandidate(): { i: number; fish: CaughtFish } | null {
+  const c = ctx.save?.cooler ?? [];
+  let bi = -1;
+  c.forEach((f, i) => { if (bi < 0 || f.price < c[bi].price || (f.price === c[bi].price && f.size < c[bi].size)) bi = i; });
+  return bi >= 0 ? { i: bi, fish: c[bi] } : null;
+}
+
 // ------------------------------------------------------------------ CatchSlip (tier A)
 let slipTimer = 0;
 let slipActive = false;
@@ -146,15 +155,19 @@ function showSlip(fish: CaughtFish, coolerFull: boolean) {
   $('slip-sub').innerHTML = `${starsSvg(fish.stars, 3, 13)}<span class="num">${fish.size.toFixed(1)} cm</span>`;
   const keep = $<HTMLButtonElement>('slip-keep');
   const canKeep = !coolerFull && !fish.releaseOnly;
-  keep.disabled = !canKeep;
-  keep.innerHTML = fish.releaseOnly ? 'Release only' : coolerFull ? `<span class="ico">${ICONS.cooler}</span>Full` : `Keep ${shell()}<b class="num">${fish.price}</b>`;
+  // full cooler: no auto-keep; offer the swap for the cheapest fish aboard (P3)
+  const sw = coolerFull && !fish.releaseOnly ? swapCandidate() : null;
+  keep.disabled = !canKeep && !sw;
+  keep.innerHTML = fish.releaseOnly ? 'Release only' : sw ? `<span class="ico">${ICONS.cooler}</span>Swap` : `Keep ${shell()}<b class="num">${fish.price}</b>`;
+  if (sw) $('slip-sub').innerHTML = `<span class="swap-for">Cooler full · swap for your ${esc(sw.fish.name)} ${sw.fish.size.toFixed(1)} cm?</span>`;
+  el.classList.toggle('swap', !!sw);
   el.classList.toggle('auto-on', canKeep && !reduceMotion());
   el.classList.toggle('auto-on-rm', canKeep && reduceMotion());
   el.classList.remove('hidden', 'in'); void el.offsetWidth; el.classList.add('in');
   guard(el);
   slipActive = true;
   fx('catch');
-  const doKeep = () => { if (slipActive && !guarded(el)) ctx.h?.keep(); };
+  const doKeep = () => { if (slipActive && !guarded(el)) { if (sw) ctx.h?.swap(sw.i); else ctx.h?.keep(); } };
   const doRelease = () => { if (slipActive && !guarded(el)) ctx.h?.release(); };
   keep.onclick = doKeep;
   $('slip-release').onclick = doRelease;
@@ -204,7 +217,12 @@ function showCatchCard(fish: CaughtFish, sp: Species, stamp: 'NEW!' | 'RECORD!' 
   let primary: SpecimenOpts['primary'];
   let hint = '';
   if (fish.releaseOnly) { primary = { html: 'Release only', disabled: true, onClick: () => {} }; hint = 'Too precious to keep. Logged in your book.'; }
-  else if (coolerFull) { primary = { html: `<span class="ico">${ICONS.cooler}</span><span>Cooler full</span>`, disabled: true, onClick: () => {} }; hint = 'Sell at the Fish Market in Cedar Landing'; }
+  else if (coolerFull) {
+    // P3: the catch is logged either way; keep it by giving back the cheapest fish aboard
+    const sw = swapCandidate();
+    if (sw) { primary = { html: '<span>Swap it in</span>', onClick: () => ctx.h?.swap(sw.i) }; hint = `Cooler's full. Swap out your ${sw.fish.name} (${sw.fish.size.toFixed(1)} cm · ${sw.fish.price} Shells)?`; }
+    else { primary = { html: `<span class="ico">${ICONS.cooler}</span><span>Cooler full</span>`, disabled: true, onClick: () => {} }; hint = 'Sell at the Fish Market in Cedar Landing'; }
+  }
   else primary = { html: `<span>Keep</span>${shell()}<b class="num">${fish.price}</b>`, onClick: () => ctx.h?.keep() };
   showSpecimen({
     title: fish.name,
