@@ -89,7 +89,7 @@ export class NpcCrowd {
   stats = { actors: 0, animated: 0, frozen: 0, ms: 0, lod: 0, expressive: 0 };
   /** ambient mood from the weather (set by main) */
   ambient = { rain: 0, storm: 0, rough: false };
-  private pairT = 5;
+  pairT = 5;
 
   constructor(scene: THREE.Object3D, npcs: Npc[]) {
     this.group.name = 'NPCs';
