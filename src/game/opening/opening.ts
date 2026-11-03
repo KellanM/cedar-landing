@@ -20,7 +20,8 @@ import { log as uiLog } from '../../ui/prefs';
 import { repairBoat } from '../../ui/repair';
 import { gransTab, type LureId } from '../../ui/granstab';
 import * as P from './props';
-import { applyStageTuning, loadStages, stageModel, type Stage } from './boatstage';
+import { applyOars, fixedModel, fixerReady, loadFixer, wreckModel, type Stage } from './boatstage';
+import { ensureUpg } from '../progression/gear';
 import {
   QUESTS, completeStep, fastPathOpening, hasFlag, migratedOpening, newOpening, passed, reached, setFlag, stepDone,
   type OpeningSave, type QuestId,
@@ -112,6 +113,7 @@ export class Opening {
       h.writeSave();
     }
     this.o = s.opening;
+    if (this.o.stage < 3) void loadFixer(); // the wreck / the fixed troller, ready by the time the world is
     OPEN_INTERACTS.add('opening');
     this.group.name = 'OPENING';
     h.scene.add(this.group);
@@ -153,24 +155,49 @@ export class Opening {
   private applyStage(force = false) {
     if (!force && this.stageShown === this.o.stage) return;
     const s = this.o.stage;
-    if (s >= 3) {
-      if (this.stageShown !== 3 && this.stageShown !== -1) { applyBoatTier('T0'); this.h.restoreBoatModel(); }
+    if (s >= 3) { // a save from before the opening: the troller as it always was
+      if (this.stageShown !== 3 && this.stageShown !== -1) { applyBoatTier(ensureUpg(this.h.save).boat); this.h.restoreBoatModel(); }
       this.stageShown = 3;
       return;
     }
-    void loadStages().then(() => {
-      const m = stageModel(this.o.stage);
-      if (!m) return;
-      this.h.setBoatModel(m);
-      applyStageTuning(this.o.stage);
-      this.stageShown = this.o.stage;
+    void loadFixer().then(() => {
+      if (!fixerReady() || !this.world) return;
+      const s2 = this.o.stage;
+      if (s2 === 0) {
+        const m = wreckModel();
+        if (m) this.h.setBoatModel(m);
+        applyOars();
+      } else {
+        // the scruffy troller IS her BOAT_T0 from now on (paint / flags / tiers work as before)
+        const m = fixedModel(s2 >= 2)!;
+        if (this.world.boats) this.world.boats.BOAT_T0 = m;
+        this.world.boat = m;
+        this.h.restoreBoatModel();
+        if (ensureUpg(this.h.save).boat === 'T0') { if (s2 >= 2) applyBoatTier('T0'); else applyOars(); }
+      }
+      this.stageShown = s2;
     });
   }
 
   setStage(s: Stage) {
+    const from = this.o.stage;
     this.o.stage = s;
     this.h.writeSave();
     this.applyStage();
+    if (from === 0 && s === 1) this.revealT = 0.001; // she rights herself
+  }
+
+  /** Q3's before→after beat: the fixed troller rises out of the wreck's sink and list. */
+  private revealT = 0;
+  private reveal(dt: number) {
+    const m = this.h.boat().modelObject;
+    if (!m || !this.revealT) return;
+    this.revealT += dt;
+    const k = Math.min(1, this.revealT / 1.8);
+    const e = 1 - Math.pow(1 - k, 3);
+    m.position.y = -0.42 * (1 - e);
+    m.rotation.x = 0.26 * (1 - e) + Math.sin(this.revealT * 7) * 0.05 * (1 - k);
+    if (k >= 1) { m.position.y = 0; m.rotation.x = 0; this.revealT = 0; }
   }
 
   // ------------------------------------------------------------------ arrival (Q0)
@@ -315,11 +342,11 @@ export class Opening {
   interact(it: Interact): boolean {
     if (it.kind === 'opening') { void this.runOp(String(it.props?.op)); return true; }
     if (!this.active) {
-      if ((it.kind === 'buy_boat' || it.kind === 'upgrade_bench') && this.o.stage < 3) { void this.shipwright(it); return true; }
+      if ((it.kind === 'buy_boat' || it.kind === 'upgrade_bench') && this.o.stage === 1) { void this.shipwright(it); return true; }
       return false;
     }
     if (it.kind === 'buy_tackle' && this.o.q === 9) { void this.gransTab(it); return true; }
-    if ((it.kind === 'buy_boat' || it.kind === 'upgrade_bench') && this.o.stage < 3 && passed(this.o, 'q8')) { void this.shipwright(it); return true; }
+    if ((it.kind === 'buy_boat' || it.kind === 'upgrade_bench') && this.o.stage === 1 && passed(this.o, 'q8')) { void this.shipwright(it); return true; }
     return false;
   }
 
@@ -370,7 +397,7 @@ export class Opening {
         await repairBoat({ reduceMotion: this.h.reduceMotion() });
         this.setStage(1);
         this.complete('repair');
-        this.h.toast('Patched, bailed, and a roof of raw cedar boards. She floats.', 'good');
+        this.h.toast("Bailed, patched, the tarp lashed down and the stack back aboard. She floats — and she's yours.", 'good');
         break;
       }
       case 'barrel':
@@ -392,32 +419,30 @@ export class Opening {
 
   // ------------------------------------------------------------------ Gran's tab (Q9) and the shipwright
   private async gransTab(it: Interact) {
-    await this.h.note('Old Tess', "So you're the one. Your gran paid ahead before she went up-coast. Said you'd turn up. One thing on her tab — your pick.");
+    await this.h.note('Old Tess', "So you're the one. Your gran paid ahead before she went up-coast. Said you'd turn up. Town's gone to seed since the cannery shut, but this counter's still open. One thing on her tab — your pick.");
     const pick = await gransTab({ reduceMotion: this.h.reduceMotion() });
     if (!pick) return; // closed: come back later
     this.o.lure = pick.lure;
     this.h.giveLure(pick.lure);
     this.complete('tess');
     await this.h.note(pick.pipName, pick.pipLine);
-    await this.h.note('Bosun Ade', "From the slipway: that engine of hers is seized, not dead. Bring me shells and I'll have her coughing.");
+    await this.h.note('Bosun Ade', "From the slipway: that engine of hers is seized, not dead — bring me Shells and I'll have her coughing. And when you've Shells to spare, the notice board by the market lists what this town needs mending. Half of it's mine to do and I can't do it alone.");
     this.finish();
     void it;
   }
 
+  /** Bosun Ade: the engine (stage 1 → 2). Her look never changes; paint and flags stay the player's to choose. */
   private async shipwright(it: Interact) {
-    const s = this.o.stage;
-    const offer = s < 2
-      ? { price: 120, label: 'Paint and a proper roof — 120 Shells', next: 2 as Stage, done: "Gran's colours, and a roof that keeps the rain off." }
-      : { price: 300, label: 'Get the engine going — 300 Shells', next: 3 as Stage, done: 'She coughs, she splutters… she runs. The Little Troller is back.' };
-    const v = await this.h.ask('Bosun Ade', s < 2 ? "Patched, I see. She'd look like your gran's boat again with paint and a roof." : 'Paint looks grand. Now, that engine…', [
-      { label: offer.label, value: 'buy' }, { label: 'Other boat work', value: 'shop' }, { label: 'Not today', value: 'no' }]);
+    const price = 300;
+    const v = await this.h.ask('Bosun Ade', "Rowing her about still? That engine's seized, not dead. Three hundred Shells and a dry week and I'll have her coughing. I'll not touch the rest — she suits you scruffy.", [
+      { label: `Get the engine going — ${price} Shells`, value: 'buy' }, { label: 'Other boat work', value: 'shop' }, { label: 'Not today', value: 'no' }]);
     if (v === 'shop') { this.h.passThrough(it); return; }
     if (v !== 'buy') return;
-    if (this.h.save.shells < offer.price) { this.h.toast(`Not enough Shells yet (${offer.price})`, 'warn'); return; }
-    this.h.save.shells -= offer.price;
+    if (this.h.save.shells < price) { this.h.toast(`Not enough Shells yet (${price})`, 'warn'); return; }
+    this.h.save.shells -= price;
     this.h.setShells(this.h.save.shells);
-    this.setStage(offer.next);
-    this.h.toast(offer.done, 'good');
+    this.setStage(2);
+    this.h.toast('She coughs, she splutters… she runs. Smoke from a stack lying on the foredeck, but she runs.', 'good');
   }
 
   private finish() {
@@ -427,7 +452,11 @@ export class Opening {
     this.refreshVisibility();
     this.syncInteracts();
     this.restoreErrands();
-    this.h.toast('The Sound is yours to wander. Gran\'s pages wait under the old stones.', 'log');
+    setFlag(this.o, 'town_hook');
+    this.h.writeSave();
+    this.h.toast("The Sound is yours to wander. The town's notice board wants mending hands; Gran's pages wait under the old stones.", 'log');
+    // hook for the town-restoration quest (docs/town_restoration_study.md, another branch): it starts here
+    window.dispatchEvent(new CustomEvent('opening:done', { detail: { lure: this.o.lure, stage: this.o.stage } }));
   }
 
   // ------------------------------------------------------------------ gates the rest of the game asks about
@@ -470,6 +499,7 @@ export class Opening {
     this.t += dt;
     if (!this.world) return;
     if (this.mail) this.sailMailBoat(dt);
+    this.reveal(dt);
     for (const it of Object.values(this.items)) if (it.glint.visible) { it.glint.rotation.y += dt * 1.6; it.glint.position.y += Math.sin(this.t * 3) * 0.004; }
     if (!this.active) return;
     const o = this.o;
@@ -519,7 +549,7 @@ export class Opening {
       case 'q8':
         if ((uiLog.sold ?? 0) > 0 && !this.h.busy()) {
           this.complete('sell');
-          this.say('Mae', "That's your gran's rod. Never thought I'd see it wet again. Fair price, and a bit extra for the look on my face. Now go and see Old Tess at the chandlery before she hears it from someone else.");
+          this.say('Mae', "That's your gran's rod. Never thought I'd see it wet again. Fair price — fairer than this old market deserves, these days — and a bit extra for the look on my face. Now go and see Old Tess at the chandlery before she hears it from someone else.");
         }
         break;
     }
