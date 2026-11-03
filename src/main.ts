@@ -99,10 +99,10 @@ const save: SaveData = loadSave();
 let quality = QUALITY[save.settings.quality];
 gameAudio.setVolumes(save.settings.music, save.settings.sound);
 sea.setQuality(save.settings.quality);
-// Ocean experiment (docs/ocean_study.md): Log > Developer > Ocean, or ?ocean=swell|classic; default Classic
+// Ocean (docs/ocean_study.md): Log > Developer > Ocean, or ?ocean=swell|classic; default Swell (smooth) since v0.12.4
 const OCEAN_KEY = 'salish-ocean';
-let oceanMode: 'classic' | 'swell' = 'classic';
-try { oceanMode = localStorage.getItem(OCEAN_KEY) === 'swell' ? 'swell' : 'classic'; } catch { /* private mode */ }
+let oceanMode: 'classic' | 'swell' = 'swell';
+try { oceanMode = localStorage.getItem(OCEAN_KEY) === 'classic' ? 'classic' : 'swell'; } catch { /* private mode */ }
 { const q = new URLSearchParams(location.search).get('ocean'); if (q === 'swell' || q === 'classic') oceanMode = q; }
 sea.setOcean(oceanMode);
 // Ocean pass 2: the cascades (GPU), spray, and the sea state (Log > Dev slider: Auto = weather, or 0–10)
