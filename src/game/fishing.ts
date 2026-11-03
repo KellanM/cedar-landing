@@ -128,6 +128,7 @@ export class Fishing {
   private v3 = new THREE.Vector3();
   private tip = new THREE.Vector3();
   private camPos = new THREE.Vector3();
+  private htLocal = new THREE.Vector3();
 
   constructor(private ev: FishingEvents) {
     this.shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 16).scale(0.35, 1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0d1a1f, transparent: true, opacity: 0.0, depthWrite: false }));
@@ -148,6 +149,7 @@ export class Fishing {
     this.phase = 'casting';
     this.t = 0;
     this.castFrom.copy(rodTip);
+    this.castFrom.y -= this.group.position.y; // tide: the rig works in water space (group sits at the water level)
     // land the bobber between the boat and the hotspot centre, ≤ 7 m out
     const dir = this.v1.set(hs.pos[0] - boatPos.x, 0, hs.pos[2] - boatPos.z);
     const d = Math.min(7, Math.max(3.5, dir.length()));
@@ -266,11 +268,12 @@ export class Fishing {
   }
 
   update(dt: number, held: boolean, rodTip: THREE.Vector3, boatPos: THREE.Vector3, cam?: THREE.Vector3) {
-    if (cam) this.camPos.copy(cam);
+    if (cam) this.camPos.copy(cam).setY(cam.y - this.group.position.y);
     if (this.phase === 'idle') return;
     this.t += dt;
     this.fxCool -= dt;
     this.tip.copy(rodTip);
+    this.tip.y -= this.group.position.y; // tide (see cast)
     let airY = 0, onWater = true;
 
     switch (this.phase) {
@@ -489,7 +492,7 @@ export class Fishing {
     const L = this.land_;
     if (!L) return;
     const g = this.fish.group;
-    const target = this.handTarget ?? this.v3.copy(this.tip).setY(1.4);
+    const target = this.handTarget ? this.htLocal.copy(this.handTarget).setY(this.handTarget.y - this.group.position.y) : this.v3.copy(this.tip).setY(1.4);
     if (!L.done) {
       L.t += dt;
       const k = Math.min(1, L.t / FIGHT_FX.landArc);
@@ -522,7 +525,7 @@ export class Fishing {
   /** World point a little above the held fish (catch bubble anchor). */
   fishTop(out: THREE.Vector3) {
     const b = this.fish.bounds, g = this.fish.group;
-    return out.copy(g.position).setY(g.position.y + (b ? b.yMax : 0.2) * g.scale.x + 0.12);
+    return out.copy(g.position).setY(g.position.y + (b ? b.yMax : 0.2) * g.scale.x + 0.12 + this.group.position.y);
   }
 
   /** Rest the fish on the fists (hoist) or in the right hand beside the face (hand). */

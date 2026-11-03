@@ -15,6 +15,7 @@ import { glyphSvg, type Glyph } from './mapglyphs';
 import { ERRANDS, stamps } from './errands';
 import { pinChip } from './chip';
 import { SPECIES, type Species } from '../game/fishdata';
+import { tideTableHtml, shoreNotesHtml, critterPlate } from './tidelog';
 
 export type Tab = 'errands' | 'fish' | 'map' | 'pages' | 'settings';
 type Filter = 'all' | 'caught' | 'missing' | 'here' | 'cooler';
@@ -148,7 +149,7 @@ function errandsTab(L: HTMLElement, R: HTMLElement) {
   <h4>Cover stamps <span class="num">${st.length} / ${ERRANDS.length}</span></h4>
   <div class="cover-stamps">${ERRANDS.map((e) => done.has(e.id) ? `<span class="cstamp">${e.stamp}</span>` : '<span class="cstamp empty"></span>').join('')}</div>
   <h4>Tide table</h4>
-  <table class="tide num"><tr><td>${ICONS.tide}</td><td>High</td><td>05:12</td><td>3.1 m</td></tr><tr><td></td><td>Low</td><td>11:40</td><td>0.6 m</td></tr><tr><td>${ICONS.tide}</td><td>High</td><td>17:55</td><td>2.8 m</td></tr><tr><td></td><td>Low</td><td>23:58</td><td>1.2 m</td></tr></table>
+  ${tideTableHtml()}
   <p class="hand">${esc(weatherNote())}</p>`;
 }
 function weatherNote() {
@@ -312,10 +313,13 @@ function pagesTab(L: HTMLElement, R: HTMLElement) {
     <ul class="page-list">
       <li><button data-pg="0" class="${selPage === 0 ? 'on' : ''}"><span class="ico">${ICONS.log}</span>Inside cover</button></li>
       ${Array.from({ length: TOTAL_PAGES }, (_, i) => i + 1).map((n) => `<li><button data-pg="${n}" class="${found.has(n) ? '' : 'torn'}${selPage === n ? ' on' : ''}"><span class="ico">${ICONS[found.has(n) ? 'page' : 'stone']}</span>${found.has(n) ? `Page ${n} · ${esc(PAGE_TEXT[n].title)}` : `Page ${n} · not found`}</button></li>`).join('')}
+      <li><button data-pg="99" class="${selPage === 99 ? 'on' : ''}"><span class="ico">${ICONS.tide}</span>Shore notes · tide pools</button></li>
     </ul>
     <p class="hand small">${found.size} of ${TOTAL_PAGES} found. Each sunstone keeps one.</p>`;
   L.querySelectorAll<HTMLButtonElement>('[data-pg]').forEach((b) => (b.onclick = () => { selPage = Number(b.dataset.pg); fx('page'); show('pages', true); openDetail(); }));
-  if (selPage === 0) {
+  if (selPage === 99) {
+    R.innerHTML = shoreNotesHtml(critterPlate);
+  } else if (selPage === 0) {
     R.innerHTML = `<article class="gran-page">
       <h3>If you've found this, you've found my canoe.</h3>
       <p>Put your thumb down on the left and paddle. Look for the water wrinkling in rings — that's fish.</p>

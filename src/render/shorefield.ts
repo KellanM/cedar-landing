@@ -27,7 +27,12 @@ import type { LandCollision } from '../game/collision';
  */
 
 export interface ShoreField {
+  /** RGBA half float: R = signed distance at levels[0], G = depth below y 0 (sign = under a deck), B / A = signed distance at levels[1] / levels[2] */
   texture: THREE.DataTexture;
+  /** water levels (world y, descending) the three signed-distance channels were built for (tides) */
+  levels: [number, number, number];
+  /** per texel: world y of the highest surface under the slab (NaN = none: open water / land interior), for the tide land grid */
+  heights: Float32Array;
   /** world xz of texel (0,0)'s outer corner, and the world size covered */
   min: THREE.Vector2;
   size: THREE.Vector2;
@@ -41,7 +46,10 @@ const LAND_H = -0.04; // m: anything higher than this is above the water line
 const DEEP = 30; // m: depth reported for open water past the terrain
 const MAX_D = 60; // m: distance clamp
 
-export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object: THREE.Object3D; bounds: THREE.Box3 }[], land: LandCollision | null, maxRes: number, extras: THREE.Object3D[] = []): ShoreField | null {
+/** Tides: the field carries the waterline at three levels; the shader blends between them (see sampleField). */
+export const FIELD_LEVELS: [number, number, number] = [0, -0.85, -1.75];
+
+export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object: THREE.Object3D; bounds: THREE.Box3 }[], land: LandCollision | null, maxRes: number, extras: THREE.Object3D[] = [], levels: [number, number, number] = FIELD_LEVELS): ShoreField | null {
   const t0 = performance.now();
   const box = new THREE.Box3();
   for (const c of chunks) if (!c.bounds.isEmpty() && c.bounds.max.x - c.bounds.min.x > 1) box.union(c.bounds);
@@ -66,7 +74,7 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
   const tmp = new THREE.Scene();
   // wire pass input: edges of steep faces (|n.y| < 0.4) that cross the waterline slab, in world space.
   // Pilings, posts, stacks and hull sides; flat decks and floats stay out (they would read as land).
-  const seg: number[] = [];
+  const segs: number[][] = levels.map(() => []);
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
   const collect = (m: THREE.Mesh) => {
     const pos = m.geometry.getAttribute('position');
@@ -78,11 +86,15 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
       b.fromBufferAttribute(pos, i1).applyMatrix4(m.matrixWorld);
       c.fromBufferAttribute(pos, i2).applyMatrix4(m.matrixWorld);
       const lo = Math.min(a.y, b.y, c.y), hi = Math.max(a.y, b.y, c.y);
-      if (hi < LAND_H || lo > -0.02) continue; // must pierce the water surface (dock beams just above it do not)
+      if (hi < levels[levels.length - 1] + LAND_H || lo > levels[0] - 0.02) continue;
       e1.subVectors(b, a); e2.subVectors(c, a); e1.cross(e2);
       const len = e1.length();
       if (len < 1e-9 || Math.abs(e1.y) / len > 0.4) continue;
-      seg.push(a.x, a.y, a.z, b.x, b.y, b.z, b.x, b.y, b.z, c.x, c.y, c.z, c.x, c.y, c.z, a.x, a.y, a.z);
+      for (let li = 0; li < levels.length; li++) {
+        const L = levels[li];
+        if (hi < L + LAND_H || lo > L - 0.02) continue; // must pierce the water surface (dock beams just above it do not)
+        segs[li].push(a.x, a.y, a.z, b.x, b.y, b.z, b.x, b.y, b.z, c.x, c.y, c.z, c.x, c.y, c.z, a.x, a.y, a.z);
+      }
     }
   };
   for (const c of chunks) {
@@ -111,7 +123,9 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
   }
   const wireScene = new THREE.Scene();
   const segGeom = new THREE.BufferGeometry();
-  segGeom.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+  segGeom.setAttribute('position', new THREE.Float32BufferAttribute(segs[0], 3));
+  // lower tide levels: their own wire passes (pilings, stacks and rock faces that cross that waterline)
+  const lowWire = levels.slice(1).map(() => new Uint8Array(W * H * 4));
   const lines = new THREE.LineSegments(segGeom, wireMat);
   lines.frustumCulled = false;
   wireScene.add(lines);
@@ -138,6 +152,18 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
     renderer.clearDepth();
     renderer.render(wireScene, cam);
     renderer.readRenderTargetPixels(rt, 0, 0, W, H, px);
+    for (let li = 1; li < levels.length; li++) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(segs[li], 3));
+      lines.geometry = g;
+      renderer.clear();
+      cam.position.y = levels[li] + TOP; cam.updateMatrixWorld();
+      renderer.render(wireScene, cam);
+      renderer.readRenderTargetPixels(rt, 0, 0, W, H, lowWire[li - 1]);
+      g.dispose();
+    }
+    lines.geometry = segGeom;
+    cam.position.y = TOP; cam.updateMatrixWorld();
     // cover pass: anything 0.15..4 m above the water (pier decks, floats, boardwalks) shades the water
     // under it: no foam there, and a touch darker
     renderer.clear();
@@ -158,11 +184,15 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
   const hgt = new Float32Array(N); // world y of the highest surface under the slab
   const covered = new Uint8Array(N);
   const state = new Uint8Array(N); // 0 cleared, 1 covered water, 2 land
+  const geoH = new Float32Array(N).fill(NaN); // height pass only (no wire, no cleared regions): tide land grid
+  const wireLow = levels.slice(1).map(() => new Uint8Array(N));
   for (let j = 0; j < H; j++) {
     const src = (H - 1 - j) * W;
     for (let i = 0; i < W; i++) {
       const s = (src + i) * 4, d = j * W + i;
       covered[d] = cover[s + 2] > 127 ? 1 : 0;
+      for (let li = 0; li < wireLow.length; li++) wireLow[li][d] = lowWire[li][s + 3] > 127 ? 1 : 0;
+      if (px[s + 2] >= 128 && px[s + 3] <= 127) geoH[d] = TOP - FLOOR + ((px[s] + px[s + 1] / 255) / 255) * FLOOR;
       if (px[s + 3] > 127) { state[d] = 2; hgt[d] = 0.2; continue; }
       if (px[s + 2] < 128) continue;
       const h = (px[s] + px[s + 1] / 255) / 255; // 0..1
@@ -202,33 +232,70 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
     for (const p of members) { state[p] = isLand ? 2 : 1; hgt[p] = isLand ? 0.2 : -DEEP; }
   }
 
-  // ---- signed distance (m): + over water, − under land
+  // ---- signed distance (m): + over water, − under land; one per tide level
   const INF = 1e20;
   const fWater = new Float32Array(N), fLand = new Float32Array(N);
-  for (let p = 0; p < N; p++) { const l = state[p] === 2; fWater[p] = l ? 0 : INF; fLand[p] = l ? INF : 0; }
-  edt2d(fWater, W, H); // squared px distance from each texel to the nearest land texel
-  edt2d(fLand, W, H);
-  const data = new Uint16Array(N * 2);
+  const sdAt = levels.map(() => new Float32Array(N));
+  for (let li = 0; li < levels.length; li++) {
+    const L = levels[li], wl = li ? wireLow[li - 1] : null;
+    for (let p = 0; p < N; p++) {
+      // level 0: the classic field. Lower levels: the level-0 land (minus wire-only texels, re-tested
+      // with that level's own wire pass), plus any surface standing above that waterline.
+      const g = geoH[p];
+      const l = !wl ? state[p] === 2 : wl[p] === 1 || (g === g ? g > L + LAND_H : state[p] === 2);
+      fWater[p] = l ? 0 : INF; fLand[p] = l ? INF : 0;
+    }
+    edt2d(fWater, W, H); // squared px distance from each texel to the nearest land texel
+    edt2d(fLand, W, H);
+    const out = sdAt[li];
+    // texel centres: half a texel bias puts the iso-line on the texel boundary
+    for (let p = 0; p < N; p++) out[p] = fWater[p] === 0 ? -(Math.sqrt(fLand[p]) - 0.5) * cell : (Math.sqrt(fWater[p]) - 0.5) * cell;
+  }
+  const data = new Uint16Array(N * 4);
   const toHalf = THREE.DataUtils.toHalfFloat;
   // light blur of the depth so the shallow tint follows the seabed without terracing
   const depth = new Float32Array(N);
   for (let p = 0; p < N; p++) depth[p] = state[p] === 2 ? 0 : Math.min(DEEP, -hgt[p]);
   blur3(depth, W, H);
+  const clampD = (d: number) => toHalf(Math.max(-MAX_D, Math.min(MAX_D, d)));
   for (let p = 0; p < N; p++) {
-    // texel centres: half a texel bias puts the iso-line on the texel boundary
-    const d = state[p] === 2 ? -(Math.sqrt(fLand[p]) - 0.5) * cell : (Math.sqrt(fWater[p]) - 0.5) * cell;
-    data[p * 2] = toHalf(Math.max(-MAX_D, Math.min(MAX_D, d)));
+    data[p * 4] = clampD(sdAt[0][p]);
     // under a deck depth is stored as -(depth + 1): the sign is the cover flag, and the 1 m offset keeps
     // the flag clear of linear filtering at the edge of a piling
-    data[p * 2 + 1] = toHalf(covered[p] ? -(depth[p] + 1) : depth[p]);
+    data[p * 4 + 1] = toHalf(covered[p] ? -(depth[p] + 1) : depth[p]);
+    data[p * 4 + 2] = clampD(sdAt[1][p]);
+    data[p * 4 + 3] = clampD(sdAt[2][p]);
   }
-  const texture = new THREE.DataTexture(data, W, H, THREE.RGFormat, THREE.HalfFloatType);
+  const texture = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.HalfFloatType);
   texture.magFilter = THREE.LinearFilter;
   texture.minFilter = THREE.LinearFilter;
   texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.needsUpdate = true;
   const ms = performance.now() - t0;
-  return { texture, min: new THREE.Vector2(minX, minZ), size: new THREE.Vector2(sizeX, sizeZ), ms, res: [W, H] };
+  return { texture, levels, heights: geoH, min: new THREE.Vector2(minX, minZ), size: new THREE.Vector2(sizeX, sizeZ), ms, res: [W, H] };
+}
+
+/** Blend weights of the three signed-distance channels for water level `y` (piecewise linear, clamped). */
+export function levelMix(levels: readonly number[], y: number): [number, number, number] {
+  const [a, b, c] = levels;
+  if (y >= a) return [1, 0, 0];
+  if (y >= b) { const t = (a - y) / (a - b); return [1 - t, t, 0]; }
+  if (y >= c) { const t = (b - y) / (b - c); return [0, 1 - t, t]; }
+  return [0, 0, 1];
+}
+
+/** CPU lookup (nearest texel): signed distance to shore at water level `y`, water depth under that level, and the under-a-deck flag. */
+export function sampleField(f: ShoreField, x: number, z: number, y: number) {
+  const [w, h] = f.res;
+  const u = (x - f.min.x) / f.size.x, v = (z - f.min.y) / f.size.y;
+  if (u <= 0 || v <= 0 || u >= 1 || v >= 1) return null;
+  const data = (f.texture.image as { data: Uint16Array }).data;
+  const p = (Math.floor(v * h) * w + Math.floor(u * w)) * 4;
+  const fh = THREE.DataUtils.fromHalfFloat;
+  const m = levelMix(f.levels, y);
+  const sd = fh(data[p]) * m[0] + fh(data[p + 2]) * m[1] + fh(data[p + 3]) * m[2];
+  const raw = fh(data[p + 1]);
+  return { sd, depth: (raw < 0 ? -raw - 1 : raw) + y, under: raw < 0 };
 }
 
 /** In-place 2D squared Euclidean distance transform (Felzenszwalb & Huttenlocher 2012). f: 0 at features, INF elsewhere. */

@@ -179,6 +179,31 @@ const KID_NAMES = ['Tilly', 'Bram', 'Nell', 'Otto', 'Lottie', 'Fitz'];
 const TOWN_NAMES = ['Hattie', 'Walt', 'Agnes', 'Ned', 'Mags', 'Clem', 'Ida', 'Percy', 'Winnie', 'Ruben', 'Opal', 'Gus', 'Dot', 'Amos'];
 
 let lineCtx: { tod: string; hour: number } = { tod: 'overcast', hour: 10.7 };
+
+// ---- tides (src/game/tides.ts keeps this current): now and then folk remark on the water
+export type TideState = 'low' | 'falling' | 'rising' | 'high';
+let tideNow: TideState = 'high';
+export function setTideLineContext(s: TideState) { tideNow = s; }
+const TIDE_LINES: Record<'town' | 'village' | 'kid', Record<TideState, string[]>> = {
+  town: {
+    low: ["Tide's right out. The rock pools off the points will be full of crabs.", 'Low water. Mind the weed on the rocks, it is slick as soap.', 'Big low today. Even the old pilings are showing their barnacles.', 'At a big low the Turtle Crescent shows its teeth. Go round, not through.'],
+    falling: ["Ebb's running. Keep off the shallows or you'll be sitting in the mud.", "Tide's dropping. Walk out to the pools in an hour or so."],
+    rising: ["Flood's coming in. Don't get caught out on the rocks.", "Tide's making. The fish follow it into the shallows."],
+    high: ['High water. Nothing on the rocks now but gulls.', 'Full tide. The boats sit up nice and tall at the float.'],
+  },
+  village: {
+    low: ["The water's gone way out. See who is at home in the pools.", 'Low tide. Step where it is dry; the weed slips.'],
+    falling: ['The tide is going out. The rocks will be walking weather soon.'],
+    rising: ['The water is coming back. Leave the pools as you found them.'],
+    high: ['High water. The beach is small today.'],
+  },
+  kid: {
+    low: ["Tide's out! I found a crab living in a snail shell!", 'Did you see the sea stars? An orange one AND a purple one!'],
+    falling: ["When's low tide? I want to look in the pools."],
+    rising: ['The water is coming back. Mum says off the rocks.'],
+    high: ["When's low tide? I want to look in the pools."],
+  },
+};
 /** main.ts keeps this in sync with the game clock. */
 export function setLineContext(tod: string, hour: number) { lineCtx = { tod, hour }; }
 
@@ -251,6 +276,11 @@ export function npcLine(n: Npc, visit: number): string {
   const list = shuffled(pool, hash(role));
   const rr = roleRank.get(keyOf(n)) ?? { rank: hash(keyOf(n)) % list.length, count: 1 };
   const step = Math.max(1, Math.floor(list.length / Math.max(1, rr.count)));
+  if (role !== 'cat' && visit > 0 && (visit + rr.rank) % 4 === 0) {
+    const group = /kid/.test(role) ? 'kid' : String(n.props?.culture ?? '') === 'village' ? 'village' : 'town';
+    const tl = TIDE_LINES[group][tideNow];
+    return tl[(rr.rank + Math.floor(visit / 4)) % tl.length];
+  }
   if (role !== 'cat' && role !== 'crier' && visit > 0 && (visit + rr.rank) % 4 === 2) {
     const culture = String(n.props?.culture ?? '');
     const group = /kid/.test(role) ? 'kid' : culture === 'village' ? 'village' : 'town';

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WATER } from './tide';
 import type { BirdSpawn, Hotspot } from '../world/types';
 import { BIRD_PALETTES, birdGeometry, creatureMesh, type CreatureMesh } from '../render/creatures';
 import type { SplashFX } from './splash';
@@ -353,8 +354,8 @@ export class BirdField {
         b.spd = Math.min(19, b.spd + 16 * dt);
         b.ampT = 0; b.foldT = 0.8;
         this.seek(b, b.spd, 3.5, dt);
-        if (b.pos.y <= 0.1 || b.t > 5) {
-          b.pos.y = 0;
+        if (b.pos.y <= WATER.y + 0.1 || b.t > 5) {
+          b.pos.y = WATER.y;
           this.splash.splash(b.pos.x, b.pos.z, 1);
           b.vel.set(0, 0, 0);
           b.floatT = rand(1.8, 4.2);
@@ -364,7 +365,7 @@ export class BirdField {
         break;
       }
       case FLOAT: {
-        b.pos.y = Math.sin(this.time * 1.6 + b.ph) * 0.03 + 0.03;
+        b.pos.y = WATER.y + Math.sin(this.time * 1.6 + b.ph) * 0.03 + 0.03; // tide: float on the water
         b.yaw += Math.sin(this.time * 0.2 + b.ph) * 0.15 * dt;
         b.ampT = 0; b.foldT = 1; b.rate = 0;
         b.idleT -= dt;
@@ -395,8 +396,8 @@ export class BirdField {
         b.foldT = 0;
         b.ampT = d < 3 ? 0.9 : 0.08;
         b.rate = d < 3 ? sp.flapRate : 2;
-        if ((d < 0.8 && b.pos.y < 0.4) || b.t > 14) {
-          b.pos.y = 0;
+        if ((d < 0.8 && b.pos.y < WATER.y + 0.4) || b.t > 14) {
+          b.pos.y = WATER.y;
           b.vel.set(0, 0, 0);
           this.splash.ring(b.pos.x, b.pos.z, 0.4);
           b.restT = rand(20, 60);
@@ -408,7 +409,7 @@ export class BirdField {
         b.vel.set(0, 0, 0);
         b.foldT = 1; b.rate = 0;
         b.pos.copy(b.home);
-        if (b.home.y < 0.2) b.pos.y = 0.03 + Math.sin(this.time * 1.6 + b.ph) * 0.03; // sitting on the water
+        if (b.home.y < 0.2) b.pos.y = WATER.y + 0.03 + Math.sin(this.time * 1.6 + b.ph) * 0.03; // sitting on the water
         b.idleT -= dt;
         if (b.idleT <= 0) {
           const r = Math.random();

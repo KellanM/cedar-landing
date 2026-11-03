@@ -38,6 +38,8 @@ import { NpcCrowd } from './game/npcs/npcs';
 import { FOOT_CAM } from './game/onfoot/footcamera';
 import { createUpgrades } from './game/progression/upgrades';
 import { gameAudio, renderOffline, composePiece, surfaceFromColor } from './audio';
+import { Tides } from './game/tides';
+import { WATER, tideAt, tideTurns } from './game/tide';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -173,6 +175,12 @@ foot.onFootstep = (sp, feet, surf) => gameAudio.step(surfaceFromColor(surf, feet
 foot.onSay = (name, text, role, x, z) => gameAudio.talk(name, text, role, x, z);
 let footCtx: FootContext | null = null;
 let ashoreOnAction: FootContext | null = null;
+// ---------------------------------------------------------------- tides (src/game/tides.ts)
+const tides = new Tides({
+  boat: () => boat, floaters: () => floaters, wildlife: () => wildlife, hotspots: () => hotspotFX?.group ?? null,
+  wake, fishing, foot, toast: (m, k) => hud.toast(m, k), camera, renderer, save, writeSave: () => writeSave(save),
+  note: (who, text) => { void hud.readNote(who, text); }, shells: (n) => hud.setShells(n), reduceMotion,
+});
 
 // ---------------------------------------------------------------- world
 let crowd: NpcCrowd | null = null;
@@ -192,6 +200,7 @@ function installWorld(w: LoadedWorld) {
   disposeWorld();
   world = w;
   for (const c of w.chunks) worldRoot.add(c.object);
+  tides.setWorld(w, worldRoot, worldVersion); // tides: intertidal bands on the chunks + tide-pool shelves
   for (const b of w.backdrops) worldRoot.add(b);
   for (const c of w.clouds) worldRoot.add(c);
   if (new URLSearchParams(location.search).has('flagtest')) worldRoot.add(makeTestFlag(flutterMat, w.gameplay.spawn.pos));
@@ -230,6 +239,7 @@ function installWorld(w: LoadedWorld) {
   boat.update(0, 0, 0, land);
   chase.snap(boat);
   foot.setWorld(w);
+  tides.footWorld(foot.world, w.chunks); // tides: walk out on the tide-pool terraces
   setNpcRoster(w.gameplay.npcs ?? []);
   if (save.onfoot && boat.moored && save.worldTag === w.source && !foot.active) foot.restore(save.onfoot);
 
@@ -251,8 +261,10 @@ function installWorld(w: LoadedWorld) {
 /** Sea shore field (distance to shore + depth) from the chunks, once per world / quality change. */
 let seaFieldInfo: { ms: number; res: [number, number] } | null = null;
 function buildSeaField(w: LoadedWorld) {
-  const f = buildShoreField(renderer, w.chunks, land, save.settings.quality === 'low' ? 512 : 1024, w.dynamic ?? []);
+  if (land) land.extra = null; // tides: the field classifies against the exported grid alone
+  const f = buildShoreField(renderer, [...w.chunks, ...tides.fieldChunks], land, save.settings.quality === 'low' ? 512 : 1024, w.dynamic ?? []);
   sea.setShoreField(f);
+  tides.setField(f, land); // tides: low-water land grid from the field's heights
   seaFieldInfo = f && { ms: +f.ms.toFixed(1), res: f.res };
 }
 
@@ -651,7 +663,7 @@ function updateUI(dt: number) {
   const near = nearestHotspot();
   const canCast = !!near && near.d <= HOTSPOT_RANGE;
   currentInteract = fishing.active || foot.active ? null : nearestInteract();
-  footCtx = fishing.active ? null : foot.active ? foot.context() : foot.boatContext(boat, currentInteract, save.cooler.length > 0);
+  footCtx = fishing.active ? null : foot.active ? (tides.poolContext() ?? foot.context()) : foot.boatContext(boat, currentInteract, save.cooler.length > 0);
   // When selling from the boat holds the context button, the idle Cast button offers "Ashore".
   ashoreOnAction = !fishing.active && !foot.active && !canCast && !footCtx ? foot.ashoreContext(boat) : null;
   if (landing && !save.reachedLanding && Math.hypot(landing.pos[0] - boat.pos.x, landing.pos[2] - boat.pos.z) < LANDING_REACHED) {
@@ -828,6 +840,7 @@ function frame(now: number) {
       foot.afterChase(dt);
       foot.boatTick(boat);
     }
+    tides.frame(dt, clockHour, save.day ?? 0); // tides (src/game/tides.ts): water level + everything afloat
     maybeReveal();
     sky.follow(camera.position);
     sea.reduceMotion = reduceMotion();
@@ -988,6 +1001,16 @@ window.__debug = {
   skipperObj: () => skipper,
   /** captures (app icon etc.): override chase-camera tuning */
   camTune: (o: Partial<typeof CAMERA_TUNING>) => { Object.assign(CAMERA_TUNING, o); chase.snap(boat); },
+  /** tides: pin the water level (world y; null = back to the clock); tideAt(h, day) = the model's level */
+  tide: (y?: number | null) => { if (y !== undefined) WATER.pinned = y; tides.frame(0, clockHour, save.day ?? 0); return { y: +WATER.y.toFixed(3), rate: +WATER.rate.toFixed(3), pinned: WATER.pinned, grid: !!tides.grid }; },
+  tideAt: (h: number, day = save.day ?? 0) => +tideAt(h, day).toFixed(3),
+  tideTurns: (day = save.day ?? 0) => tideTurns(day).map((t) => ({ ...t, hour: +t.hour.toFixed(2), level: +t.level.toFixed(2) })),
+  tideGround: (x: number, z: number) => tides.grid?.ground(x, z),
+  /** tide pools: bake sites from this world (JSON for src/game/tidepool_sites.json), list pools, look into one */
+  tidepoolBake: (opts?: { spacing?: number; max?: number }) => world && { world: worldVersion, ...tides.bake(foot.world, world, opts) },
+  tidepools: () => tides.pools?.pools.map((p) => ({ id: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), h: +p.h.toFixed(2), r: +p.r.toFixed(2), zone: p.zone, critters: p.critters })),
+  tidepoolSites: () => tides.pools?.shelves.map((s) => s.site),
+  tidepoolLook: (id: string) => { const p = tides.pools?.pools.find((q) => q.id === id); return p ? tides.observe(p) : null; },
   /** jump the game clock (hours) */
   setClock: (h: number) => { clockHour = wrapHour(h); save.clock = clockHour; applyTOD(); return clockText(clockHour); },
   /** sea mist 0..1 now; mist(v) pins it (null = back to the clock), mist(null, day) sets the day */
