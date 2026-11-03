@@ -49,7 +49,7 @@ const MAX_D = 60; // m: distance clamp
 /** Tides: the field carries the waterline at three levels; the shader blends between them (see sampleField). */
 export const FIELD_LEVELS: [number, number, number] = [0, -0.85, -1.75];
 
-export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object: THREE.Object3D; bounds: THREE.Box3 }[], land: LandCollision | null, maxRes: number, extras: THREE.Object3D[] = [], levels: [number, number, number] = FIELD_LEVELS): ShoreField | null {
+export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object: THREE.Object3D; bounds: THREE.Box3 }[], land: LandCollision | null, maxRes: number, extras: THREE.Object3D[] = [], levels: [number, number, number] = FIELD_LEVELS, decals: THREE.Object3D[] = []): ShoreField | null {
   const t0 = performance.now();
   const box = new THREE.Box3();
   for (const c of chunks) if (!c.bounds.isEmpty() && c.bounds.max.x - c.bounds.min.x > 1) box.union(c.bounds);
@@ -137,6 +137,7 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
   const rt = new THREE.WebGLRenderTarget(W, H, { depthBuffer: true });
   const px = new Uint8Array(W * H * 4);
   const cover = new Uint8Array(W * H * 4);
+  const decalPx = new Uint8Array(W * H * 4);
   const prevRT = renderer.getRenderTarget();
   const prevColor = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
   const prevAuto = renderer.autoClear;
@@ -171,6 +172,25 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
     if (extraFill.length) tmp.add(...extraFill); // floating docks and boats shade the water too
     renderer.render(tmp, cam);
     renderer.readRenderTargetPixels(rt, 0, 0, W, H, cover);
+    // decal pass (tides): water-surface decals (shallows plates, surf pads) count as shore at every level, as they
+    // did when they were baked into the chunks, so foam still rings them; they are not ground (tide grid)
+    if (decals.length) {
+      const ds = new THREE.Scene();
+      for (const root of decals) {
+        root.updateMatrixWorld(true);
+        root.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          const fm = new THREE.Mesh(m.geometry, heightMat);
+          fm.matrixAutoUpdate = false; fm.matrix.copy(m.matrixWorld); fm.frustumCulled = false;
+          ds.add(fm);
+        });
+      }
+      renderer.clear();
+      cam.position.y = 4; cam.near = 0; cam.far = 8; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+      renderer.render(ds, cam);
+      renderer.readRenderTargetPixels(rt, 0, 0, W, H, decalPx);
+    }
   } finally {
     renderer.setRenderTarget(prevRT);
     renderer.setClearColor(prevColor, prevAlpha);
@@ -186,11 +206,13 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
   const state = new Uint8Array(N); // 0 cleared, 1 covered water, 2 land
   const geoH = new Float32Array(N).fill(NaN); // height pass only (no wire, no cleared regions): tide land grid
   const wireLow = levels.slice(1).map(() => new Uint8Array(N));
+  const decal = new Uint8Array(N);
   for (let j = 0; j < H; j++) {
     const src = (H - 1 - j) * W;
     for (let i = 0; i < W; i++) {
       const s = (src + i) * 4, d = j * W + i;
       covered[d] = cover[s + 2] > 127 ? 1 : 0;
+      if (decalPx[s + 2] > 127) { decal[d] = 1; state[d] = 2; hgt[d] = 0.08; continue; }
       for (let li = 0; li < wireLow.length; li++) wireLow[li][d] = lowWire[li][s + 3] > 127 ? 1 : 0;
       if (px[s + 2] >= 128 && px[s + 3] <= 127) geoH[d] = TOP - FLOOR + ((px[s] + px[s + 1] / 255) / 255) * FLOOR;
       if (px[s + 3] > 127) { state[d] = 2; hgt[d] = 0.2; continue; }
@@ -242,7 +264,7 @@ export function buildShoreField(renderer: THREE.WebGLRenderer, chunks: { object:
       // level 0: the classic field. Lower levels: the level-0 land (minus wire-only texels, re-tested
       // with that level's own wire pass), plus any surface standing above that waterline.
       const g = geoH[p];
-      const l = !wl ? state[p] === 2 : wl[p] === 1 || (g === g ? g > L + LAND_H : state[p] === 2);
+      const l = !wl ? state[p] === 2 : wl[p] === 1 || decal[p] === 1 || (g === g ? g > L + LAND_H : state[p] === 2);
       fWater[p] = l ? 0 : INF; fLand[p] = l ? INF : 0;
     }
     edt2d(fWater, W, H); // squared px distance from each texel to the nearest land texel

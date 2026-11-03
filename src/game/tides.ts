@@ -28,6 +28,7 @@ export interface TideHost {
   floaters: () => Floaters | null;
   wildlife: () => Wildlife | null;
   hotspots: () => THREE.Object3D | null;
+  crowd: () => { actors: { root: THREE.Object3D; pos: THREE.Vector3 }[] } | null;
   wake: BoatWake;
   fishing: Fishing;
   foot: OnFoot;
@@ -74,9 +75,36 @@ export class Tides {
   get fieldChunks(): LoadedChunk[] { return this.pools?.fieldChunks ?? []; }
   /** After the on-foot world is set: walk on the terraces, round the pools. */
   footWorld(fw: FootWorld, chunks: LoadedChunk[]) {
-    if (!this.pools) return;
-    fw.setChunks([...chunks, ...this.pools.walkChunks]);
-    fw.circles = [...fw.circles, ...this.pools.circles];
+    if (this.pools) {
+      fw.setChunks([...chunks, ...this.pools.walkChunks]);
+      fw.circles = [...fw.circles, ...this.pools.circles];
+    }
+    // floats and gangways: walkable, riding the tide (the deck under your feet moves with them)
+    const fl = this.host.floaters();
+    if (fl) {
+      fw.addMoving(fl.tidalItems.map((it) => {
+        const b = it.box.clone().expandByScalar(0.5);
+        return { chunk: { object: it.o, bounds: b, center: b.getCenter(new THREE.Vector3()) }, off: (x: number, z: number) => fl.offsetOf(it, x, z) };
+      }));
+    }
+    this.npcRest.clear();
+  }
+  /** NPCs standing on floats: rest height, keyed by actor root */
+  private npcRest = new Map<THREE.Object3D, { y: number; onFloat: boolean | null }>();
+  private floatNpcs() {
+    const crowd = this.host.crowd(), fl = this.host.floaters();
+    if (!crowd || !fl) return;
+    for (const a of crowd.actors) {
+      let r = this.npcRest.get(a.root);
+      if (!r) { r = { y: a.root.position.y, onFloat: null }; this.npcRest.set(a.root, r); }
+      if (r.onFloat === false) continue;
+      const p = a.pos;
+      // decided once, at rest: is this NPC standing on a float deck?
+      if (r.onFloat === null) r.onFloat = fl.tidalItems.some((it) => { const b = it.box; return p.x > b.min.x - 0.3 && p.x < b.max.x + 0.3 && p.z > b.min.z - 0.3 && p.z < b.max.z + 0.3 && p.y > b.min.y && p.y < b.max.y + 0.5; });
+      if (!r.onFloat) continue;
+      a.root.position.y = r.y + fl.floatDyAt(p.x, p.y, p.z);
+      a.root.updateMatrix(); a.root.updateMatrixWorld(true);
+    }
   }
 
   setField(f: ShoreField | null, land: LandCollision | null) {
@@ -111,6 +139,7 @@ export class Tides {
     const feet = h.foot.active ? h.foot.feet.y : 99;
     setWalkWater(Math.min(y + 0.3, feet - 0.05)); // + 0.3: as before at high water
     this.boat(dt);
+    this.floatNpcs();
     this.pools?.update(dt, h.camera.position, h.reduceMotion());
     this.chipT -= dt;
     if (this.chipT <= 0) {
