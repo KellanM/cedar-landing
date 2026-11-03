@@ -39,6 +39,7 @@ export const ICONS: Record<string, string> = {
   cloud: s(`<path d="M6.5 18.5h11a4 4 0 0 0 .3-8 6 6 0 0 0-11.3 1.7 3.2 3.2 0 0 0 0 6.3z" fill="${PAPER}"/>`),
   fog: s(`<path d="M3 8h14M6 12h15M3 16h13M8 20h10" stroke-width="2.2"/>`),
   rain: s(`<path d="M6.5 14.5h11a4 4 0 0 0 .3-8 6 6 0 0 0-11.3 1.7 3.2 3.2 0 0 0 0 6.3z" fill="${PAPER}"/><path d="M8 17.5l-1 3M12 17.5l-1 3M16 17.5l-1 3" stroke="${TEAL}"/>`),
+  storm: s(`<path d="M6.5 13.5h11a4 4 0 0 0 .3-8 6 6 0 0 0-11.3 1.7 3.2 3.2 0 0 0 0 6.3z" fill="#B9C0C2"/><path d="M12.5 13.5 10 18h3l-2 4.5" stroke="#E6B54A" stroke-width="2"/>`),
   dusk: s(`<path d="M5 16a7 7 0 0 1 14 0z" fill="#E59A5C"/><path d="M2.5 16h19M5 20h14M12 4.5V7M5.5 8l1.4 1.4M18.5 8l-1.4 1.4"/>`),
   moon: s(`<path d="M19 14.5A8 8 0 0 1 9.5 5a8 8 0 1 0 9.5 9.5z" fill="#E8DFC4"/><path d="M17 4.5v3M15.5 6h3" stroke-width="1.5"/>`),
   /** tide arrow */

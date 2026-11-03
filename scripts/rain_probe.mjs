@@ -1,0 +1,24 @@
+// Ad-hoc weather probe: node scripts/rain_probe.mjs <base> "<js run in page after setup>" out.png
+import { chromium } from 'playwright';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+const BASE = process.argv[2] ?? 'http://localhost:5222/cedar-landing/';
+const JS = process.argv[3] ?? '';
+const OUT = process.argv[4] ?? 'screenshots/rain_probe.png';
+const root = path.join(os.homedir(), 'AppData/Local/ms-playwright');
+const exe = fs.readdirSync(root).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse().map((d) => path.join(root, d, 'chrome-win64', 'chrome.exe')).find((e) => fs.existsSync(e));
+const b = await chromium.launch({ executablePath: exe, args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] });
+const vp = process.env.VP === 'desktop' ? { width: 1280, height: 800 } : { width: 390, height: 844 };
+const ctx = await b.newContext({ viewport: vp, deviceScaleFactor: process.env.VP === 'desktop' ? 1 : 2, isMobile: process.env.VP !== 'desktop', hasTouch: true });
+const p = await ctx.newPage(); const errors = [];
+p.on('pageerror', (e) => errors.push(String(e))); p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+await p.goto(BASE + '?debug'); await p.evaluate(() => localStorage.clear()); await p.reload();
+await p.waitForFunction(() => window.__debug && window.__debug.state.chunks > 0, null, { timeout: 120000 });
+await p.evaluate(() => { window.__debug.markRevealSeen(); window.__debug.skipShot(); window.__debug.teleport(220, 300, 0.6); });
+await p.addStyleTag({ content: '#fps{opacity:0!important}' });
+await new Promise((r) => setTimeout(r, 1500));
+const res = await p.evaluate(JS);
+await new Promise((r) => setTimeout(r, +(process.env.WAIT ?? 2500)));
+console.log(JSON.stringify(res));
+await p.screenshot({ path: OUT });
+console.log('errors', errors.length, errors.slice(0, 3).join(' | '));
+await b.close();

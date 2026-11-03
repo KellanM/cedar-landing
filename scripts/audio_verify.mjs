@@ -236,6 +236,7 @@ async function renders() {
     ['music_day', 'music:day', 75, 11], ['music_day_b', 'music:day', 75, 23], ['music_night', 'music:night', 75, 5], ['music_town', 'music:town', 50, 3], ['music_dusk', 'music:dusk', 60, 8],
     ['fight', 'fight', 22, 4], ['fishing_sfx', 'fishing', 17, 1], ['boat', 'boat', 15, 1], ['wildlife', 'wildlife', 15, 1], ['foot_and_talk', 'foot', 13, 1], ['ui', 'ui', 12, 1],
     ['amb_open', 'amb:open', 30, 1], ['amb_harbour', 'amb:harbour', 30, 1], ['amb_forest', 'amb:forest', 30, 1], ['amb_forest_dusk', 'amb:forest_dusk', 30, 1], ['amb_night', 'amb:forest_night', 30, 1], ['amb_fog', 'amb:open_fog', 45, 1],
+    ['rain_drizzle', 'rain:drizzle', 20, 1], ['rain_steady', 'rain:steady', 20, 1], ['rain_storm', 'rain:storm', 22, 1],
   ];
   const levels = {};
   for (const [file, kind, secs, seed] of jobs) {

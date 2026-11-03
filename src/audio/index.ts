@@ -16,6 +16,9 @@ export interface AudioFrame {
   onFoot: boolean;
   feet?: { x: number; z: number };
   tod: string;
+  /** weather 0..1 (docs/rain_study.md) */
+  rain?: number;
+  storm?: number;
   fishing: { phase: string; tension: number; reelHeld: boolean; thrashing: boolean; distance: number; bobber: { x: number; z: number } };
 }
 
@@ -131,10 +134,13 @@ class GameAudio {
     const speed = f.onFoot ? 0 : Math.min(1, Math.abs(f.boat.speed) / Math.max(1, f.boat.maxSpeed));
     const soundOn = this.vol.sound > 0;
     if (soundOn) {
-      this.amb!.update(dt, { zones: this.zones, tod: f.tod, speed, onFoot: f.onFoot, moored: f.boat.moored });
+      this.amb!.update(dt, { zones: this.zones, tod: f.tod, speed, onFoot: f.onFoot, moored: f.boat.moored, rain: f.rain ?? 0, storm: f.storm ?? 0 });
       this.boat!.update(dt, f.boat.throttle, speed, !f.onFoot && !f.boat.moored, f.boat.heavy);
       this.fishingFrame(dt, f);
     } else { this.stopStrain(); this.lastPhase = f.fishing.phase; }
+    // rain softens the music a little (A Short Hike / Sasquatch keep playing; it just sits back)
+    const duck = 1 - 0.28 * Math.min(1, f.rain ?? 0) - 0.12 * (f.storm ?? 0);
+    if (Math.abs(duck - e.musicDuck) > 0.02) { e.musicDuck = duck; e.applyLevels(); }
     const fighting = f.fishing.phase === 'reeling';
     this.music!.update({ tod: f.tod, town: this.zones.harbour, fighting, tension: f.fishing.tension, thrashing: f.fishing.thrashing }, this.vol.music > 0);
   }
@@ -205,6 +211,14 @@ class GameAudio {
 
   // -------------------------------------------------------------- events from main.ts
   private at() { return this.e!.now + 0.01; }
+  /** A lightning strike now: thunder arrives after distM / 343 s. Returns the delay (s), or -1 if muted. */
+  thunder(distM: number, near: boolean, x?: number, z?: number) {
+    if (!this.ok()) return -1;
+    let pan = 0;
+    if (x !== undefined && z !== undefined) pan = this.e!.spatial(x, z, 1e6, 1e7)?.pan ?? 0;
+    return this.amb!.thunder(distM, near, pan);
+  }
+
   private ok() { return !!this.e && this.running && this.vol.sound > 0; }
   private place(x: number, z: number, ref = 18, max = 160): Place | null { return this.e!.spatial(x, z, ref, max); }
 
@@ -373,6 +387,13 @@ export async function renderOffline(kind: string, secs: number, seed = 7) {
     if (place.startsWith('harbour')) Object.assign(zones, { harbour: 1, shore: 0.6, open: 0, forest: 0 });
     if (place.startsWith('forest')) Object.assign(zones, { harbour: 0, shore: 1, open: 0, forest: 1 });
     every(() => amb.update(step, { zones, tod, speed: 0, onFoot: place.startsWith('forest'), moored: place.startsWith('harbour') }));
+  } else if (kind.startsWith('rain:')) {
+    // rain:drizzle | rain:steady | rain:storm — the weather beds on open water, still boat, with thunder in a storm
+    const v = kind.slice(5);
+    const amb = new Ambience(e, S);
+    const rain = v === 'drizzle' ? 0.35 : v === 'steady' ? 0.75 : 1, storm = v === 'storm' ? 1 : 0;
+    every(() => amb.update(step, { zones, tod: 'overcast', speed: 0, onFoot: false, moored: false, rain, storm }));
+    if (storm) { at(1.0, () => amb.thunder(2400, false)); at(7.0, () => amb.thunder(300, true, 0.4)); at(12.5, () => amb.thunder(1500, false, -0.5)); }
   } else if (kind === 'ui') {
     ['tap', 'page', 'open', 'close', 'buy', 'sell', 'stamp', 'upgrade', 'paint', 'discover', 'quest', 'refuse'].forEach((n, i) => at(0.2 + i * 0.9, () => S.ui(e.now, n)));
   } else if (kind === 'wildlife') {

@@ -55,6 +55,10 @@ export class Boat {
   pos = new THREE.Vector3();
   yaw = 0;
   speed = 0;
+  /** 0..1 sea roughness (storm), set by main */
+  rough = 0;
+  /** a heavier boat (T1) rocks less */
+  steady = false;
   private yawRate = 0;
   /** world-space planar velocity (forward + a little sideways slide) */
   vel = new THREE.Vector2();
@@ -176,9 +180,11 @@ export class Boat {
     this.pos.z = res.z;
 
     // Visual: gentle bob, roll into turns, slight bow rise with speed
-    const bob = Math.sin(this.t * 1.3) * 0.04 + Math.sin(this.t * 2.1 + 1) * 0.02;
-    const roll = -this.yawRate * 0.18 + Math.sin(this.t * 0.9) * 0.025;
-    const pitch = Math.sin(this.t * 1.1 + 0.5) * 0.015 + (this.speed / P.maxSpeed) * 0.04;
+    // storms (docs/rain_study.md): a heavier swell rocks and rolls her more (the Packer rides it better)
+    const R = 1 + this.rough * (this.steady ? 1.6 : 2.6);
+    const bob = (Math.sin(this.t * 1.3) * 0.04 + Math.sin(this.t * 2.1 + 1) * 0.02) * R;
+    const roll = -this.yawRate * 0.18 + (Math.sin(this.t * 0.9) * 0.025 + this.rough * 0.03 * Math.sin(this.t * 0.53 + 2)) * R;
+    const pitch = (Math.sin(this.t * 1.1 + 0.5) * 0.015) * R + (this.speed / P.maxSpeed) * 0.04;
     this.root.position.set(this.pos.x, bob, this.pos.z);
     this.root.rotation.set(0, this.yaw, 0);
     this.visual.rotation.set(pitch, 0, roll);

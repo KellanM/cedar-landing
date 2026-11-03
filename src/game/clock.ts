@@ -53,7 +53,7 @@ export const lookWords = (key: string) => WORDS[key] ?? key;
  * The "fog" look (dawn) still forces full fog (main.applyTOD takes the max).
  */
 export const MIST = { min: 0.22, max: 0.85 };
-function dayMist(day: number) {
+export function dayMist(day: number) {
   const s = Math.sin((Math.floor(day) + 1) * 127.1 + 311.7) * 43758.5453;
   const r = s - Math.floor(s); // 0..1, fixed per day
   return r * r * 0.9 + 0.05; // most days light-to-moderate, the odd thick one

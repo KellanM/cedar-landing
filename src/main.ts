@@ -27,6 +27,11 @@ import { fx } from './ui/fx';
 import { BoatWake } from './render/wake';
 import { SmokeFX } from './render/smoke';
 import { FogBanks } from './render/fogbanks';
+import { RainFX, RAIN_TUNE, WIND_DIR } from './render/rain';
+import { WIND as SMOKE_WIND } from './render/smoke';
+import { WEATHER_TUNE, weatherAt, weatherKey, weatherStats, weatherWords, type WeatherNow } from './game/weather';
+import { LIGHT_U, setLightingWeather } from './render/lighting';
+import { ctx as uiCtx } from './ui/ctx';
 import { lookupSpecies, type CaughtFish } from './game/fishdata';
 import { clearSave, loadSave, writeSave, type SaveData } from './game/save';
 import * as hud from './ui/hud';
@@ -142,6 +147,21 @@ let fogBanks: FogBanks | null = null;
 let floaters: Floaters | null = null;
 const wake = new BoatWake(BOAT_TUNING);
 scene.add(wake.mesh);
+// Weather (docs/rain_study.md): rain streaks, sea marks, veils, lightning. One draw call per layer.
+const rain = new RainFX(sea.uniforms);
+rain.setQuality(save.settings.quality);
+scene.add(rain.group);
+const FLASH_KEY = 'salish-flashes';
+let flashSetting: 'on' | 'off' = 'on';
+try { flashSetting = localStorage.getItem(FLASH_KEY) === 'off' ? 'off' : 'on'; } catch { /* private mode */ }
+let weatherNow: WeatherNow = { rain: 0, storm: 0, trend: 0, shower: false };
+let rainOverride: number | null = null;
+let stormOverride: number | null = null;
+const SMOKE_WIND_BASE = SMOKE_WIND.clone();
+rain.onStrike = (s) => {
+  gameAudio.thunder(s.dist, s.near, s.x, s.z);
+  if (s.near && !reduceMotion()) chase.shake(0.06);
+};
 const stackPos = new THREE.Vector3();
 let squawks = 0;
 let boat: Boat;
@@ -279,6 +299,8 @@ function buildWildlife() {
 }
 
 const _ca = new THREE.Color(), _cb = new THREE.Color();
+/** the storm palette: a bruised grey-green (ACNH mauve-grey / WW dark teal, pulled into our muted sea) */
+const STORM_SKY = { zenith: '#4c5754', horizon: '#76827c', haze: '#7b8781', sea: '#3c4b48', shallow: '#56655e' };
 const mixHex = (a: string | undefined, b: string | undefined, f: number) => {
   if (!a) return b ?? '#000000';
   if (!b || f <= 0) return a;
@@ -310,6 +332,37 @@ function applyTOD() {
     todBlend.zenith = mixHex(todBlend.zenith, F.zenith, tintK); todBlend.horizon = mixHex(todBlend.horizon, F.horizon, tintK);
     todBlend.haze = mixHex(todBlend.haze, F.haze, tintK); todBlend.sea = mixHex(todBlend.sea, F.sea, tintK * 0.6);
   }
+  // weather (docs/rain_study.md): rain greys, darkens and flattens the whole frame (WW: one dark teal;
+  // PNW drizzle: the distance goes grey); a storm pulls toward a bruised grey-green and closes in further
+  weatherNow = weatherAt(clockHour, save.day ?? 0);
+  if (stormOverride !== null) { weatherNow.storm = stormOverride; weatherNow.rain = Math.max(rainOverride ?? 0, stormOverride > 0 ? 0.75 + 0.25 * stormOverride : 0); }
+  if (rainOverride !== null) weatherNow.rain = rainOverride;
+  const R = weatherNow.rain, S = weatherNow.storm, nightK = w('night');
+  if (R > 0.001 || S > 0.001) {
+    const grey = (hex: string, k: number, dark: number) => {
+      _ca.set(hex); const l = _ca.r * 0.3 + _ca.g * 0.55 + _ca.b * 0.15;
+      return '#' + _ca.lerp(_cb.setRGB(l, l, l), k).multiplyScalar(1 - dark).getHexString();
+    };
+    todBlend.zenith = grey(mixHex(todBlend.zenith, todBlend.horizon, 0.35 * R), 0.55 * R, 0.16 * R);
+    todBlend.horizon = grey(mixHex(todBlend.horizon, todBlend.haze, 0.3 * R), 0.5 * R, 0.1 * R);
+    todBlend.haze = grey(todBlend.haze, 0.45 * R, 0.1 * R);
+    todBlend.sea = grey(todBlend.sea, 0.3 * R, 0.14 * R);
+    if (todBlend.shallow) todBlend.shallow = grey(todBlend.shallow, 0.35 * R, 0.14 * R);
+    if (S > 0.001) {
+      const dk = dayF * S;
+      todBlend.zenith = mixHex(todBlend.zenith, STORM_SKY.zenith, 0.75 * dk); todBlend.horizon = mixHex(todBlend.horizon, STORM_SKY.horizon, 0.7 * dk);
+      todBlend.haze = mixHex(todBlend.haze, STORM_SKY.haze, 0.7 * dk); todBlend.sea = mixHex(todBlend.sea, STORM_SKY.sea, 0.6 * dk);
+      if (todBlend.shallow) todBlend.shallow = mixHex(todBlend.shallow, STORM_SKY.shallow, 0.5 * dk);
+      const nd = 0.2 * S * nightK;
+      todBlend.zenith = grey(todBlend.zenith, 0, nd); todBlend.haze = grey(todBlend.haze, 0, nd); todBlend.sea = grey(todBlend.sea, 0, nd);
+    }
+    // wet and dull: the world (decks, docks, roofs) a shade darker
+    const wet = 1 - 0.09 * R - 0.06 * S;
+    todBlend.tint = todBlend.tint.map((v) => v * wet) as [number, number, number];
+  }
+  const fogR = Math.min(0.85, Math.max(fogW, 0.5 * R + 0.3 * S));
+  setLightingWeather(Math.min(1, R * 0.85), 1 + 1.5 * S + 0.2 * R);
+  sea.rain = R; sea.storm = S;
   const t = { ...(f < 0.5 ? A : B), ...todBlend } as typeof A;
   sky.apply(t);
   sea.apply(t, key);
@@ -317,15 +370,21 @@ function applyTOD() {
   renderer.setClearColor(t.haze);
   setTint(t.tint);
   setLightingBlend(look.a, A as Parameters<typeof setLightingBlend>[1], look.b, B as Parameters<typeof setLightingBlend>[1], f);
-  (scene.fog as THREE.Fog).near = THREE.MathUtils.lerp(quality.fogNear, 12, fogW);
-  (scene.fog as THREE.Fog).far = THREE.MathUtils.lerp(quality.fogFar, 210, fogW);
+  (scene.fog as THREE.Fog).near = THREE.MathUtils.lerp(quality.fogNear, 12, fogR);
+  (scene.fog as THREE.Fog).far = THREE.MathUtils.lerp(quality.fogFar, 210, fogR);
+  rain.set(R, S, t.haze, nightK, (scene.fog as THREE.Fog).far);
+  if (hotspotFX) hotspotFX.storm = S;
+  if (boat) { boat.rough = S; boat.steady = boat.modelObject?.name === 'BOAT_T1'; }
+  SMOKE_WIND.copy(SMOKE_WIND_BASE).multiplyScalar(1 + 1.6 * S);
   // low fog banks drift in with the mist (full in the fog look)
   fogBanks?.set(Math.max(lookFog, Math.min(1, mistK * 1.05)), t.haze);
   wake.setSea(t.sea);
   backdropHaze.value = THREE.MathUtils.lerp(quality.haze, 0.92, fogW);
   syncFlotsam();
-  hud.setTOD(key, clockText(clockHour), lookWords(key));
-  setLineContext(key, clockHour);
+  const wk = weatherKey(weatherNow);
+  uiCtx.weather = wk ?? ''; uiCtx.weatherTrend = weatherNow.trend;
+  hud.setTOD(key, clockText(clockHour), weatherWords(weatherNow) ?? lookWords(key), wk === 'storm' ? 'storm' : wk ? 'rain' : undefined);
+  setLineContext(key, clockHour, wk ?? '');
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.haze);
 }
 
@@ -614,6 +673,7 @@ hud.init({
       resize();
       buildInstances();
       sea.setQuality(save.settings.quality);
+      rain.setQuality(save.settings.quality);
       if (world) buildSeaField(world);
       applyTOD();
       writeSave(save);
@@ -639,6 +699,20 @@ const upg = createUpgrades({
 initTuneOverlay();
 mountSunShadingSetting();
 mountWindSetting();
+mountFlashSetting();
+/** "Screen flashes" On/Off (lightning lifts the whole screen; Off keeps only the bolts). Reduced motion softens it either way. */
+function mountFlashSetting() {
+  const windRow = document.getElementById('set-wind')?.closest('.row');
+  if (!windRow || document.getElementById('set-flash')) return;
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = '<span>Screen flashes</span><button class="btn small" id="set-flash"></button>';
+  windRow.parentElement!.insertBefore(row, windRow.nextSibling);
+  const btn = row.querySelector('button')!;
+  const refresh = () => { btn.textContent = flashSetting === 'on' ? 'On' : 'Off'; };
+  btn.onclick = () => { flashSetting = flashSetting === 'on' ? 'off' : 'on'; try { localStorage.setItem(FLASH_KEY, flashSetting); } catch { /* ignore */ } refresh(); };
+  refresh();
+}
 window.addEventListener('keydown', (e) => {
   if (e.key === 't' || e.key === 'T') cycleTOD();
   if (e.key === 'f' || e.key === 'F') { save.settings.showFps = !save.settings.showFps; refreshSettingsUI(); }
@@ -837,6 +911,10 @@ function frame(now: number) {
     if (wildlife) wake.update(dt, boat, wildlife.splash);
     smoke?.update(dt, camera.position, boat.stackWorld(stackPos), Math.max(Math.abs(throttle), Math.abs(boat.speed) / BOAT_TUNING.maxSpeed));
     fogBanks?.update(dt, camera.position);
+    WIND_DIR.copy(LIGHT_U.uWindDir.value);
+    rain.flashMode = flashSetting === 'off' ? 'off' : reduceMotion() ? 'soft' : 'on';
+    rain.onFoot = foot.active;
+    rain.update(dt, camera, reduceMotion());
     floaters?.update(dt, camera.position);
     crowd?.update(dt, camera.position, foot.active ? foot.feet : null);
     titleCamera(dt);
@@ -874,6 +952,7 @@ function audioFrame(dt: number) {
     onFoot: foot.active,
     feet: foot.active ? { x: foot.feet.x, z: foot.feet.z } : undefined,
     tod: look.key,
+    rain: rain.rain, storm: rain.storm,
     fishing: { phase: fishing.phase, tension: fishing.tension, reelHeld: fishing.reelHeld, thrashing: fishing.thrashing, distance: fishing.distance, bobber: { x: bp.x, z: bp.z } },
   });
 }
@@ -992,6 +1071,16 @@ window.__debug = {
   setClock: (h: number) => { clockHour = wrapHour(h); save.clock = clockHour; applyTOD(); return clockText(clockHour); },
   /** sea mist 0..1 now; mist(v) pins it (null = back to the clock), mist(null, day) sets the day */
   mist: (v?: number | null, day?: number) => { if (v !== undefined) mistOverride = v; if (day !== undefined) save.day = day; applyTOD(); return { mist: +mistNow.toFixed(2), day: save.day ?? 0, far: Math.round((scene.fog as THREE.Fog).far) }; },
+  /** weather: rain(v) pins rain 0..1 (null = back to the schedule); storm(v) pins the storm (and enough rain) */
+  rain: (v?: number | null) => { if (v !== undefined) rainOverride = v; applyTOD(); return { ...weatherNow, words: weatherWords(weatherNow), fx: rain.stats() }; },
+  storm: (v?: number | null) => { if (v !== undefined) stormOverride = v; applyTOD(); return { ...weatherNow, words: weatherWords(weatherNow), fx: rain.stats() }; },
+  /** force a lightning strike now (near = close crack) */
+  lightning: (near = false) => { rain.strike(near, camera); return rain.stats(); },
+  /** snap the eased weather to its target (captures) and stop/allow automatic strikes */
+  weatherSnap: (autoStrikes = true) => { rain.rain = weatherNow.rain; rain.storm = weatherNow.storm; rain.autoStrikes = autoStrikes; return rain.stats(); },
+  weatherFx: () => rain.stats(),
+  weatherStats: (days = 400) => weatherStats(days),
+  weatherTune: { RAIN_TUNE, WEATHER_TUNE },
   skipperState: () => ({ ready: skipper.ready, attached: skipper.attached, pose: skipper.currentPose, landingK: chase.landingK }),
   keep: () => closeCard(true),
   sellAll: () => sellFish(save.cooler.map((_, i) => i)),

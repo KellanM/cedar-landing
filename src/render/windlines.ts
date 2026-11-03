@@ -16,6 +16,8 @@ export class WindLines {
   mesh: THREE.Mesh;
   /** 0 = none, 1 = full (from the time of day) */
   amount = 1;
+  /** spawn rate multiplier (storms) */
+  rate = 1;
   enabled = true;
   private lines: Line[] = [];
   private pos: Float32Array;
@@ -72,7 +74,7 @@ export class WindLines {
     const on = this.enabled && this.amount > 0;
     this.timer -= dt;
     if (on && this.timer <= 0) {
-      this.timer = 2.5 + Math.random() * 3.5;
+      this.timer = (2.5 + Math.random() * 3.5) / this.rate;
       const l = this.lines.find((x) => !x.live);
       if (l) this.spawn(l, cam, wind);
     }

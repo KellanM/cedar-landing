@@ -161,8 +161,23 @@ export function setLightingBlend(a: string, todA: TodSun, b: string, todB: TodSu
     target.ambient += (blendB.ambient - target.ambient) * f;
     target.wind += (blendB.wind - target.wind) * f;
   }
+  // weather (docs/rain_study.md): rain flattens the light toward the fog preset (keeping the sun
+  // direction), storms blow harder (trees, flags)
+  if (weatherL.flat > 0) {
+    fillState(blendW, PRESETS.fog, PRESETS.fog.sun);
+    const k = weatherL.flat;
+    target.lit.lerp(blendW.lit, k); target.side.lerp(blendW.side, k); target.shadow.lerp(blendW.shadow, k);
+    target.t0 += (blendW.t0 - target.t0) * k; target.t1 += (blendW.t1 - target.t1) * k;
+    target.sky += (blendW.sky - target.sky) * k; target.ambient += (blendW.ambient - target.ambient) * k;
+  }
+  target.wind *= weatherL.wind;
   if (first) { copyState(cur, target); first = false; push(); }
 }
+
+const blendW = mkState();
+const weatherL = { flat: 0, wind: 1 };
+/** Weather on the light: flat 0..1 (rain), wind multiplier (storm). Takes effect at the next setLightingBlend. */
+export function setLightingWeather(flat: number, wind: number) { weatherL.flat = flat; weatherL.wind = wind; }
 
 function copyState(a: State, b: State) {
   a.dir.copy(b.dir); a.lit.copy(b.lit); a.side.copy(b.side); a.shadow.copy(b.shadow);

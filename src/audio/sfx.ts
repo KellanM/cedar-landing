@@ -199,6 +199,29 @@ export function makeSfx(e: AudioEngine) {
       for (let i = 0; i < n; i++) e.play(e.modalBuf('wood', 57, 0.3), at + i * 0.42, B('amb', p, { pool: 'amb', gain: 0.25 * p.gain, wet: 0.5 }));
       e.log('amb.hammer');
     },
+    thunder(at: number, distM: number, near: boolean, pan = 0) {
+      // far: a low rolling rumble of a few irregular swells; near: a bright crack, a boom, then the roll
+      const far = Math.min(1, distM / 3000);
+      const g = 0.9 / (1 + distM / 1400);
+      const len = 2.4 + 3.5 * far + e.rand() * 1.5;
+      if (near) {
+        e.burst(at, 0.22, 'bandpass', 3200, 900, 0.5 * g * 1.4, { bus: 'sfx', pool: 'thunder', q: 0.6, a: 0.003, kind: 'white', pan, wet: 0.35 });
+        e.burst(at + 0.02, 0.5, 'bandpass', 1400, 500, 0.4 * g * 1.4, { bus: 'sfx', pool: 'thunder', q: 0.8, a: 0.004, kind: 'white', pan, wet: 0.4 });
+        e.burst(at + 0.04, 1.4, 'lowpass', 300, 90, 0.8 * g * 1.4, { bus: 'sfx', pool: 'thunder', a: 0.01, kind: 'brown', pan, wet: 0.3 });
+      }
+      const n = 3 + Math.floor(e.rand() * 3);
+      let t = near ? 0.35 : 0;
+      for (let i = 0; i < n; i++) {
+        const k = 1 - (i / n) * 0.6;
+        const d = (len / n) * (0.9 + e.rand() * 0.9);
+        const lp = (near ? 520 : 420 - 200 * far) * (0.8 + e.rand() * 0.4);
+        // low body (felt) + a mid growl so phone speakers hear it too
+        e.burst(at + t, d, 'lowpass', lp, lp * 0.4, 0.75 * g * k * (0.7 + e.rand() * 0.5), { bus: 'sfx', pool: 'thunder', a: 0.12 + e.rand() * 0.25, kind: 'brown', pan: pan * 0.6 + (e.rand() - 0.5) * 0.4, wet: 0.5 });
+        e.burst(at + t + 0.05, d * 0.8, 'bandpass', 260 + e.rand() * 160, 160, 0.35 * g * k, { bus: 'sfx', pool: 'thunder', q: 0.9, a: 0.1 + e.rand() * 0.2, kind: 'pink', pan: pan * 0.5, wet: 0.5 });
+        t += d * (0.45 + e.rand() * 0.4);
+      }
+      e.log('sfx.thunder', near ? 'near' : `far ${Math.round(distM)}m`);
+    },
     lap(at: number, gain: number, pan: number, bright = 0) {
       // one wavelet against a hull or rocks
       const f = 450 + e.rand() * 300 + bright * 600;

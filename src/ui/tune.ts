@@ -16,6 +16,21 @@ const AUDIO_RANGES: Record<keyof typeof AUDIO_TUNING, [number, number, number]> 
 const saveAudio = () => { localStorage.setItem(AUDIO_KEY, JSON.stringify(AUDIO_TUNING)); gameAudio.e?.applyLevels(); };
 import { WATER_TUNE } from '../render/sea';
 import { CREST_TUNE } from '../render/crests';
+import { RAIN_TUNE } from '../render/rain';
+import { WEATHER_TUNE } from '../game/weather';
+
+// rain + storm study (docs/rain_study.md): streaks, sea marks, veils, lightning; the weather schedule
+const WEATHER_KEY = 'salish-weather-tune-v1';
+const WEATHER_DEFAULT = { rain: { ...RAIN_TUNE }, sched: { ...WEATHER_TUNE } };
+const RAIN_RANGES: Record<keyof typeof RAIN_TUNE, [number, number, number]> = {
+  streaks: [0, 760, 10], streakAlpha: [0, 0.8, 0.01], streakLen: [0.2, 3, 0.05], fall: [2, 16, 0.25], slant: [0, 1, 0.02],
+  marks: [0, 300, 5], markSize: [0.1, 1, 0.01], markLife: [0.3, 2, 0.05], markAlpha: [0, 1, 0.02], veils: [0, 8, 1], veilAlpha: [0, 0.8, 0.02],
+  flashNear: [0, 0.6, 0.01], flashFar: [0, 0.4, 0.01], flashGap: [3, 20, 0.1], strikesPerMin: [0, 20, 0.5],
+};
+const SCHED_RANGES: Record<keyof typeof WEATHER_TUNE, [number, number, number]> = {
+  rainChance: [0, 1, 0.05], rainMist: [0, 1, 0.05], showerChance: [0, 1, 0.05], stormChance: [0, 1, 0.05], heavyShare: [0, 1, 0.05],
+};
+const saveWeather = () => localStorage.setItem(WEATHER_KEY, JSON.stringify({ rain: RAIN_TUNE, sched: WEATHER_TUNE }));
 
 // water study (docs/water_study.md): sea crests, shore foam, shallows, glints, swell, wind lines
 const WATER_KEY = 'salish-water-tune-v1';
@@ -77,6 +92,7 @@ export function initTuneOverlay() {
   try { Object.assign(AUDIO_TUNING, JSON.parse(localStorage.getItem(AUDIO_KEY) ?? '{}')); } catch { /* ignore */ }
   try { Object.assign(WATER_TUNE, JSON.parse(localStorage.getItem(WATER_KEY) ?? '{}')); } catch { /* ignore */ }
   try { Object.assign(CREST_TUNE, JSON.parse(localStorage.getItem(CREST_KEY) ?? '{}')); } catch { /* ignore */ }
+  try { const w = JSON.parse(localStorage.getItem(WEATHER_KEY) ?? '{}'); Object.assign(RAIN_TUNE, w.rain ?? {}); Object.assign(WEATHER_TUNE, w.sched ?? {}); } catch { /* ignore */ }
   const saveFish = () => localStorage.setItem(FISH_KEY, JSON.stringify({ cam: FISH_CAM, fx: FIGHT_FX, tackle: TACKLE_TUNING, spot: HOTSPOT_FX }));
 
   const panel = document.createElement('div');
@@ -100,9 +116,10 @@ export function initTuneOverlay() {
     Object.assign(AUDIO_TUNING, AUDIO_DEFAULT); gameAudio.e?.applyLevels();
     Object.assign(WATER_TUNE, WATER_DEFAULT); localStorage.removeItem(WATER_KEY);
     Object.assign(CREST_TUNE, CREST_DEFAULT); localStorage.removeItem(CREST_KEY);
+    Object.assign(RAIN_TUNE, WEATHER_DEFAULT.rain); Object.assign(WEATHER_TUNE, WEATHER_DEFAULT.sched); localStorage.removeItem(WEATHER_KEY);
     localStorage.removeItem(KEY); localStorage.removeItem(CAM_KEY); localStorage.removeItem(FISH_KEY); localStorage.removeItem(AUDIO_KEY); render();
   });
-  btn('copy', () => { navigator.clipboard?.writeText(JSON.stringify({ BOAT_TUNING, CAMERA_TUNING, FISH_CAM, FIGHT_FX, TACKLE_TUNING, HOTSPOT_FX, WATER_TUNE, CREST_TUNE }, null, 2)).catch(() => {}); });
+  btn('copy', () => { navigator.clipboard?.writeText(JSON.stringify({ BOAT_TUNING, CAMERA_TUNING, FISH_CAM, FIGHT_FX, TACKLE_TUNING, HOTSPOT_FX, WATER_TUNE, CREST_TUNE, RAIN_TUNE, WEATHER_TUNE }, null, 2)).catch(() => {}); });
   panel.append(head, body);
 
   function section(title: string, obj: Record<string, number>, ranges: Record<string, [number, number, number]>, key: string | (() => void)) {
@@ -142,6 +159,8 @@ export function initTuneOverlay() {
     section('Audio mix', AUDIO_TUNING as Record<string, number>, AUDIO_RANGES, saveAudio);
     section('Water', WATER_TUNE as Record<string, number>, WATER_RANGES, WATER_KEY);
     section('Crests', CREST_TUNE as Record<string, number>, CREST_RANGES, CREST_KEY);
+    section('Weather: rain + lightning', RAIN_TUNE as Record<string, number>, RAIN_RANGES, saveWeather);
+    section('Weather: schedule', WEATHER_TUNE as Record<string, number>, SCHED_RANGES, saveWeather);
   }
   render();
   document.body.appendChild(panel);
