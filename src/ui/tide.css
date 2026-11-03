@@ -1,7 +1,6 @@
 /* Tides (src/ui/tidelog.ts): HUD clock arrow, Log tide table states, shore notes. */
 .tide-chip { display: inline-flex; width: 18px; height: 18px; margin-left: 4px; transition: transform 0.4s ease, opacity 0.4s; opacity: 0.9; }
 .tide-chip svg { width: 18px; height: 18px; }
-.tide-chip[data-dir="-1"] { transform: scaleY(-1); }
 .tide-chip[data-dir="0"] { opacity: 0.45; }
 .tide tr.past { opacity: 0.45; }
 .tide tr.next td { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }

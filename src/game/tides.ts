@@ -88,7 +88,11 @@ export class Tides {
     if (fl && this.grid) { const g = this.grid; fl.floor = (x, z) => g.ground(x, z); }
   }
 
+  /** ms spent in frame() (EMA), for the perf readout */
+  cost = 0;
+
   frame(dt: number, hour: number, day: number) {
+    const t0 = performance.now();
     updateTide(hour, day);
     const y = WATER.y, h = this.host;
     TIDE_U.uTideY.value = y;
@@ -114,6 +118,7 @@ export class Tides {
       updateTideChip();
       setTideLineContext(y < -1.1 ? 'low' : y > -0.3 ? 'high' : WATER.rate < 0 ? 'falling' : 'rising');
     }
+    this.cost += (performance.now() - t0 - this.cost) * 0.05;
   }
   private chipT = 0;
 
@@ -124,7 +129,7 @@ export class Tides {
     if (!this.pools || !f.active) return null;
     const p = this.pools.nearest(f.feet.x, f.feet.y, f.feet.z);
     if (!p) return null;
-    return { name: `tidepool_${p.id}`, label: 'Look in pool', prompt: 'Look in pool', run: () => this.observe(p) };
+    return { name: `tidepool_${p.id}`, label: 'Look in', prompt: 'Look in the pool', run: () => this.observe(p) };
   }
 
   /** Catch-and-look: name what is in the pool, log anything new (a few Shells for Gran's notes). */

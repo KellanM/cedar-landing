@@ -71,6 +71,19 @@ for (const p of pools) {
     for (let i = 0; i < 4 && await page.isVisible('.dialogue:not(.hidden) .strip'); i++) { await page.click('.dialogue .strip'); await sleep(350); }
   }
 }
+// the flood comes back while you stand on the lowest terrace: you can still walk back up the beach
+await D(() => window.__debug.cam(null));
+await D(() => window.__debug.tide(0));
+await sleep(400);
+// (the debug path planner only probes ±1 m around its start height, so walk back up terrace by terrace)
+const back = [...pools].reverse().slice(1).map((p) => [p.x - px * (p.r + 0.55), p.z - pz * (p.r + 0.55)]).concat([[site.x - dx * 3, site.z - dz * 3]]);
+for (const [x, z] of back) {
+  await D(([x, z]) => window.__debug.footPathTo(x, z), [x, z]);
+  const t0 = Date.now(); for (;;) { await sleep(150); st = await D(() => window.__debug.state); if (!st.foot.autoWalk || Date.now() - t0 > 20000) break; }
+}
+await D(() => window.__debug.footWalkTo(null));
+st = await D(() => window.__debug.state);
+console.log(st.foot.feet.y > 0.05 ? 'PASS' : 'FAIL', 'walked back up on the flood: feet', JSON.stringify(st.foot.feet));
 st = await D(() => window.__debug.state);
 console.log('pools looked into:', ok, '/', pools.length, 'shells', st.shells, 'fps', st.fps);
 console.log('errors', errors.length, errors.slice(0, 5));

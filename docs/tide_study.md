@@ -90,7 +90,7 @@ Reference frames are in `screenshots/tide_ref_*.png` (gitignored, like all captu
 **F5. Zonation decides who lives where, and it doubles as progression.**
 - *Evidence:* project ref §2 gives barnacles high, then mussels/goose barnacles mid, then stars/anemones/kelp low. R1 shows giant green anemones and ochre stars at the low end. Tidepool sculpins and hermit crabs live in upper pools.
 - *Interpretation:* a pool's height picks both its inhabitants *and* how often it is uncovered. The lowest pools only show on big lows, which is a natural rarity curve with no extra system.
-- *Application:* terraces sit at −0.15, −0.55, −0.95 and (sometimes) −1.32 m.
+- *Application:* terraces sit at −0.15, −0.5, −0.85 and (sometimes) −1.2 m, 0.35 m apart so the walker can always climb back up.
   - High pools: hermit crab, purple shore crab, sculpin.
   - Mid pools: ochre stars (purple or orange), green anemones, sometimes hermits and sculpins.
   - Low pools: urchins, giant green anemone, ochre star, and in about a third of them a **sunflower star** (rare). It is the restoration flagship in the reference doc, so it is a reward for walking out on a spring low.
@@ -99,7 +99,7 @@ Reference frames are in `screenshots/tide_ref_*.png` (gitignored, like all captu
 - *Evidence (G3):* Alba identifies animals by photographing them; there are 62 species, no scoring, and nothing is harvested.
 - *Evidence (G1):* Stardew's pools are harvest nodes (coral, urchins).
 - *Interpretation:* harvesting live animals clashes with this game's restoration thread. Alba's loop shows that recording can carry the collection drive on its own.
-- *Application:* the pool prompt is **"Look in pool"**.
+- *Application:* on foot beside an uncovered pool the context button reads **"Look in"**.
   - It opens a short note in Gran's voice naming what is there.
   - New finds go to **Log → Pages → Shore notes · tide pools**, with studio plates rendered from the game's own critter models.
   - Each newly seen species gives +5 Shells. Nothing is removed.
@@ -167,7 +167,15 @@ Reference frames are in `screenshots/tide_ref_*.png` (gitignored, like all captu
 2. **Zonation bands + wet band:** the same views now read as low tide at a glance. Stacks wear pale, olive and dark-green rings, and the beach skirt turns into wet sand. **Kept.**
 3. **Tide pools v1:** separate octagonal stacks with pale water. They read as stepping stones with grey plates. Two causes: `register()` owns `material.color` for the time-of-day tint, so the water colour was being overwritten by the tint (nearly white); and the stacks were isolated columns. **Rejected.**
 4. **Tide pools v2:** wider, overlapping 11-gon terraces with flared skirts, so they read as one bench. Water colour comes from vertex colours. The rims are bigger and boulders sit off to the sides. In close-ups the zone ladder shows (pale high bench → olive mid → dark low) and critters read at phone size. **Kept.**
-5. **The Teeth:** first pass rocks were too small next to the existing white-capped teeth; they were enlarged.
+5. **The Teeth:** first pass rocks were too small next to the existing white-capped teeth; they were enlarged (1.4–2.5 m). High vs low (`tide_teeth_*`) now reads as the page says.
+6. **Climbing back:** terraces 0.38 m apart with ±0.06 m height jitter sometimes made a step over the walker's 0.45 m step-up (you could walk down but not back). Now 0.35 m with ±0.02 m; `scripts/tidepool_foot.mjs` walks every pool and back up on a flood tide.
+
+## 7. Verification and cost (this desktop; phone = 390×844 @2×, low quality)
+
+- Scripts: `tide_shots.mjs` (high vs low stills), `tide_gif.mjs` (tide-fall GIF), `tidepool_shots.mjs` (site sheet), `tidepool_foot.mjs` (walk + look + climb back), `tide_strand.mjs` (boat over drying ground), `tide_log_shots.mjs`, `tide_perf.mjs`, `tidepool_bake.mjs`; `arch_pass.mjs` takes an optional tide level; any page takes `?tide=<y>` to pin the level.
+- Per frame: `Tides.frame` about 0.04–0.07 ms of JS. A visible bench adds 4 draw calls. Hidden beyond 170 m, or when the top terrace is well under water. Critters animate only within 45 m.
+- Load: the shore field build is about 320 ms at 1024 (was about 170–280 ms with one level) and about 195 ms at 512. That is three EDT pairs plus two extra line passes, once at load.
+- GPU: no new passes. The sea shader does one wider texture fetch, and the tide bands are a few ALU ops on the chunk material.
 
 ## 6. Open questions / weak spots
 

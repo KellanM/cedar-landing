@@ -32,7 +32,7 @@ export const CRITTERS: Critter[] = [
   { id: 'ochre_star', name: 'Ochre sea star', zone: 'middle and low pools', note: 'Purple or orange, the same star. Pries mussels open with nothing but patience.' },
   { id: 'anemone', name: 'Giant green anemone', zone: 'middle and low pools', note: 'Green from the tiny plants living inside it. Folds up tight when the water leaves.' },
   { id: 'urchin', name: 'Purple sea urchin', zone: 'low pools', note: 'A pincushion that grazes kelp. Where the stars are few, the urchins march.' },
-  { id: 'sunflower', name: 'Sunflower star', zone: 'only the lowest pools, on the biggest tides', note: 'Twenty arms and faster than you would think. Rare now. Gran would have wanted to know.' },
+  { id: 'sunflower', name: 'Sunflower star', zone: 'lowest pools, and only on the biggest tides', note: 'Twenty arms and faster than you would think. Rare now. Gran would have wanted to know.' },
 ];
 export const critterById = (id: string) => CRITTERS.find((c) => c.id === id);
 
@@ -42,8 +42,9 @@ interface Pool { id: string; x: number; z: number; h: number; r: number; zone: '
 interface Mover { kind: 'hermit' | 'shore_crab' | 'sculpin'; pool: Pool; x: number; z: number; yaw: number; tx: number; tz: number; wait: number; speed: number }
 interface Shelf { site: Site; group: THREE.Group; pools: Pool[]; walk: LoadedChunk; movers: Mover[]; near: boolean }
 
-const POOL_HEIGHTS = [-0.15, -0.55, -0.95, -1.32];
-const STEP = 0.38; // m between terraces: under the walker's 0.45 m step-up
+const POOL_HEIGHTS = [-0.15, -0.5, -0.85, -1.2];
+/** m between terraces. With the ±0.02 m facet jitter every step stays under the walker's 0.45 m step-up, so you can always climb back. */
+const STEP = 0.36;
 const SHOW = 170; // m: shelves further than this from the camera are hidden
 const ANIM = 45; // m: critters move within this
 
@@ -98,7 +99,7 @@ export class TidePools {
     let h = Math.min(site.gy - 0.3, 0.5);
     while (h > POOL_HEIGHTS[0] + 0.02 && hs.length < 3) { hs.push({ h, pool: false }); h -= STEP; }
     const nPools = 2 + (R() < 0.6 ? 1 : 0) + (R() < 0.3 ? 1 : 0);
-    for (let k = 0; k < nPools; k++) hs.push({ h: POOL_HEIGHTS[k] + (R() - 0.5) * 0.06, pool: true });
+    for (let k = 0; k < nPools; k++) hs.push({ h: POOL_HEIGHTS[k] + (R() - 0.5) * 0.02, pool: true });
     let along = -0.6; // start just inside the shoreline so the top step tucks under the beach
     let side = (R() - 0.5) * 1.2;
     hs.forEach((t, k) => {
@@ -291,7 +292,7 @@ function terrace(cx: number, cz: number, h: number, width: number, depth: number
     const k = 0.72 + R() * 0.5;
     const u = Math.cos(t) * width / 2 * k, w = Math.sin(t) * depth / 2 * k;
     const x = cx + px * u + dx * w, z = cz + pz * u + dz * w;
-    top.push(new THREE.Vector3(x, h + (R() - 0.5) * 0.05, z));
+    top.push(new THREE.Vector3(x, h + (R() - 0.5) * 0.04, z));
     bot.push(new THREE.Vector3(cx + (x - cx) * 1.7, h - 1.9, cz + (z - cz) * 1.7));
   }
   const c = new THREE.Vector3(cx, h - 0.03, cz);

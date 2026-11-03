@@ -176,6 +176,8 @@ foot.onSay = (name, text, role, x, z) => gameAudio.talk(name, text, role, x, z);
 let footCtx: FootContext | null = null;
 let ashoreOnAction: FootContext | null = null;
 // ---------------------------------------------------------------- tides (src/game/tides.ts)
+// ?tide=<y> pins the water level (captures / tests at a fixed tide)
+{ const t = new URLSearchParams(location.search).get('tide'); if (t !== null && t !== '' && isFinite(Number(t))) WATER.pinned = Number(t); }
 const tides = new Tides({
   boat: () => boat, floaters: () => floaters, wildlife: () => wildlife, hotspots: () => hotspotFX?.group ?? null,
   wake, fishing, foot, toast: (m, k) => hud.toast(m, k), camera, renderer, save, writeSave: () => writeSave(save),
@@ -1006,6 +1008,7 @@ window.__debug = {
   tideAt: (h: number, day = save.day ?? 0) => +tideAt(h, day).toFixed(3),
   tideTurns: (day = save.day ?? 0) => tideTurns(day).map((t) => ({ ...t, hour: +t.hour.toFixed(2), level: +t.level.toFixed(2) })),
   tideGround: (x: number, z: number) => tides.grid?.ground(x, z),
+  tideStats: () => ({ frameMs: +tides.cost.toFixed(4), field: seaFieldInfo, shelves: tides.pools?.shelves.length ?? 0, visibleShelves: tides.pools?.shelves.filter((s) => s.group.visible).length ?? 0, pools: tides.pools?.pools.length ?? 0 }),
   /** tide pools: bake sites from this world (JSON for src/game/tidepool_sites.json), list pools, look into one */
   tidepoolBake: (opts?: { spacing?: number; max?: number }) => world && { world: worldVersion, ...tides.bake(foot.world, world, opts) },
   tidepools: () => tides.pools?.pools.map((p) => ({ id: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), h: +p.h.toFixed(2), r: +p.r.toFixed(2), zone: p.zone, critters: p.critters })),

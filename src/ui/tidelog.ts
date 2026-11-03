@@ -41,7 +41,6 @@ export function updateTideChip() {
   if (!chip) {
     chip = document.createElement('span');
     chip.className = 'tide-chip';
-    chip.innerHTML = ICONS.tide;
     clock.appendChild(chip);
   }
   const dir = Math.abs(WATER.rate) < 0.03 ? 0 : WATER.rate > 0 ? 1 : -1;
@@ -49,6 +48,8 @@ export function updateTideChip() {
   if (dir === lastDir && level === lastLevel) return;
   lastDir = dir; lastLevel = level;
   chip.dataset.dir = String(dir);
+  // the Log's tide glyph (wave + arrow); the arrow points down on the ebb
+  chip.innerHTML = dir < 0 ? ICONS.tide.replace('M8.5 6.5 12 3l3.5 3.5', 'M8.5 7.5 12 11l3.5-3.5') : ICONS.tide;
   const words = dir > 0 ? 'Tide rising' : dir < 0 ? 'Tide falling' : 'Slack water';
   chip.title = `${words}, ${level} m`;
   chip.setAttribute('aria-label', chip.title);
