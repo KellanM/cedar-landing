@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { worldMat } from '../render/materials';
+import { charMat, worldMat } from '../render/materials';
 
 /**
  * The skipper on deck (art/rig/skipper.glb, 15 bones, rigid skin). Stands at `socket_skipper`
@@ -69,7 +69,7 @@ export class Skipper {
       const gltf = await new GLTFLoader().loadAsync(`${base}models/${m.skipper}`);
       gltf.scene.traverse((o) => {
         const mesh = o as THREE.Mesh;
-        if (mesh.isMesh) { if (mesh.geometry.getAttribute('color')) mesh.material = worldMat; mesh.frustumCulled = false; }
+        if (mesh.isMesh) { if (mesh.geometry.getAttribute('color')) mesh.material = mesh.geometry.getAttribute('normal') ? charMat : worldMat; mesh.frustumCulled = false; }
         if ((o as THREE.Bone).isBone) this.bones[o.name] = o as THREE.Bone;
       });
       this.tip = gltf.scene.getObjectByName('rod_tip') ?? null;
