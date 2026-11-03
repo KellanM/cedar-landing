@@ -16,7 +16,7 @@ import { Input } from './game/input';
 import { LandCollision } from './game/collision';
 import { Boat, BOAT_TUNING } from './game/boat';
 import { CAMERA_TUNING, ChaseCamera } from './game/camera';
-import { cameraFrame, cameraSubject } from './game/camerahooks';
+import { cameraFrame, cameraSubject, smallThingCull } from './game/camerahooks';
 import { updateSeeThrough } from './render/seethrough';
 import { PhotoMode } from './ui/photo';
 import { chart } from './ui/chart';
@@ -1011,6 +1011,7 @@ function frame(now: number) {
     titleCamera(dt);
     photo.update(realDt);
     cull();
+    smallThingCull(realDt, camera.position, floaters?.group ?? null, crowd?.group ?? null);
     if (!titleOpen) updateUI(dt);
     upg.tick(dt, camera, window.innerHeight > window.innerWidth);
   }

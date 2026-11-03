@@ -6,7 +6,7 @@ const CELL = 120; // matches the export chunk grid
 const FAR_CELL = 1500; // PTL* far-hill forests: big cells keep draw calls low
 const isFar = (name: string) => name.startsWith('PTL');
 
-interface Batch { mesh: THREE.InstancedMesh; center: THREE.Vector3; small: boolean; far: boolean; parent?: string }
+interface Batch { mesh: THREE.InstancedMesh; center: THREE.Vector3; small: boolean; far: boolean; parent?: string; shrub?: boolean }
 
 /**
  * Far-tree layer (docs/camera_study.md, horizon camera): with the horizon in frame every island's
@@ -15,7 +15,8 @@ interface Batch { mesh: THREE.InstancedMesh; center: THREE.Vector3; small: boole
  * (conifer cone / broadleaf blob) with a per-instance canopy colour: 2 draws per parent cell.
  */
 const PARENT = 240;
-export const TREE_LOD = { near: 230 };
+/** near: trees swap to impostors beyond this; shrubs: understory (FOL_*) is not drawn beyond this */
+export const TREE_LOD = { near: 180, shrubs: 230 };
 const TREEISH = /fir|hemlock|cedar|pine|spruce|yew|juniper|madrona|alder|oak|maple|arbutus|willow|cottonwood|birch|^PT_/i;
 interface Parent { center: THREE.Vector3; imp: THREE.InstancedMesh[]; detail: Batch[] }
 
@@ -79,7 +80,7 @@ export class InstanceField {
         mesh.name = name;
         this.group.add(mesh);
         const parent = treeish ? `${Math.floor(center.x / PARENT)},${Math.floor(center.z / PARENT)}` : undefined;
-        const b: Batch = { mesh, center, small, far, parent };
+        const b: Batch = { mesh, center, small, far, parent, shrub: /^FOL_/i.test(name) };
         this.batches.push(b);
         if (parent) this.parentFor(parent).detail.push(b);
         this.count += items.length;
@@ -140,7 +141,7 @@ export class InstanceField {
     for (const b of this.batches) {
       if (b.far) continue; // backdrop forests: always drawn (frustum culled only)
       const d = Math.hypot(b.center.x - cam.x, b.center.z - cam.z) - CELL * 0.75;
-      b.mesh.visible = d < (b.small ? smallDist : drawDist);
+      b.mesh.visible = d < (b.small ? smallDist : b.shrub ? Math.min(drawDist, TREE_LOD.shrubs) : drawDist);
     }
     for (const P of this.parents.values()) {
       const d = Math.hypot(P.center.x - cam.x, P.center.z - cam.z) - PARENT * 0.71;

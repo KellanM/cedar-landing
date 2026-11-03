@@ -51,3 +51,25 @@ export function cameraSubject(c: { chase: ChaseCamera; foot: OnFoot; boat: Boat;
   subV.set(c.boat.pos.x, c.boat.root.position.y + 1.1, c.boat.pos.z);
   return { at: subV, r: Math.max(2.4, c.boat.halfLen * 1.05) };
 }
+
+/**
+ * Small-thing draw distance (the horizon camera sees much further): floaters (buoys, kelp, flotsam)
+ * beyond 200 m and village people beyond 160 m move to camera layer 1 (not drawn) — a few pixels
+ * each, a draw call each. Uses layers so the owners' own `visible` (collected flotsam) is untouched.
+ */
+let cullT = 0;
+export function smallThingCull(dt: number, cam: THREE.Vector3, floaters: THREE.Object3D | null, people: THREE.Object3D | null) {
+  cullT -= dt;
+  if (cullT > 0) return;
+  cullT = 0.25;
+  const pass = (g: THREE.Object3D | null, far: number) => {
+    if (!g) return;
+    for (const o of g.children) {
+      const d = Math.hypot(o.position.x - cam.x, o.position.z - cam.z);
+      const want = d > far ? 1 : 0;
+      if ((o.layers.mask === 1) !== (want === 0)) o.traverse((c) => c.layers.set(want));
+    }
+  };
+  pass(floaters, 200);
+  pass(people, 160);
+}
