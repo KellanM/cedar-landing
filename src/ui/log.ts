@@ -12,7 +12,7 @@ import { prefs, savePrefs, log, saveLog, resetUIProgress, type Units } from './p
 import { chart } from './chart';
 import { mapView, mapItems, chartDebug, type MapItem } from './mapview';
 import { glyphSvg, type Glyph } from './mapglyphs';
-import { ERRANDS, stamps } from './errands';
+import { ERRANDS, errandsMeta, stamps } from './errands';
 import { pinChip } from './chip';
 import { SPECIES, type Species } from '../game/fishdata';
 import { tideTableHtml, shoreNotesHtml, critterPlate } from './tidelog';
@@ -133,7 +133,7 @@ const openDetail = () => { if (ctx.layout === 'portrait') root.classList.add('de
 // ------------------------------------------------------------------ Errands
 function errandsTab(L: HTMLElement, R: HTMLElement) {
   const done = new Set(stamps().map((e) => e.id));
-  L.innerHTML = `<h3 class="page-title">Today's errands</h3>
+  L.innerHTML = `<h3 class="page-title">${esc(errandsMeta.title)}</h3>
   <ul class="errands">${ERRANDS.map((e) => `<li class="${done.has(e.id) ? 'done' : ''}">
       <span class="box" aria-hidden="true">${done.has(e.id) ? ICONS.check : ''}</span>
       <span class="txt"><span>${esc(e.text)}</span></span>
@@ -272,7 +272,7 @@ const GROUPS: [string, (g: Glyph) => boolean][] = [
 ];
 function mapTab(L: HTMLElement, R: HTMLElement) {
   L.innerHTML = `<div class="chart-wrap"><canvas id="chart-canvas" aria-label="Chart of the islands"></canvas>
-    <div class="map-ctl"><button data-z="1.4" aria-label="Zoom in">+</button><button data-z="0.7" aria-label="Zoom out">−</button><button data-c aria-label="Centre on the canoe">${ICONS.boat}</button></div>
+    <div class="map-ctl"><button data-z="1.4" aria-label="Zoom in">+</button><button data-z="0.7" aria-label="Zoom out">−</button><button data-c aria-label="Centre on the boat">${ICONS.boat}</button></div>
     <p class="map-note hand" id="map-note"></p></div>`;
   const items = mapItems();
   const destItem = items.find((i) => i.keys.includes(log.dest ?? ''));
@@ -332,11 +332,11 @@ function pagesTab(L: HTMLElement, R: HTMLElement) {
     R.innerHTML = shoreNotesHtml(critterPlate);
   } else if (selPage === 0) {
     R.innerHTML = `<article class="gran-page">
-      <h3>If you've found this, you've found my canoe.</h3>
-      <p>Put your thumb down on the left and paddle. Look for the water wrinkling in rings — that's fish.</p>
-      <p>Stop by the rings and cast. Wait for the bob, then <u>strike</u> quick.</p>
+      <h3>If you're reading this, the mail boat got you here.</h3>
+      <p>The keys are in the spine. The long one is her chain; the brass one is the Little Troller's. She's been sulking under a tarp since spring. Be kind to her and she'll be kind back.</p>
+      <p>Look for the water wrinkling in rings — that's fish. Stop by the rings and cast. Wait for the bob, then <u>strike</u> quick.</p>
       <p>Hold to reel. When the ring goes stripy, <u>ease off</u> — let it tire. If you stay under my notch, that's a perfect reel.</p>
-      <p>The cooler holds two. Mae at Cedar Landing pays fair.</p>
+      <p>The box holds two. Mae at Cedar Landing pays fair. Go gently. Take only what you need.</p>
       <p class="sig">— G.</p></article>`;
   } else if (found.has(selPage)) {
     const stone = chart.places.find((p) => p.kind === 'stone' && p.name.toLowerCase().startsWith(PAGE_TEXT[selPage].title.toLowerCase().replace(/'/g, '').split(' ')[0]));

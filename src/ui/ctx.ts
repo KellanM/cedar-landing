@@ -56,8 +56,8 @@ export interface ChartSource {
 
 export type Layout = 'portrait' | 'landscape' | 'desktop';
 /** card / log / dialogue block movement; sheets (market) don't — paddling away closes them. */
-export type Modal = null | 'card' | 'market' | 'log' | 'dialogue';
-const BLOCKING: Modal[] = ['card', 'log', 'dialogue'];
+export type Modal = null | 'card' | 'market' | 'log' | 'dialogue' | 'opening';
+const BLOCKING: Modal[] = ['card', 'log', 'dialogue', 'opening']; // 'opening': the repair + Gran's tab overlays
 
 /** Timing constants (ui_layouts_indie §4.2), ms. */
 export const T = { peek: 3000, quiet: 6000, guard: 400, slipAuto: 3000, titleHold: 2500, cps: 45, toastMaxAge: 8000 };

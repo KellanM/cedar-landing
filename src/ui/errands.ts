@@ -9,11 +9,14 @@ export interface Errand { id: string; text: string; stamp: string; done: () => b
 
 const recs = () => ctx.save?.records ?? {};
 
+/** The tab's heading; the opening (game/opening) shows its quests here as "Gran's list" and swaps ERRANDS in place. */
+export const errandsMeta = { title: "Today's errands" };
+
 export const ERRANDS: Errand[] = [
   { id: 'landing', text: 'Paddle over to Cedar Landing', stamp: 'LANDED', done: () => !!ctx.save?.reachedLanding },
   { id: 'first', text: 'Catch a fish at the ripples', stamp: 'FIRST FISH', done: () => Object.keys(recs()).length > 0 },
   { id: 'sell', text: 'Sell your catch to Mae at the market', stamp: 'SOLD', done: () => log.sold > 0 },
-  { id: 'tie', text: 'Tie the canoe up at a dock', stamp: 'TIED UP', done: () => log.tiedUp },
+  { id: 'tie', text: 'Tie the troller up at a dock', stamp: 'TIED UP', done: () => log.tiedUp },
   { id: 'perfect', text: 'Land a perfect reel', stamp: 'PERFECT', done: () => Object.keys(log.perfect).length > 0 },
   { id: 'five', text: 'Log five kinds of fish', stamp: 'FIVE KINDS', done: () => Object.keys(recs()).length >= 5 },
   { id: 'page', text: 'Find one of Gran\'s pages at a sunstone', stamp: 'PAGE', done: () => log.pages.length > 0 },

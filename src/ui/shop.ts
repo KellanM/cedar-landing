@@ -66,7 +66,7 @@ export function openShop(h0: ShopHost, where: Interact | null, start: Track = 'r
   just = null;
   shopPos = where?.pos ?? null;
   const pr = (where?.props ?? {}) as Record<string, unknown>;
-  const npc = typeof pr.npc === 'string' ? pr.npc : 'Old Pell';
+  const npc = typeof pr.npc === 'string' ? pr.npc : 'Old Tess';
   $('shop-town').textContent = typeof pr.poi === 'string' ? pr.poi.replace(/([a-z])([A-Z])/g, '$1 $2') : 'Cedar Landing';
   $('shop-quote').innerHTML = start === 'bait' ? `“Herring's fresh, spoons are polished.” <span>— ${esc(npc)}</span>` : `“Gear that's older than me, and twice as honest.” <span>— ${esc(npc)}</span>`;
   render();
@@ -99,7 +99,8 @@ function render() {
   }
   const ul = $('shop-list');
   ul.innerHTML = '';
-  const items = GEAR[tab];
+  // Gran's lures: the one from her tab shows as owned; Old Tess ties the other two from day 7
+  const items = GEAR[tab].filter((it) => !it.starter || owned(tab, it) || (save.day ?? 0) >= 7);
   const next = nextFor(tab);
   const recs = save.records ?? {};
   items.forEach((it, i) => {
@@ -146,7 +147,7 @@ function render() {
 
 function nextFor(t: Track): GearItem | null {
   if (!host) return null;
-  return GEAR[t].find((it) => !owned(t, it)) ?? null;
+  return GEAR[t].find((it) => !owned(t, it) && (!it.starter || (host!.save.day ?? 0) >= 7)) ?? null;
 }
 
 const SAID: Record<Track, (it: GearItem) => string> = {

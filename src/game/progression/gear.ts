@@ -28,6 +28,8 @@ export interface GearItem {
   // stats (only the ones that matter for the track)
   reel?: number; tension?: number; thrash?: number; slip?: number; pull?: number;
   depth?: number; cap?: number;
+  /** Gran's lures (the opening's starter pick): bite-wait multiplier and fish behaviours the lure never takes */
+  wait?: number; skip?: string[]; starter?: 'red' | 'green' | 'blue';
   bias?: { ids?: string[]; behavior?: string[]; rarity?: Partial<Record<string, number>>; mul: number; size: number };
 }
 
@@ -56,6 +58,11 @@ export const GEAR: Record<Track, GearItem[]> = {
     I({ id: 'clam', track: 'bait', tier: 0, name: 'Clam necks', note: 'Dug at low tide. Everything nibbles.', effect: 'No preference.', price: 0, bias: { mul: 1, size: 0 } }),
     I({ id: 'herring', track: 'bait', tier: 1, name: 'Herring strip', note: 'Cut on the bias so it spins.', effect: 'Salmon and trout bite three times as often.', price: 60, bias: { ids: ['coho_salmon', 'chinook_salmon', 'pink_salmon', 'sockeye_salmon', 'cutthroat_trout', 'pacific_herring'], mul: 3, size: 0.1 } }),
     I({ id: 'octopus', track: 'bait', tier: 1, name: 'Octopus strip', note: 'Tough. Bottom fish cannot resist it.', effect: 'Rockfish, lingcod, cabezon and halibut favour it.', price: 120, bias: { behavior: ['diver'], mul: 2.5, size: 0.08 } }),
+    // Gran's three lures (docs/starter_pick_study.md §3): one is free on her tab at Old Tess's (opening Q9);
+    // the other two are sold from day 7. Tuned to near-equal Shells/min over the first week.
+    I({ id: 'lure_red', track: 'bait', tier: 1, name: 'the Ember', starter: 'red', note: "Gran's red spinner. Too keen by half.", effect: 'Bites come about twice as fast; darting, schooling fish go for it.', price: 150, wait: 0.45, bias: { behavior: ['sprinter', 'darter'], rarity: { uncommon: 1.5 }, mul: 3, size: 0.1 } }),
+    I({ id: 'lure_green', track: 'bait', tier: 1, name: 'the Mossback', starter: 'green', note: "Gran's weed jig. Goes down and stays down.", effect: 'Sinks the line to 12 fathoms (rockfish, cabezon); slower bites; skips surface fish.', price: 150, wait: 1.9, depth: 12, skip: ['darter', 'sprinter'], bias: { mul: 1, size: 0 } }),
+    I({ id: 'lure_blue', track: 'bait', tier: 1, name: 'the Moonspoon', starter: 'blue', note: "Gran's pearl spoon. The big ones notice.", effect: 'Bigger fish, more three-star catches; uncommon and rare fish more often.', price: 150, bias: { rarity: { uncommon: 1.7, rare: 2 }, mul: 1, size: 0.32 } }),
     I({ id: 'spoon', track: 'bait', tier: 2, name: 'Brass trolling spoon', note: 'Hammered brass that flashes like a herring.', effect: 'Rare fish twice as likely; bigger fish overall.', price: 300, bias: { rarity: { rare: 2, uncommon: 1.4 }, mul: 1, size: 0.2 } }),
   ],
 };
@@ -76,8 +83,8 @@ export function depthOf(sp: Species): number {
 }
 
 /** Live stats (fishing.ts reads these each frame; mutated in place, never reallocated). */
-export interface GearStats { reelMul: number; tensionMul: number; thrashMul: number; slipMul: number; pullMul: number; depth: number; bait: GearItem }
-export const gear: GearStats = { reelMul: 1, tensionMul: 1, thrashMul: 1, slipMul: 1, pullMul: 1, depth: 3, bait: GEAR.bait[0] };
+export interface GearStats { reelMul: number; tensionMul: number; thrashMul: number; slipMul: number; pullMul: number; depth: number; bait: GearItem; wait: number }
+export const gear: GearStats = { reelMul: 1, tensionMul: 1, thrashMul: 1, slipMul: 1, pullMul: 1, depth: 3, bait: GEAR.bait[0], wait: 1 };
 
 /** Saved upgrade state (save.upg). Missing / partial objects are normalised by ensureUpg. */
 export interface UpgSave {
@@ -111,8 +118,9 @@ export function applyGear(save: SaveData) {
   gear.thrashMul = rod.thrash ?? 1;
   gear.slipMul = reel.slip ?? 1;
   gear.pullMul = reel.pull ?? 1;
-  gear.depth = line.depth ?? 3;
   gear.bait = GEAR.bait.find((b) => b.id === u.bait) ?? GEAR.bait[0];
+  gear.depth = Math.max(line.depth ?? 3, gear.bait.depth ?? 0); // the Mossback sinks a short line deeper
+  gear.wait = gear.bait.wait ?? 1;
   save.coolerCap = (cool.cap ?? 2) + BOAT_TIERS[u.boat].hold;
 }
 
@@ -140,7 +148,9 @@ export function pickSpeciesFor(hs: Hotspot | null, rnd = Math.random): Species {
   const { reach, deep } = poolReach(hs);
   // Something deeper sometimes takes a look and can't be reached: tell the player what the line misses.
   if (deep.length && onOutOfReach && rnd() < 0.3) onOutOfReach(deep[Math.floor(rnd() * deep.length)]);
-  const list = reach.length ? reach : [lookupSpecies('shiner perch')];
+  const skip = gear.bait.skip;
+  const kept = skip ? reach.filter((s) => !skip.includes(s.behavior)) : reach;
+  const list = kept.length ? kept : reach.length ? reach : [lookupSpecies('shiner perch')];
   const total = list.reduce((a, s) => a + baitWeight(s, gear.bait), 0);
   let r = rnd() * total;
   for (const s of list) { r -= baitWeight(s, gear.bait); if (r <= 0) return s; }

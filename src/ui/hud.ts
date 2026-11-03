@@ -118,7 +118,7 @@ export function init(opts: { save: NonNullable<typeof ctx.save>; input: InputLik
   chart.onVisit = (p) => {
     fx('discover');
     if (p.kind === 'town' || p.kind === 'island') {
-      titleCard(p.name, p.key === 'cedar_landing' ? 'where Gran kept her boat' : p.key === 'keepers_cove' ? "the keeper's cottage, and Gran's canoe" : 'a new shore for the logbook');
+      titleCard(p.name, p.key === 'cedar_landing' ? 'where Gran kept her boat' : p.key === 'keepers_cove' ? "the keeper's cottage, and Gran's troller" : 'a new shore for the logbook');
       setTimeout(() => toast(`${p.name} — added to the chart`, 'log'), 3900);
     } else toast(`${p.name} — added to the chart`, 'log');
   };
