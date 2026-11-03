@@ -948,6 +948,20 @@ window.__debug = {
   }),
   /** Studio mode for animation captures: hide the scenery (collision still works), keep player + NPCs. */
   isolate: (on: boolean) => { worldRoot.visible = !on; },
+  npcSmooth: (on: boolean) => crowd?.setSmooth(on),
+  crowdStats: () => {
+    if (!crowd) return null;
+    let tris = 0, meshes = 0, smooth = 0;
+    crowd.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      meshes++;
+      const g = m.geometry;
+      tris += (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+      if (g.getAttribute('normal')) smooth++;
+    });
+    return { actors: crowd.actors.length, meshes, smoothMeshes: smooth, tris: Math.round(tris) };
+  },
   npcs: () => world?.gameplay.npcs?.map((n) => ({ name: n.name, pos: n.pos, rotY: n.rotY, role: n.props?.npc_role, pose: n.props?.npc_pose })),
   footTeleport: (x: number, z: number, y = 3) => { if (!foot.active) return false; foot.restore({ x, y, z, yaw: foot.yaw }); return foot.debugState; },
   footProbe: (x: number, z: number, y = 3, up = 3, down = 6) => foot.world.groundAt(x, z, y, up, down),
