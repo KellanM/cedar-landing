@@ -130,9 +130,9 @@ if (FROM) { await D((q) => window.__debug.opening.goto(q), FROM); await sleep(15
 // Q0 → Q1: walk up to the cottage porch, pick up the logbook
 await gif('q0_walk_to_cottage', async () => { await route([[8.4, 21.5], [9, 19.5], [10.6, 17.6], [9.6, 14.6]]); const d = await walkTo(A.table[0] + 0.8, A.table[1] + 0.6, 25000, 3.5); log('walk table dist', d.toFixed(2)); });
 await shot('q1_porch_table');
-const r1 = await interact();
+let r1;
+await gif('q1_logbook_and_keys', async () => { r1 = await interact(); await sleep(2600); });
 log('interact', r1);
-await sleep(600);
 await shot('q1_logbook_note');
 await clearDialogue();
 s = await waitQuest('q2');
