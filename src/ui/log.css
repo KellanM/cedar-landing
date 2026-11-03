@@ -236,3 +236,16 @@
 .set-row.stack { flex-direction: column; align-items: stretch; gap: 6px; }
 .set-row.stack .seg { flex-wrap: wrap; }
 .set-row.stack .seg button { flex: 1 1 auto; }
+
+/* hud_flow_study P7: toggles are 44 px targets in their own right, not just a padded hit area */
+.switch { width: 72px; height: 44px; }
+.switch::before { inset: -2px; }
+.switch i { width: 30px; height: 36px; }
+.switch.on i { left: 36px; }
+.switch b { font-size: 13px; right: 7px; }
+.switch.on b { left: 7px; }
+/* About: version + update check (P6) */
+.about-ver { margin-top: 18px; padding-top: 10px; border-top: 1.5px dashed rgba(133, 126, 114, .5); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.about-ver .num { margin: 0; font: 700 var(--fs-14) var(--f-ui); color: var(--ink-soft); }
+.about-ver .btn { min-height: 48px; }
+.about-ver .hand { margin: 0; }

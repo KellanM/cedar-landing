@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { register } from './materials';
+import { SWELL_GLSL, SWELL_U } from '../game/swell';
 import type { Boat } from '../game/boat';
 import type { SplashFX } from '../game/splash';
 
@@ -67,7 +68,9 @@ export class BoatWake {
     g.setIndex(idx);
     const mat = register(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2, alphaToCoverage: true }));
     mat.onBeforeCompile = (sh) => {
-      sh.vertexShader = sh.vertexShader.replace('void main() {', 'attribute vec3 aW;\nvarying vec3 vW;\nvoid main() {\n  vW = aW;');
+      Object.assign(sh.uniforms, SWELL_U); // ocean experiment: the wake rides the swell
+      sh.vertexShader = sh.vertexShader.replace('void main() {', `attribute vec3 aW;\nvarying vec3 vW;\n${SWELL_GLSL}\nvoid main() {\n  vW = aW;`)
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n  if (uSwOn > 0.5) transformed.y += swellEval(transformed.xz).x + 0.03;');
       sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'varying vec3 vW;\nvoid main() {').replace('#include <color_fragment>', `#include <color_fragment>
         float acr = abs(vW.y * 2.0 - 1.0);
         float t;

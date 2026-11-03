@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WATER } from './tide';
+import { SWELL } from './swell';
 import { BOAT_TUNING, type Boat } from './boat';
 import type { CameraShot } from '../world/types';
 import type { LandCollision } from './collision';
@@ -150,7 +151,7 @@ export class ChaseCamera {
     const ahead = C.frameAhead + along * la;
     look.set(
       boat.pos.x + vfx * ahead + (boat.vel.x - vfx * along) * la * 0.3,
-      0.4 + WATER.y,
+      0.4 + WATER.y + (SWELL.on ? SWELL.camY : 0), // ocean swell: the aim rides the (damped) swell
       boat.pos.z + vfz * ahead + (boat.vel.y - vfz * along) * la * 0.3,
     );
     // harbour framing hint (Keren's cue focus): idling near a dock the aim leans toward it and the

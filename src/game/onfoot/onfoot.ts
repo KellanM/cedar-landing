@@ -33,7 +33,7 @@ export const OPEN_INTERACTS = new Set(['sell_fish', 'moor_boat', 'read_sunstone'
 const FOOT_IGNORED = new Set(['fish_here', 'moor_boat', 'dive_here', 'land_here', 'haul_crab_pots', 'reef_net_event']);
 const ASHORE_HINT_KINDS = new Set(['moor_boat', 'land_here', 'sell_fish']);
 
-export interface FootContext { name: string; label: string; prompt: string; run: () => void }
+export interface FootContext { name: string; label: string; prompt: string; run: () => void; /** world point (tags over the target) */ pos?: number[]; kind?: string }
 export interface FootSaved { x: number; y: number; z: number; yaw: number }
 
 export interface FootHost {
@@ -73,6 +73,8 @@ export class OnFoot {
   private hop = { from: new THREE.Vector3(), to: new THREE.Vector3(), t: 0, arc: 0.8 };
   private ashore: { target: THREE.Vector3; at: THREE.Vector3; t: number } | null = null;
   private ctx: FootContext | null = null;
+  /** runner-up in reach (hud_flow_study P2: offered as a second, smaller button) */
+  private ctx2: FootContext | null = null;
   private lookAt: THREE.Vector3 | null = null;
   private saveTimer = 0;
   private talkCount = new Map<string, number>();
@@ -264,12 +266,16 @@ export class OnFoot {
   // ------------------------------------------------------------ foot mode
   /** Context for the interact button while on foot (refreshed by update()). */
   context() { return this.active ? this.ctx : null; }
+  context2() { return this.active ? this.ctx2 : null; }
 
   private computeContext() {
-    if (this.mode !== 'foot' || !this.gw) { this.ctx = null; this.lookAt = null; return; }
+    if (this.mode !== 'foot' || !this.gw) { this.ctx = null; this.ctx2 = null; this.lookAt = null; return; }
     const f = this.feet;
-    let best: FootContext | null = null, bs = Infinity, look: THREE.Vector3 | null = null;
-    // Prefer what you're facing: ×1.0 straight ahead … ×1.5 behind you.
+    // Candidates by tier, then score (hud_flow_study P2): a counter/sign you stand at (tier 0) is
+    // never taken by a passer-by (tier 1: people, the boat); "not open yet" things come last.
+    // The best is the context button; the runner-up (tiers 0-1) becomes the second, smaller button.
+    const cands: { c: FootContext; tier: number; s: number; look: THREE.Vector3 }[] = [];
+    // Prefer what you're facing: x1.0 straight ahead ... x1.5 behind you.
     const face = (x: number, z: number) => {
       const a = Math.atan2(-(x - f.x), -(z - f.z)) - this.yaw;
       return 1.25 - 0.25 * Math.cos(a);
@@ -278,38 +284,34 @@ export class OnFoot {
     const db = Math.hypot(boat.pos.x - f.x, boat.pos.z - f.z);
     if (boat.moored && db < FOOT.boardRange) {
       // score by the gap to the hull, not the boat's centre: the troller (~7 m) sits 6-7 m off the deck
-      bs = Math.max(0.2, db - 5.5) * face(boat.pos.x, boat.pos.z);
-      best = { name: 'board', label: 'Board', prompt: 'Board your boat', run: () => this.board() };
-      look = boat.pos.clone().setY(1);
+      cands.push({ c: { name: 'board', label: 'Board', prompt: 'Board your boat', run: () => this.board(), pos: [boat.pos.x, 1, boat.pos.z], kind: 'board' },
+        tier: 1, s: Math.max(0.2, db - 5.5) * face(boat.pos.x, boat.pos.z), look: boat.pos.clone().setY(1) });
     }
     for (const it of this.gw.gameplay.interacts) {
       if (FOOT_IGNORED.has(it.kind)) continue;
       const d = Math.hypot(it.pos[0] - f.x, it.pos[2] - f.z);
       if (d > FOOT.interactRange || Math.abs(it.pos[1] - (f.y + 1.1)) > 2.2) continue;
-      // Sell wins at the counter; things that aren't open yet only get the button when nothing else is near.
-      const w = it.kind === 'sell_fish' ? 0.3 : OPEN_INTERACTS.has(it.kind) ? 1 : 3;
-      const s = Math.max(0.1, d * w) * face(it.pos[0], it.pos[2]);
-      if (s < bs) {
-        bs = s;
-        const lbl = this.host.labelFor(it);
-        best = { name: it.name, label: lbl, prompt: lbl, run: () => this.host.doInteract(it) };
-        look = new THREE.Vector3(...it.pos);
-      }
+      const open = OPEN_INTERACTS.has(it.kind);
+      // Sell wins at the counter
+      const w = it.kind === 'sell_fish' ? 0.3 : 1;
+      const lbl = this.host.labelFor(it);
+      cands.push({ c: { name: it.name, label: lbl, prompt: lbl, run: () => this.host.doInteract(it), pos: [...it.pos], kind: it.kind },
+        tier: open ? 0 : 2, s: Math.max(0.1, d * w) * face(it.pos[0], it.pos[2]), look: new THREE.Vector3(...it.pos) });
     }
     for (const n of this.npcs) {
       const d = Math.hypot(n.pos[0] - f.x, n.pos[2] - f.z);
       if (d > FOOT.npcRange || Math.abs(n.pos[1] - f.y) > 1.5) continue;
-      const s = (d + 0.4) * face(n.pos[0], n.pos[2]) * (String(n.props?.npc_role ?? n.role ?? '') === 'cat' ? 1.6 : 1);
-      if (s < bs) {
-        bs = s;
-        const who = npcDisplayName(n);
-        const role = String(n.props?.npc_role ?? n.role ?? '');
-        best = { name: n.name ?? who, label: role === 'cat' ? 'Pet' : 'Talk', prompt: `${role === 'cat' ? 'Pet' : 'Talk to'} ${who}`, run: () => this.talk(n) };
-        look = new THREE.Vector3(n.pos[0], n.pos[1] + 1.5, n.pos[2]);
-      }
+      const who = npcDisplayName(n);
+      const role = String(n.props?.npc_role ?? n.role ?? '');
+      cands.push({ c: { name: n.name ?? who, label: role === 'cat' ? 'Pet' : 'Talk', prompt: `${role === 'cat' ? 'Pet' : 'Talk to'} ${who}`, run: () => this.talk(n), pos: [n.pos[0], n.pos[1] + 1.2, n.pos[2]], kind: role === 'cat' ? 'pet' : 'talk' },
+        tier: 1, s: (d + 0.4) * face(n.pos[0], n.pos[2]) * (role === 'cat' ? 1.6 : 1), look: new THREE.Vector3(n.pos[0], n.pos[1] + 1.5, n.pos[2]) });
     }
-    this.ctx = best;
-    this.lookAt = look;
+    cands.sort((a, b) => a.tier - b.tier || a.s - b.s);
+    const best = cands[0];
+    const second = cands.slice(1).find((x) => x.tier <= 1 && x.c.name !== best?.c.name);
+    this.ctx = best?.c ?? null;
+    this.ctx2 = best && second ? second.c : null;
+    this.lookAt = best?.look ?? null;
   }
 
   private talk(n: Npc) {

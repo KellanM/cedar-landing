@@ -42,6 +42,25 @@ function show(text: string, highlight = false) {
   el.style.fontWeight = highlight ? '800' : '600';
 }
 
+/** The player has set out (title tapped): from here on nothing reloads without their say-so. */
+const playing = () => document.body.classList.contains('playing');
+type ReadyCb = (v: { version: string; commit: string }) => void;
+const readyCbs: ReadyCb[] = [];
+/** An update arrived while playing (hud_flow_study P6): the HUD asks politely. */
+export function onUpdateReady(cb: ReadyCb) { readyCbs.push(cb); }
+export const updatePending = () => pending;
+/** Reload into the pending build (only ever called from a tap: the Log or the update notice). */
+export function applyUpdate() { if (pending) { window.dispatchEvent(new Event('ui:beforeupdate')); reloadInto(pending.commit); } }
+
+/** Manual check from the Log: never reloads by itself, it reports. */
+export async function checkForUpdate(): Promise<'none' | 'ready' | 'offline'> {
+  const v = await latest();
+  if (!v) return 'offline';
+  if (v.commit === VERSION.commit) { pending = null; return 'none'; }
+  pending = v;
+  return 'ready';
+}
+
 async function check(manual: boolean) {
   if (busy) return;
   busy = true;
@@ -54,8 +73,11 @@ async function check(manual: boolean) {
     if (manual) { show(`Up to date · ${VERSION_LABEL}`); setTimeout(() => show(VERSION_LABEL), 2500); }
     return;
   }
+  const fresh = pending?.commit !== v.commit;
   pending = v;
-  // a just-launched game hasn't been played yet: go straight to the new build
+  // mid-play (P6): never reload on our own; a small notice asks first
+  if (playing() && !manual) { if (fresh) readyCbs.forEach((cb) => cb(v)); return; }
+  // a just-launched game (loading / title, not yet playing) goes straight to the new build
   let tried = '';
   try { tried = sessionStorage.getItem('cl-update-tried') ?? ''; } catch { /* ignore */ }
   // never loop: if we already reloaded for this build and still got the old page, wait for a tap
@@ -63,7 +85,10 @@ async function check(manual: boolean) {
   show(`Update ready: v${v.version}, tap`, true);
 }
 
-/** Build stamp (bottom-left, above the safe area). Tap it to check for an update. */
+/**
+ * Build stamp (bottom-left, above the safe area), on the loading card and title only (P6): once
+ * the player sets out it hides (CSS) and lives in Log > Settings > About. Tap it to check.
+ */
 export function mountVersionStamp(): void {
   el = document.createElement('button');
   el.id = 'version-stamp';

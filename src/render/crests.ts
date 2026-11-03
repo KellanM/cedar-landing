@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { sampleField, type ShoreField } from './shorefield';
 import { WATER } from '../game/tide';
+import { SWELL, SWELL_GLSL, SWELL_U, swellEval } from '../game/swell';
 
 /**
  * Wave crests, second pass (docs/crest_study.md). Each crest is one mark with a life:
@@ -86,6 +87,7 @@ uniform vec2 uWind;
 uniform float uTideY;
 varying vec2 vP;
 varying vec4 vB;
+${SWELL_GLSL}
 #include <fog_pars_vertex>
 void main() {
   vP = position.xy;
@@ -97,6 +99,7 @@ void main() {
   // ride the sea's vertex ripple (same formula as sea.ts) a few cm above it
   float w = sin(xz.x * 0.21 + uTime * 0.9) * 0.5 + sin(xz.y * 0.17 - uTime * 0.7) * 0.35 + sin((xz.x + xz.y) * 0.43 + uTime * 1.6) * 0.15;
   vec4 wp = vec4(xz.x, w * 0.07 + 0.03 + uTideY, xz.y, 1.0);
+  if (uSwOn > 0.5) wp.y += swellEval(xz).x - w * 0.07 + 0.03; // ocean experiment: ride the swell
   if (iB.w <= 0.0) wp = vec4(0.0, -1e4, 0.0, 1.0);
   vec4 mvPosition = viewMatrix * wp;
   gl_Position = projectionMatrix * mvPosition;
@@ -180,6 +183,7 @@ export class CrestSprites {
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     });
     // share the sea's live uniforms (colours follow the time of day, ripple follows the sea clock)
+    Object.assign(this.mat.uniforms, SWELL_U);
     Object.assign(this.mat.uniforms, { uTime: uniforms.uTime, uWind: uniforms.uWind, uCrestCol: uniforms.uCrestCol, uFoamCol: uniforms.uBeadCol, uTideY: uniforms.uTideY });
     this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.frustumCulled = false;
@@ -211,6 +215,7 @@ export class CrestSprites {
     return 0.5 + 0.5 * Math.sin(a * 0.075 - this.time * 0.5 + 1.6 * Math.sin(b * 0.045 + 0.7) + 0.8 * Math.sin(b * 0.11 - a * 0.02));
   }
 
+  private swTmp = { h: 0, foam: 0 };
   private trySpawn(cam: THREE.PerspectiveCamera, focus: THREE.Vector3, wx: number, wz: number) {
     const c = this.pool.find((p) => !p.alive);
     if (!c) return;
@@ -227,7 +232,9 @@ export class CrestSprites {
       if (db < CREST_TUNE.near) continue;
       const nearK = Math.min(1, (db - CREST_TUNE.near) / 4);
       const fadeK = 1 - Math.max(0, (dist - this.far * 0.6) / (this.far * 0.4));
-      const p = this.openness(x, z) * nearK * fadeK * (0.25 + 0.75 * Math.min(1, Math.max(0, (this.group(x, z, wx, wz) - 0.2) / 0.6)));
+      // ocean experiment: with the swell on, crests are born on the wave tops (crest acceleration) instead of the drifting groups
+      const grp = SWELL.on ? Math.min(1, Math.max(0, swellEval(x, z, this.swTmp).foam / (0.35 * SWELL.foamThr))) : Math.min(1, Math.max(0, (this.group(x, z, wx, wz) - 0.2) / 0.6));
+      const p = this.openness(x, z) * nearK * fadeK * (0.25 + 0.75 * grp);
       if (Math.random() > p) continue;
       const r = Math.random();
       const half = (0.9 + 0.7 * r) * this.scale * CREST_TUNE.size;
