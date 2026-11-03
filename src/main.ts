@@ -32,6 +32,7 @@ import { WIND as SMOKE_WIND } from './render/smoke';
 import { WEATHER_TUNE, weatherAt, weatherKey, weatherStats, weatherWords, type WeatherNow } from './game/weather';
 import { LIGHT_U, setLightingWeather } from './render/lighting';
 import { ctx as uiCtx } from './ui/ctx';
+import { SepiaTitle } from './render/sepia';
 import { lookupSpecies, type CaughtFish } from './game/fishdata';
 import { clearSave, loadSave, writeSave, type SaveData } from './game/save';
 import * as hud from './ui/hud';
@@ -84,6 +85,9 @@ const save: SaveData = loadSave();
 let quality = QUALITY[save.settings.quality];
 gameAudio.setVolumes(save.settings.music, save.settings.sound);
 sea.setQuality(save.settings.quality);
+/** title screen only: the harbour as a sepia drawing, colour blooming in on "set out" (off after) */
+const sepia = new SepiaTitle();
+sepia.setQuality(save.settings.quality);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -91,6 +95,12 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  if (sepia.active) measurePlate();
+}
+/** the title's plate (the hole in the paper mount) in CSS px: the drawing's wash stops short of its edge */
+function measurePlate() {
+  const r = document.querySelector('.ld-plate')?.getBoundingClientRect();
+  if (r) sepia.plate = { l: r.left, t: r.top, r: r.right, b: r.bottom };
 }
 window.addEventListener('resize', resize);
 window.visualViewport?.addEventListener('resize', resize);
@@ -690,6 +700,7 @@ hud.init({
       buildInstances();
       sea.setQuality(save.settings.quality);
       rain.setQuality(save.settings.quality);
+      sepia.setQuality(save.settings.quality);
       if (world) buildSeaField(world);
       applyTOD();
       writeSave(save);
@@ -850,6 +861,8 @@ function openWaterYaw() {
 function beginTitle() {
   titleOpen = true; titleT = 0; titleBlend = 0;
   titleYaw = openWaterYaw();
+  sepia.begin();
+  measurePlate();
 }
 
 // ---------------------------------------------------------------- loop
@@ -948,7 +961,10 @@ function frame(now: number) {
 
   updateLighting(dt);
   applyDebugCam();
-  renderer.render(scene, camera);
+  sepia.update(dt);
+  // the Logbook HUD arrives once the colour has (it would sit on the drawing otherwise)
+  if (sepia.progress > 0.55 && document.body.classList.contains('title-bloom')) document.body.classList.remove('title-bloom');
+  if (!(boat && sepia.render(renderer, scene, camera, boat.pos))) renderer.render(scene, camera);
   if (world && boat) audioFrame(dt);
 
   fpsAcc += dt; fpsFrames++;
@@ -991,8 +1007,10 @@ async function boot() {
   const title = !qs.has('debug') || qs.has('title');
   if (title) beginTitle();
   requestAnimationFrame(frame);
-  await hud.loadingDone(title);
+  const shown = await hud.loadingDone(title);
   titleOpen = false;
+  // the drawing comes to life with the camera swing; a tap during loading skipped the title: no bloom
+  if (shown) { sepia.bloom(reduceMotion()); document.body.classList.add('title-bloom'); } else sepia.off();
   // Poll for a (new) export; swap in live when READY appears or changes.
   setInterval(() => { if (!fishing.active && !modalOpen) loadWorld(false); }, 5000);
 }
@@ -1082,6 +1100,23 @@ window.__debug = {
   },
   seaFieldImage: () => sea.fieldImage(),
   seaObj: () => sea,
+  /** title drawing: state, bloom progress, ms of the last pass (CPU), whether a target is held */
+  sepia: () => ({ state: sepia.state, progress: +sepia.progress.toFixed(3), ms: +sepia.lastMs.toFixed(3) }),
+  sepiaObj: () => sepia,
+  /** GPU bench: ms per synchronous frame of the current view through the title drawing vs plain */
+  benchSepia: (n = 60) => {
+    const gl = renderer.getContext(), px = new Uint8Array(4);
+    const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const time = (f: () => void) => { sync(); const t = performance.now(); for (let i = 0; i < n; i++) f(); sync(); return (performance.now() - t) / n; };
+    const plain = () => renderer.render(scene, camera);
+    const state = sepia.state;
+    if (state === 'off') sepia.begin();
+    const drawn = () => { sepia.render(renderer, scene, camera, boat.pos); };
+    time(plain); time(drawn);
+    const r = { plain: +time(plain).toFixed(3), drawn: +time(drawn).toFixed(3) };
+    if (state === 'off') sepia.off();
+    return r;
+  },
   crestStats: () => sea.crests.stats(),
   hotspotStats: () => hotspotFX?.stats(),
   hotspotObj: () => hotspotFX,

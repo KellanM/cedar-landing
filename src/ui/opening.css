@@ -105,7 +105,10 @@
 
 /* ---- title state: the print dissolves, the live harbour shows through the mount */
 #loading.title { pointer-events: auto; cursor: pointer; }
-#loading.title .ld-scene { opacity: 0; }
+/* the print turns to its sepia under-drawing as it lifts, so it hands off into the live drawing
+   (src/render/sepia.ts) without a colour flash */
+#loading.title .ld-scene { opacity: 0; filter: sepia(.85) saturate(.7) contrast(.72) brightness(1.22);
+  transition: filter 500ms var(--ease-out), opacity 1100ms var(--ease-ink) 250ms; }
 #loading.title .ld-lockup::before { content: ''; position: absolute; inset: -14% -10% -18%; z-index: -1;
   background: radial-gradient(closest-side, rgba(244, 239, 227, .78), rgba(244, 239, 227, .45) 60%, transparent); }
 #loading.title #load-msg, #loading.title .tip { display: none; }
@@ -117,6 +120,10 @@
 #loading:not(.done) ~ #version-stamp { color: var(--ink-soft) !important; text-shadow: none !important; }
 body.title-open #hud { opacity: 0; pointer-events: none; }
 body.title-open #hud * { pointer-events: none !important; }
+/* while the drawing comes to life (src/render/sepia.ts) the HUD waits, then fades in */
+body.title-bloom #hud { opacity: 0; pointer-events: none; }
+body.title-bloom #hud * { pointer-events: none !important; }
+body.playing #hud { transition: opacity 450ms var(--ease-out); }
 
 /* ---- phone landscape / short screens */
 @media (max-height: 500px) {
