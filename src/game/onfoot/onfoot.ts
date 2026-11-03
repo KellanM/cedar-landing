@@ -30,6 +30,8 @@ export const FOOT = {
 const SLIDE = [25, -25, 50, -50, 75, -75].map((d) => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)] as const);
 /** Boardwalk magnet: probe this far either side; drift toward the open side at this speed (m/s). */
 export const MAGNET = { reach: 0.62, speed: 0.9 };
+/** Biggest drop the walker steps down in one go (stairs are ~0.6); anything deeper is an edge. */
+const LEDGE_DROP = 0.7;
 
 /** Interacts that only make sense from the boat. */
 /** Interact kinds that actually do something today (everything else toasts "not open yet"). */
@@ -345,26 +347,37 @@ export class OnFoot {
     return path.map((q) => [+q.x.toFixed(1), +q.z.toFixed(1)]);
   }
 
+  /** why the last step was refused (debug) */
+  block = '';
   private tryMove(nx: number, nz: number, dirx: number, dirz: number): { y: number } | null {
     // Test walls at the height we'd stand at (so stepping up onto a deck isn't blocked by its kerb).
     const g0 = this.world.walkable(nx, nz, this.feet.y);
-    if (!g0) return null;
+    if (!g0) { this.block += `|noground ${nx.toFixed(2)},${nz.toFixed(2)}`; return null; }
     const p = _v.set(nx, Math.max(this.feet.y, g0.y), nz);
     this.world.pushOut(p, FOOT.radius, FOOT.height);
     const g = this.world.walkable(p.x, p.z, this.feet.y);
-    if (!g) return null;
+    if (!g) { this.block += `|pushed ${p.x.toFixed(2)},${p.z.toFixed(2)}`; return null; }
     // Only step DOWN onto something with open footing all round (stairs, lower decks) — never onto
     // a narrow stringer / beam lip below a deck edge.
+    // Only step UP onto something wide across the way we're walking (a stair tread, a deck), never onto a
+    // rail cap / stringer / bollard top (the higher STEP_UP for the porch stairs would otherwise let it).
+    if (g.y > this.feet.y + 0.2) {
+      const L0 = Math.hypot(dirx, dirz) || 1, qx = -dirz / L0 * 0.3, qz = dirx / L0 * 0.3;
+      const a = this.world.walkable(p.x + qx, p.z + qz, g.y), b = this.world.walkable(p.x - qx, p.z - qz, g.y);
+      if (!a || !b || Math.abs(a.y - g.y) > 0.12 || Math.abs(b.y - g.y) > 0.12) { this.block += '|narrow step'; return null; }
+    }
+    // Never walk off a ledge: a dock or deck edge drops onto the tidal mud (and then you're stranded).
+    if (g.y < this.feet.y - LEDGE_DROP) { this.block += '|ledge'; return null; }
     if (g.y < this.feet.y - 0.2) {
       for (const [ox, oz] of [[0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]]) {
-        if (!this.world.walkable(p.x + ox, p.z + oz, g.y)) return null;
+        if (!this.world.walkable(p.x + ox, p.z + oz, g.y)) { this.block += '|footing'; return null; }
       }
     }
     // Keep a lip back from drop-offs / water so the body never hangs over the edge.
     const L = Math.hypot(dirx, dirz);
     if (L > 1e-4) {
       const ax = p.x + (dirx / L) * FOOT.edgeLook, az = p.z + (dirz / L) * FOOT.edgeLook;
-      if (!this.world.walkable(ax, az, g.y)) return null;
+      if (!this.world.walkable(ax, az, g.y)) { this.block += `|lip ${nx.toFixed(2)},${nz.toFixed(2)}`; return null; }
     }
     this.feet.x = p.x; this.feet.z = p.z;
     return g;
@@ -418,6 +431,7 @@ export class OnFoot {
     const dl = Math.hypot(dvx, dvz), maxDv = FOOT.accel * dt;
     if (dl > maxDv) { this.vel.x += (dvx / dl) * maxDv; this.vel.z += (dvz / dl) * maxDv; } else { this.vel.x = tvx; this.vel.z = tvz; }
 
+    this.block = '';
     // ---- move with sliding, in small substeps
     const sx = this.feet.x, sz = this.feet.z;
     const stepX = this.vel.x * dt, stepZ = this.vel.z * dt;
@@ -532,7 +546,7 @@ export class OnFoot {
     return {
       mode: this.mode, feet: this.saved(), speed: +this.lastSpeed.toFixed(2), ctx: this.ctx?.prompt ?? null,
       bvhChunks: this.world.built, bvhMs: Math.round(this.world.buildMs), steps: this.steps,
-      bubble: this.bubble.text, model: this.character.source, autoWalk: !!this.autoWalk, camYaw: +this.cam.viewYaw.toFixed(3),
+      bubble: this.bubble.text, model: this.character.source, autoWalk: !!this.autoWalk, camYaw: +this.cam.viewYaw.toFixed(3), block: this.block,
     };
   }
 }

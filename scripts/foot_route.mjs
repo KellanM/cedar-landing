@@ -31,25 +31,28 @@ const log = (...a) => { console.log(...a); lines.push(a.join(' ')); };
 
 // Route (three x, z). `stop` = an interact we expect the context button to offer there.
 const ROUTE = JSON.parse(process.env.ROUTE ?? 'null') ?? [
-  { n: 'dock end', p: [8.4, 26.0] },
-  { n: 'boardwalk', p: [8.6, 22.0] },
-  { n: 'dock foot', p: [9.0, 19.6] },
-  { n: 'stairs bottom', p: [10.6, 18.2] },
-  { n: 'stairs top', p: [9.8, 14.8] },
-  { n: 'porch table', p: [7.4, 12.8], stop: 'OPEN_book' },
-  { n: 'stairs top', p: [9.8, 14.8] },
-  { n: 'stairs bottom', p: [10.6, 18.2] },
+  // the mail-boat dock is 1.5 m wide (x 6.75–8.25) and runs straight into the porch stairs (x 7–8, z 18 → 15)
+  { n: 'dock end', p: [7.5, 26.0] },
+  { n: 'boardwalk', p: [7.5, 22.0] },
+  { n: 'dock foot', p: [7.5, 19.2] },
+  { n: 'porch stairs', p: [7.5, 16.6] },
+  { n: 'stairs top', p: [7.4, 14.4] },
+  { n: 'porch table', p: [7.2, 12.9], stop: 'OPEN_book' },
+  { n: 'stairs top', p: [7.4, 14.4] },
+  { n: 'porch stairs', p: [7.5, 16.6] },
+  { n: 'dock foot', p: [7.5, 19.2] },
+  { n: 'front beach', p: [10.2, 19.0] },
   { n: 'beach', p: [12.4, 17.0] },
   { n: 'campfire', p: [16.8, 7.6] },
-  { n: 'clams', p: [14.8, 5.2] },
-  { n: 'rod (pale log)', p: [14.0, 1.4] },
-  { n: 'rock pool', p: [16.4, -3.4] },
-  { n: 'east beach', p: [15.6, 1.0] },
+  { n: 'clams', p: 'clams' },
+  { n: 'rod (pale log)', p: 'rod' },
+  { n: 'rock pool', p: 'pool' },
   { n: 'campfire', p: [16.8, 7.6] },
   { n: 'beach', p: [12.4, 17.0] },
-  { n: 'dock foot', p: [9.0, 19.6] },
-  { n: 'boardwalk', p: [8.6, 23.0] },
-  { n: 'the wreck', p: [8.2, 27.4] },
+  { n: 'front beach', p: [10.2, 19.0] },
+  { n: 'dock foot', p: [7.5, 19.2] },
+  { n: 'boardwalk', p: [7.5, 23.0] },
+  { n: 'the wreck', p: [7.5, 27.2] },
 ];
 
 const browser = await chromium.launch({ executablePath: findChrome(), args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] });
@@ -88,7 +91,9 @@ async function grab() { if (!GIF || grabbing) return; grabbing = true; await pag
 let camEst = 0.35, lastPhi = null;
 let stuckFrames = 0, stuckEvents = [], total = 0, held = false, fails = [];
 const t0 = Date.now();
+const ANCH = await D(() => window.__debug.opening.anchors);
 for (const wp of ROUTE) {
+  if (typeof wp.p === 'string') { const a = ANCH[wp.p]; wp.p = [a[0] - 0.9, a[1] + 0.7]; } // stand beside the item
   const start = Date.now();
   let last = null, lastMoveT = Date.now(), reached = false;
   while (Date.now() - start < WPT) {

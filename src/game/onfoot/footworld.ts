@@ -5,9 +5,11 @@ import type { LoadedChunk } from '../../world/types';
 /** Walkable surface: normal.y above this. */
 export const WALKABLE_NY = 0.7;
 /** Max step-up onto a higher surface (m). */
-export const STEP_UP = 0.45;
+export const STEP_UP = 0.62; // Kiln Point's porch stairs rise ~0.6 m per half-metre run (was 0.45: the walker stalled on them)
 /** Max drop we allow walking off (m). Anything deeper is a ledge you can't walk off. */
 export const MAX_DROP = 1.1;
+/** Plank-gap bridging offsets for walkable() (a foot is ~0.25 m wide). */
+const GAP_CROSS = [[0.13, 0], [-0.13, 0], [0, 0.13], [0, -0.13]] as const;
 /** Ground below this is water / wet shoreline: not walkable. Follows the tide (src/game/tides.ts). */
 export let WATER_Y = 0.3;
 export function setWalkWater(y: number) { WATER_Y = y; }
@@ -153,7 +155,17 @@ export class FootWorld {
 
   /** Is there a solid (any-angle) surface at (x,z) within the column? Used for "blocked edge" checks. */
   walkable(x: number, z: number, feetY: number): GroundHit | null {
-    const g = this.groundAt(x, z, feetY);
+    let g = this.groundAt(x, z, feetY);
+    // A foot is wider than a ray: boardwalks are separate planks with gaps between them (the mail-boat
+    // dock has a gap right across it at z≈26.25 that stopped the walker dead). Bridge gaps narrower than
+    // ~0.25 m by also sampling a small cross and keeping the highest hit.
+    if (!g || g.y < WATER_Y) {
+      g = null;
+      for (const [ox, oz] of GAP_CROSS) {
+        const h = this.groundAt(x + ox, z + oz, feetY);
+        if (h && h.y >= WATER_Y && (!g || h.y > g.y)) g = h;
+      }
+    }
     if (!g || g.y < WATER_Y) return null;
     return g;
   }

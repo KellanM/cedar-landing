@@ -58,7 +58,7 @@ const A = {
   arrive: [7.5, 26.4] as V2, // the middle of the mail-boat dock (it is 1.5 m wide: x 6.75–8.25)
   table: [6.5, 12] as V2,
   rod: [14.6, 0.4] as V2, // Kellan: on the FRONT beach, in the same patch as the tin (below the porch)
-  pool: [17, -4] as V2,
+  pool: [16.2, -2.4] as V2, // the rock pool at the end of the front beach (the 'matchbox' tin)
   clams: [15.2, 4.6] as V2, // ...and the clam holes, so the three are one sweep before the campfire
   fire: [18, 7] as V2,
   chain: [8.2, 28.0] as V2,
@@ -161,6 +161,14 @@ export class Opening {
     this.buildProps();
     this.applyStage(true);
     if (this.o.q === 0 && !this.o.steps.length && !hasFlag(this.o, 'arrived')) this.arrive();
+    else if (this.o.stage < 1 && !this.h.foot.active) {
+      // a world (re)load put the player back in the boat, but she's a wreck until Q3: back on the dock
+      const boat = this.h.boat();
+      boat.place(A.moor[0], A.moor[1], Math.PI);
+      const sv = this.h.save.onfoot;
+      const at = sv ?? { x: A.arrive[0], y: this.ground(A.arrive, LEVEL.dock) ?? 0.6, z: A.arrive[1], yaw: 0 };
+      this.h.foot.restore(at);
+    }
     this.lastQ = -1;
   }
 
@@ -251,7 +259,7 @@ export class Opening {
       for (const [ox, oz] of [[0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6]]) { const n = W.walkable(x + ox, z + oz, g.y); if (!n || n.y < 0.25 || Math.abs(n.y - g.y) > 0.35) return null; }
       return g;
     };
-    for (const k of ['table', 'rod', 'pool', 'clams', 'fire', 'chain'] as const) {
+    for (const k of ['table', 'rod', 'clams', 'chain'] as const) { // the pool brings its own rocks
       const [x0, z0] = A[k];
       const y0 = this.lvl(k);
       search: for (let r = 0; r <= 6; r += 0.5) {

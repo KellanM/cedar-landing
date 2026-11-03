@@ -16,7 +16,7 @@ const ORDER: HintId[] = ['paddle', 'cast', 'strike', 'ease', 'cooler'];
 
 const touch = () => matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const TEXT: Record<HintId, () => string> = {
-  paddle: () => (touch() ? 'Put your thumb down anywhere here and paddle' : 'W A S D to paddle. Drag to look about.'),
+  paddle: () => (touch() ? (document.body.classList.contains('onfoot') ? 'Thumb down here to walk' : 'Thumb down here to row') : (document.body.classList.contains('onfoot') ? 'W A S D to walk. Drag to look about.' : 'W A S D to row. Drag to look about.')),
   cast: () => 'Stop by the ripples, then tap Cast',
   strike: () => 'Wait for the bob… then Strike!',
   ease: () => 'Ease off when it pulls',
