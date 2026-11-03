@@ -68,6 +68,8 @@ setSeeThrough(backdropMat, false);
  * ship normals use it (npcs.glb since the direction-A people pass); the skipper keeps worldMat.
  */
 export const charMat = register(addSunShading(new THREE.MeshBasicMaterial({ vertexColors: true }), LIGHT_STRENGTH.world, 'none', 0, 1, 'smooth'));
+/** Skinned "friendslop" characters: smooth normals, soft 3-band ramp + rim (Dev: Characters -> Skinned). */
+export const toonMat = register(addSunShading(new THREE.MeshBasicMaterial({ vertexColors: true }), LIGHT_STRENGTH.world, 'none', 0, 1, 'toon'));
 setSeeThrough(charMat, false);
 
 /**

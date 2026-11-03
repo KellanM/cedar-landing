@@ -456,6 +456,7 @@ function devTab(L: HTMLElement, R: HTMLElement) {
   <div class="settings">
     ${stack(seg('dev-tide', [['auto', 'Auto'], ['high', 'High'], ['mid', 'Mid'], ['low', 'Low'], ['lowest', 'Lowest']], st.tide, `Tide (${st.tideLevel.toFixed(2)} m, ${st.tideTrend})`))}
     ${stack(seg('dev-ocean', [['classic', 'Classic'], ['swell', 'Swell']], st.ocean, `Ocean (experiment${st.ocean === 'swell' ? `, sea ${Math.round(st.seaState * 100)}%` : ''})`))}
+    ${stack(seg('dev-wobble', [['0', '0 rigid'], ['0.5', '0.5'], ['1', '1 gentle'], ['1.5', '1.5'], ['2', '2 friendslop']], String(st.wobble), 'Character wobble'))}
     ${toggle('dev-sun', st.sunShading, 'Sun shading')}
     ${toggle('dev-wind', st.wind, 'Wind in trees')}
     ${toggle('dev-fps', st.fps, 'Show FPS')}
@@ -470,6 +471,7 @@ function devTab(L: HTMLElement, R: HTMLElement) {
   sg('dev-mist', (v) => d.mist(v as DevMist));
   sg('dev-tide', (v) => d.tide(v as DevTide));
   sg('dev-ocean', (v) => d.ocean(v as 'classic' | 'swell'));
+  sg('dev-wobble', (v) => d.wobble(Number(v)));
   bt('dev-nextday', () => d.nextDay());
   bt('dev-bolt-far', () => d.lightning(false));
   bt('dev-bolt-near', () => d.lightning(true));

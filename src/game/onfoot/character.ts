@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { charMat, worldMat } from '../../render/materials';
+import { toonMat, worldMat } from '../../render/materials';
+import { FaceRig } from '../face';
+import { WOBBLE } from '../wobble';
 import { Spring } from '../npcs/rigpose';
 
 /**
@@ -173,7 +175,7 @@ export class PlayerCharacter {
       scene.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (mesh.isMesh) {
-          if (mesh.geometry.getAttribute('color')) mesh.material = mesh.geometry.getAttribute('normal') ? charMat : worldMat;
+          if (mesh.geometry.getAttribute('color')) mesh.material = mesh.geometry.getAttribute('normal') ? toonMat : worldMat;
           mesh.frustumCulled = false;
           if (/rod/i.test(mesh.name)) mesh.visible = false; // the rod stays on the boat
           else body.push(mesh);
@@ -197,12 +199,17 @@ export class PlayerCharacter {
       }
       console.info('[onfoot] skipper.glb bones', bones.map((b) => b.name).join(','), '→', Object.fromEntries(Object.entries(objs).map(([k, v]) => [k, v!.name])));
       this.setModel(scene, objs, SKIPPER_MODEL_YAW);
+      this.face = new FaceRig(scene, 0.6);
       this.source = 'glb';
     } catch (e) {
       console.warn('[onfoot] skipper.glb unavailable, using placeholder', e);
     }
   }
 
+  /** expression overlays: AC bean eyes (blinking) on foot, happy while talking */
+  face: FaceRig | null = null;
+  private happyT = 0;
+  talkFace(sec = 4) { this.happyT = sec; }
   private q = new THREE.Quaternion();
   private q2 = new THREE.Quaternion();
   /** Set a joint to rest * rot(right, a) * rot(fwd, roll) * rot(up, yaw). */
@@ -227,6 +234,7 @@ export class PlayerCharacter {
   legLen = 0.8;
 
   update(dt: number, a: AnimInput) {
+    if (this.face) { this.happyT = Math.max(0, this.happyT - dt); this.face.set(this.happyT > 0 ? 'happy' : 'neutral'); this.face.update(dt); }
     this.t += dt;
     const moving = Math.min(1, a.speed / 0.9);
     this.moveBlend += (moving - this.moveBlend) * Math.min(1, dt * 9);
@@ -251,7 +259,7 @@ export class PlayerCharacter {
     this.pose('shinL', -knee * swingKneeL - absorb * Math.max(0, Math.sin(ph - 1.2)) - 0.04);
     this.pose('shinR', -knee * swingKneeR - absorb * Math.max(0, Math.sin(ph - 1.2 + Math.PI)) - 0.04);
     // arms counter-swing, lagging the legs (overlap); elbows bend more on the forward swing (follow-through)
-    const armAmp = THREE.MathUtils.lerp(0.38, 0.75, run) * mb;
+    const armAmp = THREE.MathUtils.lerp(0.38, 0.75, run) * mb * (0.7 + 0.3 * WOBBLE.k); // floppier with wobble
     const arm = this.armLag.step(s, dt);
     const breathe = Math.sin(this.t * (Math.PI * 2 / 3.8));
     const idle = 1 - mb;
