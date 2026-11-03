@@ -299,6 +299,11 @@ class GameAudio {
     const g = Math.min(1, Math.max(0.2, gain));
     this.sfx!.bigSplash(this.at(), g > 0.6 ? 'breach' : 'slap', { gain: g, pan: 0, lp: 9000 });
   }
+  /** ocean pass 3: the hull landing off a wave or slamming one (k 0..1) */
+  hullSplash(k: number, heavy: boolean) {
+    if (!this.ok() || !this.limit('hullsplash', 0.18)) return;
+    this.sfx!.hullSplash(this.at(), Math.min(1, Math.max(0, k)), heavy);
+  }
   hullCreak() { if (this.ok() && this.limit('hullcreak', 2.5)) this.sfx!.creak(this.at(), { gain: 2.2, pan: (Math.random() - 0.5) * 0.6, lp: 4000 }); }
   squawk(x: number, z: number, intensity: number) {
     if (!this.ok() || !this.limit('gull', 1.4 - 0.6 * Math.min(1, intensity))) return;

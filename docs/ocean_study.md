@@ -475,3 +475,79 @@ height queries ~0.4 ms.
 - Foam is per cascade on the GPU but uses the combined Jacobian on the CPU (spray, crest sprites).
   They correlate but are not identical.
 - Not built: the ripple sim (layer 4) and the cooler slosh (needs Kellan's OK).
+
+---
+
+# Pass 3: hull splashes, "when the ship crashes off a wave back into the ocean" (branch `ocean3`)
+
+Kellan: *"We also need particle effects when the ship crashes off a wave back into the ocean. Use
+Wind Waker as a reference."*
+
+## Sources inspected (frame-stepped by seeking the video 0.10–0.20 s at a time, normal speed in between)
+
+| Source | Windows | What it shows |
+|---|---|---|
+| *Wind Waker HD*, "1 Hour Of Free Roaming The Sea" (YouTube `DbylHgL6XTg`) | 10:48–11:00 (four hops: lands at 10:50.7, 10:52.6, 10:55.0, 10:56.5); 19:08–19:19 (airborne 19:14.2–19:14.9, lands 19:15.05; crown at 19:17.6–19:17.9) | The King of Red Lions leaving the water and landing |
+| *Wind Waker HD*, "Random Sailing" 4K (`2jy92OpGEig`) | 2:17–2:27, 3:47–3:56, 4:11–4:19 (sampled every 0.2 s) | Bow spray at full sail, three lighting conditions |
+| Sea of Thieves storm footage (pass 1, `MJICjfAd6z8` 1:02–1:07) | — | A realistic slam for contrast |
+| *A Short Hike*, motorboat challenge (`CkD1tSyxZwY`, 0:02–0:30, every 1 s) | — | A stylised indie boat in a top-down view |
+| *Sneaky Sasquatch*, every boat's speed (`8LQgVW6numE`, 0:05–1:00, every 2 s) | — | The minimal end of the range |
+
+Reference strips are in `docs/refs/ocean3/` (kept locally, gitignored): `ww_landing_puffs.jpg`,
+`ww_landing_crown.jpg` and `ww_bow_spray_at_speed.jpg`.
+
+## Findings (observed; no practitioner statements found for these effects)
+
+1. **The landing is a burst of round puffs at the hull's waterline, and it is short.**
+   - *Observed:* at 19:15.05 the hull meets the water and a cluster of small round white puffs
+     (each a soft white disc, varied sizes, some with a faint blue-grey rim) appears along both
+     sides. By 19:15.20 they have spread outward and backward and are half gone. By 19:15.35 only a
+     few remain. Same timing at 10:55.05 → 10:55.20.
+   - *Interpretation:* the impact reads because many simple shapes pop at once and vanish fast
+     (~0.3–0.45 s), with no realistic mist.
+   - *Application:* puffs pop in (≈ 80 ms to full size, with a slight overshoot), drift outward
+     and back, and shrink to nothing in 0.3–0.6 s.
+
+2. **Two white "crown" arcs stand up on either side, then are left behind.**
+   - *Observed:* at 19:17.60 a thick white arch (a crescent, open side down) stands at the
+     boat's side. At 19:17.75 two of them sit side by side behind the boat (the boat has sailed on;
+     the arcs stay where the water was hit). At 19:17.90 they are gone.
+   - *Application:* two flat white crescent sheets, one per side, spawned in world space at the
+     hull and splayed outward. They rise for ~0.15 s, hold, then sink and thin (erode, like our
+     crests) by ~0.55 s. The boat sails out of them.
+
+3. **Droplets and the ring.**
+   - *Observed:* at 10:55.20–10:55.50 the impact leaves an open U-shaped foam outline on the water
+     (the hull's footprint, its wake arms broadening), plus two small separate white shards that
+     fall back.
+   - *Application:* a broken foam ring on the water that spreads from the hull and thins out
+     (~1 s), plus a few droplet arcs. Where each droplet lands, a tiny ring dimple (our rain-ring
+     language).
+
+4. **Hang, then impact.**
+   - *Observed:* airborne ~0.6–0.8 s; the boat's shadow separates from it on the water (19:14.2–19:14.9).
+     The splash happens on the frame the hull meets its shadow.
+   - *Application:* the hull really leaves the water. The heave spring can't pull it down faster
+     than gravity, so over a sharp crest at speed it flies on a ballistic arc. The impact speed
+     drives everything (count, size, height, sound, haptics, camera bump).
+
+5. **At speed, the bow churns continuously.**
+   - *Observed (2:21–2:26, 3:49–3:56):* a constant cluster of the same round puffs boils at the bow
+     and the sides of the hull, plus the white V wake arms.
+   - *Application:* bow puffs at a rate ∝ speed × sea state. Calm water gives a few small ones;
+     a big sea gives a steady churn.
+
+6. **Contrast.** Sea of Thieves sends a translucent spray sheet and mist (realistic, soft) up over
+   the bow. *A Short Hike* uses chunky white bubbles plus pale V arcs in the wake. *Sneaky
+   Sasquatch* has only faint streaks. Our game sits with WW / *A Short Hike*: opaque, flat,
+   drawn shapes with no soft alpha mist.
+
+## Scaling (from the observations + physics)
+- **Impact speed** v (m/s, the hull's downward speed at touchdown) maps to k = clamp((v − 0.6) / 3,
+  0, 1). That k sets puffs 6 → 24, droplets 4 → 18, crown height 0.5 → 1.9 m, foam ring
+  1.1 → 2.2 × the hull length, the sound gain, haptics 15 → 65 ms, and a camera bump of
+  0.06 → 0.3 trauma (none under Reduce motion, never a roll).
+- **The Packer (T1) is heavier.** Its crown is ×1.35 wider and ×0.7 lower, its droplets are lower
+  and slower, its thump deeper, and its heave springs softer (so it leaves the water less often).
+- **Calm water** (sea state < 3): the same shapes at ≤ 40% size. The boat rarely leaves the
+  water.

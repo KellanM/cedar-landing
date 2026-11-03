@@ -374,12 +374,19 @@ export class Buoyancy {
   /** m the bow is buried this frame (0 = riding); a slam when it jumps */
   bowDig = 0;
   slam = 0;
+  /** ocean pass 3: m the hull floats clear of the water (> 0 = airborne), seconds in the air, and the
+   *  hull's downward speed (m/s) on the frame it lands (0 otherwise) */
+  air = 0;
+  airT = 0;
+  impact = 0;
+  /** heave velocity (m/s) */
+  get heaveV() { return this.vh; }
   private vh = 0; private vp = 0; private vr = 0;
   private init = false;
 
   reset() { this.init = false; }
 
-  update(dt: number, x: number, z: number, yaw: number, halfLen: number, halfBeam: number, heavy: boolean) {
+  update(dt: number, x: number, z: number, yaw: number, halfLen: number, halfBeam: number, heavy: boolean, speed = 0) {
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = -fz, rz = fx;
     const L = halfLen * (heavy ? 0.85 : 0.75), B = Math.max(0.6, halfBeam * (heavy ? 1.1 : 0.95));
     const hb = swellAt(x + fx * L, z + fz * L), hs = swellAt(x - fx * L, z - fz * L);
@@ -395,11 +402,27 @@ export class Buoyancy {
     const soft = 1 - 0.25 * big;
     const wH = (heavy ? 4.2 : 6.5) * soft, wP = (heavy ? 3 : 4.6) * soft, wR = (heavy ? 2.6 : 3.8) * soft, z0 = 0.7;
     const n = Math.max(1, Math.ceil(dt / 0.016)), h = dt / n;
+    const wasAir = this.air > 0.04;
+    // under way, the hull is carried up each face at speed × slope; over the crest it keeps that lift
+    // and flies off the back (the hop and landing Wind Waker's boat makes at full sail)
+    if (speed > 2 && this.air <= 0.03) {
+      const lift = speed * Math.max(0, (hb - hs) / (2 * L)) * (heavy ? 0.6 : 0.85);
+      if (lift > this.vh) this.vh += (lift - this.vh) * Math.min(1, dt * 12);
+    }
+    let peakDown = 0;
     for (let i = 0; i < n; i++) {
-      this.vh += (wH * wH * (tH - this.heave) - 2 * z0 * wH * this.vh) * h; this.heave += this.vh * h;
+      // the water can push the hull up as hard as it likes, but never pull it down faster than
+      // gravity: over a sharp crest at speed she leaves the water and flies (Wind Waker's hop)
+      const aH = Math.max(-9.81, wH * wH * (tH - this.heave) - 2 * z0 * wH * this.vh);
+      this.vh += aH * h; this.heave += this.vh * h;
+      if (this.vh < peakDown) peakDown = this.vh;
       this.vp += (wP * wP * (tP - this.pitch) - 2 * z0 * wP * this.vp) * h; this.pitch += this.vp * h;
       this.vr += (wR * wR * (tR - this.roll) - 2 * z0 * wR * this.vr) * h; this.roll += this.vr * h;
     }
+    this.air = this.heave - tH;
+    this.airT = this.air > 0.05 ? this.airT + dt : 0;
+    // touchdown: was clear of the water, now back in it, coming down
+    this.impact = wasAir && this.air <= 0.02 && peakDown < -0.45 ? -peakDown : 0;
     // bow slam: how far the water at the bow stands above the (lagging) hull's bow
     const bowY = this.heave + Math.sin(this.pitch) * L;
     const dig = Math.max(0, hb - bowY - 0.15);
