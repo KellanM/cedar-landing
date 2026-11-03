@@ -1,7 +1,7 @@
 """Ocean experiment GIFs: python scripts/ocean_gif.py <framesDir> <outDir> [panelWidth]
 
 framesDir holds one folder per case (from scripts/ocean_capture.mjs) with <ocean>_NN.jpg frames and
-<ocean>_times.json. Writes one GIF per case: Classic | Swell side by side (or whichever exist), played at
+<ocean>_times.json. Writes one GIF per case: Classic | Swell, or old | new (pass 2), side by side (whichever exist), played at
 the captured real-time pace (the mean frame interval).
 """
 import json, os, sys
@@ -14,7 +14,7 @@ for case in sorted(os.listdir(src)):
     d = os.path.join(src, case)
     if not os.path.isdir(d):
         continue
-    oceans = [o for o in ('classic', 'swell') if os.path.exists(os.path.join(d, f'{o}_times.json'))]
+    oceans = [o for o in ('classic', 'swell', 'old', 'new') if os.path.exists(os.path.join(d, f'{o}_times.json'))]
     if not oceans:
         continue
     seqs, times = {}, []
@@ -37,7 +37,8 @@ for case in sorted(os.listdir(src)):
         dr = ImageDraw.Draw(f)
         for k, (o, im) in enumerate(zip(oceans, ims)):
             f.paste(im, (k * (W + 6), 20))
-            dr.text((k * (W + 6) + 6, 4), f'{o.capitalize()} - {case}', fill=(40, 40, 40))
+            name = {'old': 'Swell v0.10.1', 'new': 'Ocean pass 2'}.get(o, o.capitalize())
+            dr.text((k * (W + 6) + 6, 4), f'{name} - {case}', fill=(40, 40, 40))
         frames.append(f.quantize(colors=200, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE))
     dur = int(sum(times) / len(times)) if times else 120
     frames[0].save(os.path.join(out, f'{case}.gif'), save_all=True, append_images=frames[1:], duration=dur, loop=0, optimize=True)

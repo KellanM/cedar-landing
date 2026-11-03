@@ -52,7 +52,10 @@ import { createUpgrades } from './game/progression/upgrades';
 import { gameAudio, renderOffline, composePiece, surfaceFromColor } from './audio';
 import { Tides } from './game/tides';
 import { WATER, tideAt, tideTurns } from './game/tide';
-import { SWELL, SWELL_TUNE, snapSwell, swellStats, updateSwell, waterHeight } from './game/swell';
+import { SWELL, SWELL_TUNE, jacobianStats, snapSwell, swellStats, updateSwell, waterHeight } from './game/swell';
+import { OceanGPU } from './render/oceangpu';
+import { SprayFX } from './render/spray';
+import { RoughSea } from './game/roughsea';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -98,6 +101,20 @@ let oceanMode: 'classic' | 'swell' = 'classic';
 try { oceanMode = localStorage.getItem(OCEAN_KEY) === 'swell' ? 'swell' : 'classic'; } catch { /* private mode */ }
 { const q = new URLSearchParams(location.search).get('ocean'); if (q === 'swell' || q === 'classic') oceanMode = q; }
 sea.setOcean(oceanMode);
+// Ocean pass 2: the cascades (GPU), spray, and the sea state (Log > Dev slider: Auto = weather, or 0–10)
+const oceanGpu = new OceanGPU();
+const spray = new SprayFX();
+scene.add(spray.mesh);
+const SEA_KEY = 'salish-seastate', LOOK_KEY = 'salish-sealook';
+try {
+  const v = localStorage.getItem(SEA_KEY);
+  SWELL.mode = v === null || v === 'auto' ? 'auto' : Math.min(10, Math.max(0, Number(v) || 0));
+  SWELL.facet = localStorage.getItem(LOOK_KEY) === 'faceted' ? 1 : 0;
+} catch { /* private mode */ }
+{ const q = new URLSearchParams(location.search).get('sea_state'); if (q !== null) SWELL.mode = q === 'auto' ? 'auto' : Number(q); }
+{ const q = new URLSearchParams(location.search).get('sea_look'); if (q) SWELL.facet = q === 'faceted' ? 1 : 0; }
+function setSeaQuality(q: 'high' | 'low') { oceanGpu.low = q === 'low'; spray.enabled = q === 'high'; }
+setSeaQuality(save.settings.quality);
 /** title screen only: the harbour as a sepia drawing, colour blooming in on "set out" (off after) */
 const sepia = new SepiaTitle();
 sepia.setQuality(save.settings.quality);
@@ -259,6 +276,14 @@ rain.onStrike = (s) => {
 const stackPos = new THREE.Vector3();
 let squawks = 0;
 let boat: Boat;
+// Ocean pass 2: what a dangerous sea does to the player (src/game/roughsea.ts)
+const rough = new RoughSea({
+  boat: () => boat, spray, camera,
+  active: () => !!boat && !foot.active && !chase.inShot && !boat.moored && !titleOpen,
+  toast: (m) => hud.toast(m, 'warn', 3600),
+  crash: (g) => gameAudio.seaCrash(g), creak: () => gameAudio.hullCreak(),
+  shake: (t) => chase.shake(t), wind: () => LIGHT_U.uWindDir.value,
+});
 let landing: Interact | null = null; // Cedar Landing fish market (compass + reveal)
 let todKeys: string[] = [];
 /** game clock (hours) and the current blend of time-of-day looks */
@@ -489,7 +514,9 @@ function applyTOD() {
   }
   const fogR = Math.min(0.85, Math.max(fogW, 0.5 * R + 0.3 * S));
   setLightingWeather(Math.min(1, R * 0.85), 1 + 1.5 * S + 0.2 * R);
-  sea.rain = R; sea.storm = S;
+  // ocean pass 2: a dangerous sea whips up the wind lines and crests, and drives any rain harder
+  const seaD = SWELL.on ? SWELL.danger : 0;
+  sea.rain = R; sea.storm = Math.max(S, seaD * 0.85);
   const t = { ...(f < 0.5 ? A : B), ...todBlend } as typeof A;
   sky.apply(t);
   sea.apply(t, key);
@@ -499,7 +526,7 @@ function applyTOD() {
   setLightingBlend(look.a, A as Parameters<typeof setLightingBlend>[1], look.b, B as Parameters<typeof setLightingBlend>[1], f);
   (scene.fog as THREE.Fog).near = THREE.MathUtils.lerp(quality.fogNear, 12, fogR);
   (scene.fog as THREE.Fog).far = THREE.MathUtils.lerp(quality.fogFar, 210, fogR);
-  rain.set(R, S, t.haze, nightK, (scene.fog as THREE.Fog).far);
+  rain.set(R > 0.05 ? Math.min(1, R + 0.35 * seaD) : R, S, t.haze, nightK, (scene.fog as THREE.Fog).far);
   if (hotspotFX) hotspotFX.storm = S;
   if (boat) { boat.rough = S; boat.steady = boat.modelObject?.name === 'BOAT_T1'; }
   SMOKE_WIND.copy(SMOKE_WIND_BASE).multiplyScalar(1 + 1.6 * S);
@@ -705,6 +732,7 @@ function onAction() {
   // the button label already says why (Find ripples / Slow down / Cooler full): just shake it
   if (!near || near.d > HOTSPOT_RANGE) { hud.refuse(); return; }
   if (Math.abs(boat.speed) > CAST_MAX_SPEED) { hud.refuse(); return; }
+  if (rough.tooRough) { hud.refuse(); hud.toast('Too rough to fish — find calmer water'); return; } // ocean pass 2
   // a full cooler doesn't stop the fishing (P3): the catch card offers a swap or a let-go
   if (!upg.canFish(near.hs)) { hud.refuse(); return; } // upgrades: rough water / line depth
   boat.speed = 0;
@@ -829,6 +857,7 @@ hud.init({
       buildInstances();
       sea.setQuality(save.settings.quality);
       rain.setQuality(save.settings.quality);
+      setSeaQuality(save.settings.quality);
       sepia.setQuality(save.settings.quality);
       if (world) buildSeaField(world);
       applyTOD();
@@ -843,7 +872,7 @@ hud.init({
         weather: dev.weather, mist: dev.mist, tide: dev.tide, clock: clockText(clockHour), day: save.day ?? 0,
         weatherWords: weatherWords(weatherNow) ?? lookWords(look.key), tideLevel: +WATER.y.toFixed(2), tideTrend: WATER.rate >= 0 ? 'rising' : 'falling', mistNow: +mistNow.toFixed(2),
         sunShading: sunShadingEnabled(), wind: windOn(), fps: save.settings.showFps,
-        ocean: sea.ocean, seaState: +SWELL.state.toFixed(2),
+        ocean: sea.ocean, seaState: +SWELL.state.toFixed(1), seaMode: SWELL.mode, seaLook: SWELL.facet ? 'faceted' : 'smooth',
       }),
       weather: (v) => {
         dev.weather = v;
@@ -858,6 +887,8 @@ hud.init({
       lightning: (near) => { rain.strike(near, camera); },
       sunShading: (on) => setSunShading(on),
       ocean: (v) => { sea.setOcean(v); try { localStorage.setItem(OCEAN_KEY, v); } catch { /* ignore */ } },
+      seaState: (v) => { SWELL.mode = v; try { localStorage.setItem(SEA_KEY, String(v)); } catch { /* ignore */ } applyTOD(); },
+      seaLook: (v) => { SWELL.facet = v === 'faceted' ? 1 : 0; try { localStorage.setItem(LOOK_KEY, v); } catch { /* ignore */ } },
       wind: (on) => setWind(on),
       shells: (n) => { save.shells += n; writeSave(save); hud.setShells(save.shells); },
     },
@@ -910,6 +941,7 @@ function updateUI(dt: number) {
     fishing,
     canCast,
     slowEnough: Math.abs(boat.speed) <= CAST_MAX_SPEED,
+    tooRough: rough.tooRough,
     coolerFull: save.cooler.length >= save.coolerCap,
     action: null,
     interact: footCtx ? { label: footCtx.label, kind: footCtx.kind ?? (footCtx.name === 'step_ashore' ? 'step_ashore' : 'foot'), pos: null, tag: footCtx.pos ?? null } : currentInteract ? { label: boat.moored && currentInteract.kind === 'moor_boat' ? 'Untie' : labelFor(currentInteract), kind: currentInteract.kind, pos: currentInteract.pos } : null,
@@ -1076,7 +1108,10 @@ function frame(now: number) {
     if (boat.moored && Math.abs(throttle) > 0.3) { boat.moored = false; hud.toast('Cast off!'); }
 
     updateSwell(dt, weatherNow, LIGHT_U.uWindDir.value, reduceMotion()); // ocean experiment: before anything reads the water
+    oceanGpu.render(renderer, dt, LIGHT_U.uWindDir.value);
     boat.update(dt, throttle, steer, land);
+    rough.update(dt);
+    spray.update(dt, sea.uniforms.uFoam.value as THREE.Color);
     cameraFrame({ chase, foot, boat, world, tides, reduce: reduceMotion() });
     lastThrottle = throttle;
     const adt = dt * actorScale(now);
@@ -1351,6 +1386,11 @@ window.__debug = {
   /** µs per waterHeight() query near the boat (CPU cost of the swell for floaters / bobber / birds) */
   swellCpu: (n = 20000) => { const t = performance.now(); let acc = 0; for (let i = 0; i < n; i++) acc += waterHeight(boat.pos.x + (i % 40) - 20, boat.pos.z + ((i / 40) % 40) - 20); return { us: +(((performance.now() - t) * 1000) / n).toFixed(3), acc }; },
   swellTune: SWELL_TUNE,
+  /** ocean pass 2: seaState('auto' | 0..10) like the Dev slider (not persisted); seaLook; rough-sea / spray / GPU stats */
+  seaState: (v?: 'auto' | number) => { if (v !== undefined) SWELL.mode = v; return swellStats(); },
+  jStats: () => jacobianStats(),
+  seaLook: (v?: 'smooth' | 'faceted') => { if (v) SWELL.facet = v === 'faceted' ? 1 : 0; return SWELL.facet; },
+  roughStats: () => ({ danger: +rough.danger.toFixed(2), exposure: +rough.exposure.toFixed(2), tooRough: rough.tooRough, spray: spray.count, push: [+boat.push.x.toFixed(2), +boat.push.y.toFixed(2)], gpuMs: +oceanGpu.cost.toFixed(3), roughMs: +rough.cost.toFixed(3) }),
   hotspotStats: () => hotspotFX?.stats(),
   hotspotObj: () => hotspotFX,
   /** slow the actor clock (captures): k = 1 normal */

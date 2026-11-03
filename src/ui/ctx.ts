@@ -34,7 +34,7 @@ export interface DevState {
   clock: string; day: number; weatherWords: string; tideLevel: number; tideTrend: 'rising' | 'falling'; mistNow: number;
   sunShading: boolean; wind: boolean; fps: boolean;
   /** ocean experiment (docs/ocean_study.md) */
-  ocean: 'classic' | 'swell'; seaState: number;
+  ocean: 'classic' | 'swell'; seaState: number; seaMode: 'auto' | number; seaLook: 'smooth' | 'faceted';
 }
 export interface DevHandlers {
   state(): DevState;
@@ -46,6 +46,8 @@ export interface DevHandlers {
   lightning(near: boolean): void;
   sunShading(on: boolean): void;
   ocean(v: 'classic' | 'swell'): void;
+  seaState(v: 'auto' | number): void;
+  seaLook(v: 'smooth' | 'faceted'): void;
   wind(on: boolean): void;
   shells(n: number): void;
 }

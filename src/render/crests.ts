@@ -233,7 +233,7 @@ export class CrestSprites {
       const nearK = Math.min(1, (db - CREST_TUNE.near) / 4);
       const fadeK = 1 - Math.max(0, (dist - this.far * 0.6) / (this.far * 0.4));
       // ocean experiment: with the swell on, crests are born on the wave tops (crest acceleration) instead of the drifting groups
-      const grp = SWELL.on ? Math.min(1, Math.max(0, swellEval(x, z, this.swTmp).foam / (0.35 * SWELL.foamThr))) : Math.min(1, Math.max(0, (this.group(x, z, wx, wz) - 0.2) / 0.6));
+      const grp = SWELL.on ? Math.min(1, Math.max(0, swellEval(x, z, this.swTmp).foam * 4)) : Math.min(1, Math.max(0, (this.group(x, z, wx, wz) - 0.2) / 0.6));
       const p = this.openness(x, z) * nearK * fadeK * (0.25 + 0.75 * grp);
       if (Math.random() > p) continue;
       const r = Math.random();

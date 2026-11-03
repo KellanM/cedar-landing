@@ -77,6 +77,10 @@ export class Boat {
   private model: THREE.Object3D | null = null;
   /** ocean experiment (src/game/swell.ts): the hull riding the real swell */
   private buoy = new Buoyancy();
+  /** ocean pass 2: rough seas shove the hull (m/s, world xz; decays) and kick the heading (rad/s) */
+  push = new THREE.Vector2();
+  yawKick = 0;
+  get buoyancy() { return this.buoy; }
 
   constructor(model: THREE.Object3D) {
     this.setModel(model);
@@ -174,7 +178,12 @@ export class Boat {
 
     // Move with land sliding
     // moored: tied up, never nudged (a berth that dries at low tide just sits the boat on the mud)
-    const res = this.moored ? { x: this.pos.x, z: this.pos.z, hit: false } : land.move(this.pos.x, this.pos.z, this.vel.x * dt, this.vel.y * dt, P.radius);
+    // rough seas (src/game/roughsea.ts): the waves shove her about; it decays on its own
+    if (this.moored) { this.push.set(0, 0); this.yawKick = 0; }
+    this.yaw += this.yawKick * dt;
+    this.yawKick *= Math.exp(-2.5 * dt);
+    this.push.multiplyScalar(Math.exp(-1.2 * dt));
+    const res = this.moored ? { x: this.pos.x, z: this.pos.z, hit: false } : land.move(this.pos.x, this.pos.z, (this.vel.x + this.push.x) * dt, (this.vel.y + this.push.y) * dt, P.radius);
     if (res.hit && dt > 0) {
       // Pushing into the shore: report the speed we actually made (sliding along the coast), not the
       // throttle's wish — the wake, funnel smoke and "Slow down" all read boat.speed.

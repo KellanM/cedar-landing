@@ -293,6 +293,13 @@ class GameAudio {
     this.lastAt[kind] = now;
     return true;
   }
+  /** ocean pass 2: a wave crashing over the bow (gain 0..1) and a hull creak in heavy seas */
+  seaCrash(gain: number) {
+    if (!this.ok() || !this.limit('seacrash', 0.6)) return;
+    const g = Math.min(1, Math.max(0.2, gain));
+    this.sfx!.bigSplash(this.at(), g > 0.6 ? 'breach' : 'slap', { gain: g, pan: 0, lp: 9000 });
+  }
+  hullCreak() { if (this.ok() && this.limit('hullcreak', 2.5)) this.sfx!.creak(this.at(), { gain: 2.2, pan: (Math.random() - 0.5) * 0.6, lp: 4000 }); }
   squawk(x: number, z: number, intensity: number) {
     if (!this.ok() || !this.limit('gull', 1.4 - 0.6 * Math.min(1, intensity))) return;
     const p = this.place(x, z, 25, 180);
