@@ -280,8 +280,11 @@ const WIND_FLUTTER_GLSL = /* glsl */ `
  * Any existing onBeforeCompile (e.g. the backdrop haze patch) runs first.
  * `wind`: 'tree' sways InstancedMesh protos, 'flutter' waves cloth meshes (see prepareFlutter);
  * `leaf` adds canopy flutter (broadleaf trees / shrubs); `windScale` scales the whole motion.
+ * `normals`: 'flat' (the world: per-face normal from derivatives, hard three-band ramp) or 'smooth'
+ * (characters only: the mesh's own vertex normals, skinned, through a soft two-tone version of the same
+ * lit/side/shadow ramp, so round heads read round while the world stays faceted).
  */
-export function addSunShading(m: THREE.MeshBasicMaterial, strength = 1, wind: WindMode = 'none', leaf = 0, windScale = 1) {
+export function addSunShading(m: THREE.MeshBasicMaterial, strength = 1, wind: WindMode = 'none', leaf = 0, windScale = 1, normals: 'flat' | 'smooth' = 'flat') {
   const uStrength = { value: strength };
   const uLeaf = { value: leaf };
   const uWindScale = { value: windScale };
@@ -292,8 +295,9 @@ export function addSunShading(m: THREE.MeshBasicMaterial, strength = 1, wind: Wi
   m.onBeforeCompile = (shader, renderer) => {
     prev.call(m, shader, renderer);
     Object.assign(shader.uniforms, U, { uLightStrength: uStrength, uLeaf, uWindScale });
+    const smooth = normals === 'smooth';
     const head = `varying vec3 vSunViewPos;
-uniform float uWindTime;
+${smooth ? 'varying vec3 vSunN;\n' : ''}uniform float uWindTime;
 uniform vec2 uWindDir;
 uniform float uWindAmp;
 uniform float uWindOn;
@@ -306,12 +310,17 @@ ${wind === 'flutter' ? 'attribute vec2 aFlut;\nattribute vec3 aFlutDir;\n' : ''}
       // project_vertex has applied the instance matrix (USE_INSTANCING), so this works for InstancedMesh.
       // Wind is applied before the varying is written, so derived flat normals follow the motion.
       .replace('#include <project_vertex>', `#include <project_vertex>${wind === 'tree' ? WIND_TREE_GLSL : ''}
-  vSunViewPos = mvPosition.xyz;`);
+  vSunViewPos = mvPosition.xyz;${smooth ? `
+  #ifdef USE_SKINNING
+    vSunN = normalize(transformedNormal);
+  #else
+    vSunN = normalize(normalMatrix * normal);
+  #endif` : ''}`);
     shader.fragmentShader = shader.fragmentShader
       .replace(
         'void main() {',
         `varying vec3 vSunViewPos;
-uniform vec3 uSunDir;
+${smooth ? 'varying vec3 vSunN;\n' : ''}uniform vec3 uSunDir;
 uniform vec3 uLit;
 uniform vec3 uSide;
 uniform vec3 uShadow;
@@ -328,11 +337,18 @@ void main() {`,
   {
     // Flat face normal from derivatives (view space -> world space). Always faces the camera,
     // which is what we want for double-sided cards and the open canoe hull.
-    vec3 nV = normalize(cross(dFdx(vSunViewPos), dFdy(vSunViewPos)));
+${smooth ? `    vec3 nV = normalize(vSunN);
+    vec3 N = normalize((vec4(nV, 0.0) * viewMatrix).xyz);
+    float d = dot(N, uSunDir);
+    // soft two-tone: the same lit / side / shadow colours, blended over a narrow band instead of hard steps
+    float s1 = smoothstep(uThresh.y - 0.14, uThresh.y + 0.14, d);
+    float s2 = smoothstep(uThresh.x - 0.14, uThresh.x + 0.14, d);
+    vec3 shade = mix(mix(uShadow, uSide, s1), uLit, s2);
+    shade += uSky * smoothstep(0.6, 0.9, N.y);` : `    vec3 nV = normalize(cross(dFdx(vSunViewPos), dFdy(vSunViewPos)));
     vec3 N = normalize((vec4(nV, 0.0) * viewMatrix).xyz);
     float d = dot(N, uSunDir);
     vec3 shade = d > uThresh.x ? uLit : (d > uThresh.y ? uSide : uShadow);
-    shade += uSky * step(0.75, N.y);
+    shade += uSky * step(0.75, N.y);`}
     shade = max(shade, vec3(uAmbient));
     // Warm, bright, saturated vertex colours (lamp / window glow) are treated as emissive.
     #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
@@ -346,7 +362,7 @@ void main() {`,
   }`,
       );
   };
-  m.customProgramCacheKey = () => `${prevKey()}|sunshade|${wind}`;
+  m.customProgramCacheKey = () => `${prevKey()}|sunshade|${wind}|${normals}`;
   m.needsUpdate = true;
   return m;
 }

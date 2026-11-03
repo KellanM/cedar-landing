@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { worldMat } from '../../render/materials';
+import { charMat, worldMat } from '../../render/materials';
 import type { Npc } from '../../world/types';
 import { BONES, type BoneName, Spring, addLocal, ease, hash01, npcLimb } from './rigpose';
 
@@ -90,7 +90,8 @@ export class NpcCrowd {
       if ((o as THREE.Bone).isBone && (BONES as readonly string[]).includes(bn)) bones[bn as BoneName] = o;
       const m = o as THREE.SkinnedMesh;
       if (m.isMesh) {
-        if (m.geometry.getAttribute('color')) m.material = worldMat;
+        // smooth characters when the export ships normals (direction A); older npcs.glb stay faceted
+        if (m.geometry.getAttribute('color')) m.material = m.geometry.getAttribute('normal') ? charMat : worldMat;
         if (m.isSkinnedMesh) skinned = m;
       }
     });
@@ -125,6 +126,14 @@ export class NpcCrowd {
       a.waveW.x = 0;
     }
     return a;
+  }
+
+  /** Debug / comparison: true = smooth character shading (charMat), false = the world's faceted worldMat. */
+  setSmooth(on: boolean) {
+    this.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.geometry.getAttribute('color')) m.material = on && m.geometry.getAttribute('normal') ? charMat : worldMat;
+    });
   }
 
   /** Player started talking to an NPC (by gameplay name). */

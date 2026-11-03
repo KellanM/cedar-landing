@@ -58,6 +58,12 @@ addSunShading(worldMat, LIGHT_STRENGTH.world);
 addSunShading(boatMat, LIGHT_STRENGTH.boat);
 addSunShading(worldMatNoVC, LIGHT_STRENGTH.noVC);
 addSunShading(backdropMat, LIGHT_STRENGTH.backdrop);
+/**
+ * Characters (rigged NPCs, world/npcs.glb): same vertex colours, tint and sun ramp as worldMat, but shaded
+ * from their own smooth vertex normals (soft two-tone) instead of per-face derivatives. Only meshes that
+ * ship normals use it (npcs.glb since the direction-A people pass); the skipper keeps worldMat.
+ */
+export const charMat = register(addSunShading(new THREE.MeshBasicMaterial({ vertexColors: true }), LIGHT_STRENGTH.world, 'none', 0, 1, 'smooth'));
 
 /**
  * Wind (see lighting.ts). Instanced protos sway; `leaf` adds canopy flutter. PTL* far forests keep
