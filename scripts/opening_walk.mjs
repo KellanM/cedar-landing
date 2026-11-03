@@ -175,7 +175,7 @@ await gif('q3_bail_and_patch', async () => {
   await page.mouse.down(); await sleep(4300); await page.mouse.up();
   await sleep(400);
   await shot('q3_patch');
-  for (let i = 0; i < 40 && (await page.$('#rp-btn')); i++) {
+  for (let i = 0; i < 400 && (await page.$('#rp-btn')); i++) {
     // tap when the mallet is over the mark
     const hit = await D(() => { const m = document.getElementById('rp-mallet'); if (!m) return false; const p = parseFloat(m.style.left) / 100; return Math.abs(p - 0.5) < 0.08; });
     if (hit) { await page.mouse.down(); await page.mouse.up(); await sleep(250); } else await sleep(40);
