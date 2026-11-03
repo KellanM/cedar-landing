@@ -78,7 +78,8 @@ export class HullFX {
       for (const side of [-1, 1]) {
         const x = px + r.x * side * (B + 0.25 * wide), z = pz + r.z * side * (B + 0.25 * wide);
         const yaw = Math.atan2(f.z, f.x) + side * 0.35;
-        fx.emit(2, x, wy, z, 0, 0, 0, (0.5 + 1.4 * k) * up * sea, 0.5 + 0.15 * k, { yaw, aspect: (0.9 + 0.5 * k) * wide * Math.max(0.8, L / 2.6) });
+        // compact arches (about as wide as tall, Wind Waker's crown), leaning out from the hull; iV.xz = the lean
+        fx.emit(2, x, wy, z, r.x * side, 0, r.z * side, (0.55 + 1.3 * k) * up * sea, 0.5 + 0.15 * k, { yaw, aspect: (0.6 + 0.2 * k) * wide });
       }
     }
     // droplets on arcs (dimples where they land)

@@ -35,9 +35,11 @@ void main() {
     }
     mvPosition.xy += off;
   } else if (kind < 2.5) {
-    // crown sheet: a vertical quad standing on the water, its bottom edge at iP.y
+    // crown sheet: a quad standing on the water (bottom edge at iP.y), leaning outward from the hull
+    // (iV.xz) so the arch reads from the high chase camera too, not only side-on
     vec3 right = vec3(cos(iA.z), 0.0, sin(iA.z));
-    vec3 wp = iP.xyz + right * position.x * iP.w * iA.w + vec3(0.0, (position.y * 0.5 + 0.5) * iP.w, 0.0);
+    vec3 up = normalize(vec3(iV.x * 0.85, 1.0, iV.z * 0.85));
+    vec3 wp = iP.xyz + right * position.x * iP.w * iA.w + up * (position.y * 0.5 + 0.5) * iP.w;
     mvPosition = viewMatrix * vec4(wp, 1.0);
   } else {
     float c = cos(iA.z), s = sin(iA.z);
@@ -71,7 +73,7 @@ void main() {
     // crown: a crescent arch, open side down; it thins (erodes) as it sinks
     float x = vUv.x * 0.5 + 0.5, y = vUv.y * 0.5 + 0.5;
     float outer = sin(3.14159 * clamp(x, 0.0, 1.0));
-    float th = mix(0.42, 0.08, smoothstep(0.35, 1.0, t)) * (0.6 + 0.4 * outer);
+    float th = mix(0.3, 0.06, smoothstep(0.35, 1.0, t)) * (0.6 + 0.4 * outer);
     float d = max(y - outer, (outer - th) - y);
     d = max(d, abs(vUv.x) - 1.0);
     a = aa(d * 0.6);
