@@ -182,6 +182,12 @@ export class Opening {
   setStage(s: Stage) {
     const from = this.o.stage;
     this.o.stage = s;
+    if (s >= 1) {
+      // she floats: tie her back up so the walker gets "Board" (while laid up she was un-moored to hide it)
+      const b = this.h.boat();
+      b.moored = true; b.speed = 0;
+      this.h.save.boat = { x: b.pos.x, z: b.pos.z, yaw: b.yaw, moored: true };
+    }
     this.h.writeSave();
     this.applyStage();
     if (from === 0 && s === 1) this.revealT = 0.001; // she rights herself
@@ -519,6 +525,8 @@ export class Opening {
     this.syncInteracts();
     // laid up (S0): she isn't offered for boarding — the walker's "Board" needs her moored; she sits on her chain
     if (o.stage < 1 && foot.active && boat.moored) { boat.moored = false; boat.speed = 0; }
+    // once she floats, a walker ashore always finds her tied up (fixes saves caught un-moored after the repair)
+    else if (o.stage >= 1 && foot.active && !boat.moored) { boat.moored = true; boat.speed = 0; }
     // step conditions that are places or states rather than interacts
     switch (QUESTS[o.q]?.id) {
       case 'q0':
