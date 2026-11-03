@@ -288,7 +288,7 @@ let footCtx2: FootContext | null = null;
 // ?tide=<y> pins the water level (captures / tests at a fixed tide)
 { const t = new URLSearchParams(location.search).get('tide'); if (t !== null && t !== '' && isFinite(Number(t))) WATER.pinned = Number(t); }
 const tides = new Tides({
-  boat: () => boat, floaters: () => floaters, wildlife: () => wildlife, hotspots: () => hotspotFX?.group ?? null,
+  boat: () => boat, floaters: () => floaters, wildlife: () => wildlife, hotspots: () => hotspotFX?.group ?? null, crowd: () => crowd,
   wake, fishing, foot, toast: (m, k) => hud.toast(m, k), camera, renderer, save, writeSave: () => writeSave(save),
   note: (who, text) => { void hud.readNote(who, text); }, shells: (n) => hud.setShells(n), reduceMotion,
 });
@@ -373,7 +373,9 @@ function installWorld(w: LoadedWorld) {
 let seaFieldInfo: { ms: number; res: [number, number] } | null = null;
 function buildSeaField(w: LoadedWorld) {
   if (land) land.extra = null; // tides: the field classifies against the exported grid alone
-  const f = buildShoreField(renderer, [...w.chunks, ...tides.fieldChunks], land, save.settings.quality === 'low' ? 512 : 1024, w.dynamic ?? []);
+  // tides: water-surface decals (anim "surface") ring with foam like shore; floats and boats are extras (collars, cover)
+  const dyn = w.dynamic ?? [];
+  const f = buildShoreField(renderer, [...w.chunks, ...tides.fieldChunks], land, save.settings.quality === 'low' ? 512 : 1024, dyn.filter((o) => o.userData.anim !== 'surface'), undefined, dyn.filter((o) => o.userData.anim === 'surface'));
   sea.setShoreField(f);
   tides.setField(f, land); // tides: low-water land grid from the field's heights
   seaFieldInfo = f && { ms: +f.ms.toFixed(1), res: f.res };
