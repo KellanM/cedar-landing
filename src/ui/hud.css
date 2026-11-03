@@ -399,7 +399,9 @@ body.sheet-open .hud-controls * { pointer-events: none !important; }
 }
 .wbubble::after { content: ''; position: absolute; left: 50%; bottom: -11px; width: 16px; height: 16px; margin-left: -8px; background: var(--paper); border: 2px solid var(--ink); border-top: 0; border-left: 0; rotate: 45deg; }
 .wbubble .who { display: block; font: 800 var(--fs-14) var(--f-ui); color: var(--teal); }
-.wbubble.catch { font: 650 var(--fs-22) / 1.15 var(--f-display); }
+.wbubble.catch { font: 650 var(--fs-18) / 1.1 var(--f-display); display: block; white-space: nowrap; padding: 5px 12px; }
+/* the catch bubble sits ABOVE the held fish: one compact line, no plate (the slip / card below shows it) */
+.wbubble.catch .plate, .wbubble.catch svg, .wbubble.catch img { display: none; }
 .wbubble .plate { display: block; width: 96px; height: 48px; margin: -2px auto 2px; }
 .wbubble.warn { background: #F7E6CF; }
 .wbubble.warn::after { background: #F7E6CF; }

@@ -562,9 +562,17 @@ export class Fishing {
 
   /** World point a little above the held fish (catch bubble anchor). */
   fishTop(out: THREE.Vector3) {
-    const b = this.fish.bounds, g = this.fish.group;
-    return out.copy(g.position).setY(g.position.y + (b ? b.yMax : 0.2) * g.scale.x + 0.12 + this.group.position.y);
+    // the held fish is turned to face the camera, so its local bounds don't say where its top is:
+    // use the real world box, and sit the bubble a clear margin above it (it must never cover the fish)
+    const g = this.fish.group;
+    g.updateWorldMatrix(true, true);
+    this.topBox.setFromObject(g);
+    if (this.topBox.isEmpty()) { const b = this.fish.bounds; return out.copy(g.position).setY(g.position.y + (b ? b.yMax : 0.2) * g.scale.x + 0.12 + this.group.position.y); }
+    const h = this.topBox.max.y - this.topBox.min.y;
+    this.topBox.getCenter(out);
+    return out.setY(this.topBox.max.y + 0.18 + h * 0.15);
   }
+  private topBox = new THREE.Box3();
 
   /** Rest the fish on the fists (hoist) or in the right hand beside the face (hand). */
   private placeHeld(g: THREE.Object3D, grip: THREE.Vector3) {
