@@ -285,7 +285,7 @@ const WIND_FLUTTER_GLSL = /* glsl */ `
  * (characters only: the mesh's own vertex normals, skinned, through a soft two-tone version of the same
  * lit/side/shadow ramp, so round heads read round while the world stays faceted).
  */
-export function addSunShading(m: THREE.MeshBasicMaterial, strength = 1, wind: WindMode = 'none', leaf = 0, windScale = 1, normals: 'flat' | 'smooth' = 'flat') {
+export function addSunShading(m: THREE.MeshBasicMaterial, strength = 1, wind: WindMode = 'none', leaf = 0, windScale = 1, normals: 'flat' | 'smooth' | 'toon' = 'flat') {
   const uStrength = { value: strength };
   const uLeaf = { value: leaf };
   const uWindScale = { value: windScale };
@@ -297,7 +297,8 @@ export function addSunShading(m: THREE.MeshBasicMaterial, strength = 1, wind: Wi
   m.onBeforeCompile = (shader, renderer) => {
     prev.call(m, shader, renderer);
     Object.assign(shader.uniforms, U, SEE_U, { uLightStrength: uStrength, uLeaf, uWindScale, uSeeMat });
-    const smooth = normals === 'smooth';
+    const smooth = normals !== 'flat';
+    const toon = normals === 'toon';
     const head = `varying vec3 vSunViewPos;
 ${smooth ? 'varying vec3 vSunN;\n' : ''}uniform float uWindTime;
 uniform vec2 uWindDir;
@@ -346,7 +347,12 @@ ${smooth ? `    vec3 nV = normalize(vSunN);
     float s1 = smoothstep(uThresh.y - 0.14, uThresh.y + 0.14, d);
     float s2 = smoothstep(uThresh.x - 0.14, uThresh.x + 0.14, d);
     vec3 shade = mix(mix(uShadow, uSide, s1), uLit, s2);
-    shade += uSky * smoothstep(0.6, 0.9, N.y);` : `    vec3 nV = normalize(cross(dFdx(vSunViewPos), dFdy(vSunViewPos)));
+    shade += uSky * smoothstep(0.6, 0.9, N.y);${toon ? `
+    // toon (skinned characters, docs/character_study.md "Friendslop"): a third, darker band in the core
+    // shadow and a soft rim from the view direction, so round shapes read round against the flat world
+    shade *= mix(0.86, 1.0, smoothstep(-0.55, -0.25, d));
+    float rim = pow(1.0 - max(dot(nV, normalize(-vSunViewPos)), 0.0), 3.0);
+    shade += vec3(0.20, 0.19, 0.17) * rim * smoothstep(-0.2, 0.4, d + 0.3);` : ''}` : `    vec3 nV = normalize(cross(dFdx(vSunViewPos), dFdy(vSunViewPos)));
     vec3 N = normalize((vec4(nV, 0.0) * viewMatrix).xyz);
     float d = dot(N, uSunDir);
     vec3 shade = d > uThresh.x ? uLit : (d > uThresh.y ? uSide : uShadow);

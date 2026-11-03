@@ -35,6 +35,8 @@ export interface DevState {
   sunShading: boolean; wind: boolean; fps: boolean;
   /** ocean experiment (docs/ocean_study.md) */
   ocean: 'classic' | 'swell'; seaState: number;
+  /** character prototype (docs/character_study.md, Friendslop) */
+  characters: 'rigid' | 'skinned';
 }
 export interface DevHandlers {
   state(): DevState;
@@ -48,6 +50,7 @@ export interface DevHandlers {
   ocean(v: 'classic' | 'swell'): void;
   wind(on: boolean): void;
   shells(n: number): void;
+  characters(v: 'rigid' | 'skinned'): void;
 }
 
 export interface ChartSource {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { charMat, worldMat } from '../render/materials';
+import { charMat, toonMat, worldMat } from '../render/materials';
 
 /**
  * The skipper on deck (art/rig/skipper.glb, 15 bones, rigid skin). Stands at `socket_skipper`
@@ -49,6 +49,12 @@ export class Skipper {
   private tmp = new THREE.Vector3();
   private q = new THREE.Quaternion();
   private ax = new THREE.Vector3();
+  /** 'rigid' = skipper.glb (direction A, rigid parts) · 'skinned' = skipper_skinned.glb (friendslop prototype) */
+  variant: 'rigid' | 'skinned' = 'rigid';
+  /** spring bones (skinned variant): hat + scarf tail lag behind the head / chest and overshoot */
+  private springs: { bone: THREE.Bone; rest: THREE.Quaternion; x: number; z: number; vx: number; vz: number; w: number; zeta: number; gain: number; prev: THREE.Vector3 }[] = [];
+  private sp = new THREE.Vector3();
+  private eul = new THREE.Euler();
   /** each bone's mixer pose before the procedural layers (see update) */
   private clean = new Map<THREE.Bone, THREE.Quaternion>();
 
@@ -59,19 +65,32 @@ export class Skipper {
     this.root.visible = false;
   }
 
-  async load() {
+  async load(variant: 'rigid' | 'skinned' = this.variant) {
     const base = import.meta.env.BASE_URL;
     try {
       const r = await fetch(`${base}models/models.json`, { cache: 'no-store' });
       if (!r.ok || (r.headers.get('content-type') ?? '').includes('text/html')) return;
       const m = await r.json();
-      if (!m?.skipper) return;
-      const gltf = await new GLTFLoader().loadAsync(`${base}models/${m.skipper}`);
+      const file = variant === 'skinned' ? m?.skipper_skinned : m?.skipper;
+      if (!file) return;
+      const gltf = await new GLTFLoader().loadAsync(`${base}models/${file}`);
+      // swap: drop the previous model, keep attachment / yaw
+      this.mixer?.stopAllAction();
+      while (this.turn.children.length) this.turn.remove(this.turn.children[0]);
+      this.bones = {}; this.actions.clear(); this.clean.clear(); this.springs = []; this.current = 'stand';
+      this.variant = variant;
       gltf.scene.traverse((o) => {
         const mesh = o as THREE.Mesh;
-        if (mesh.isMesh) { if (mesh.geometry.getAttribute('color')) mesh.material = mesh.geometry.getAttribute('normal') ? charMat : worldMat; mesh.frustumCulled = false; }
+        if (mesh.isMesh) {
+          if (mesh.geometry.getAttribute('color')) mesh.material = !mesh.geometry.getAttribute('normal') ? worldMat : variant === 'skinned' ? toonMat : charMat;
+          mesh.frustumCulled = false;
+        }
         if ((o as THREE.Bone).isBone) this.bones[o.name] = o as THREE.Bone;
       });
+      for (const [name, w, zeta, gain] of [['hat', 15, 0.32, 0.9], ['scarf', 8, 0.22, 1.6]] as const) {
+        const bn = this.bones[name];
+        if (bn) this.springs.push({ bone: bn, rest: bn.quaternion.clone(), x: 0, z: 0, vx: 0, vz: 0, w, zeta, gain, prev: new THREE.Vector3() });
+      }
       this.tip = gltf.scene.getObjectByName('rod_tip') ?? null;
       this.rod = gltf.scene.getObjectByName('PLAYER_Skipper_Rod') ?? null;
       this.mixer = new THREE.AnimationMixer(gltf.scene);
@@ -225,5 +244,28 @@ export class Skipper {
       if (t > 1.3) { this.cheerT = -1; this.turn.position.y = 0; }
     }
     if (this.strain > 0.85 && b.hand_R) b.hand_R.quaternion.multiply(this.q.setFromAxisAngle(this.ax.set(1, 0, 0), Math.sin(this.t * 50) * 0.04));
+    this.updateSprings(dt);
+  }
+
+  /** Secondary motion (skinned variant): each spring bone is driven by its parent's world velocity
+   *  (boat roll, turns, the victory hop, casting) and lags + overshoots like a soft brim / knitted scarf
+   *  tail. Semi-implicit Euler; a handful of flops per bone per frame. */
+  private updateSprings(dt: number) {
+    if (!this.springs.length || dt <= 0) return;
+    const h = Math.min(dt, 1 / 20);
+    for (const s of this.springs) {
+      const par = s.bone.parent!;
+      par.updateWorldMatrix(true, false);
+      this.sp.setFromMatrixPosition(par.matrixWorld);
+      const vx = (this.sp.x - s.prev.x) / h, vy = (this.sp.y - s.prev.y) / h, vz = (this.sp.z - s.prev.z) / h;
+      const first = s.prev.lengthSq() === 0;
+      s.prev.copy(this.sp);
+      if (first) continue;
+      const tgtX = THREE.MathUtils.clamp(-(vy * 0.10) + Math.hypot(vx, vz) * 0.06, -0.5, 0.5) * s.gain;
+      const tgtZ = THREE.MathUtils.clamp(vx * 0.05, -0.4, 0.4) * s.gain;
+      s.vx += (-2 * s.zeta * s.w * s.vx - s.w * s.w * (s.x - tgtX)) * h; s.x += s.vx * h;
+      s.vz += (-2 * s.zeta * s.w * s.vz - s.w * s.w * (s.z - tgtZ)) * h; s.z += s.vz * h;
+      s.bone.quaternion.copy(s.rest).multiply(this.q.setFromEuler(this.eul.set(s.x, 0, s.z)));
+    }
   }
 }

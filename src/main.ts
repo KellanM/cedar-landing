@@ -842,7 +842,7 @@ hud.init({
         weather: dev.weather, mist: dev.mist, tide: dev.tide, clock: clockText(clockHour), day: save.day ?? 0,
         weatherWords: weatherWords(weatherNow) ?? lookWords(look.key), tideLevel: +WATER.y.toFixed(2), tideTrend: WATER.rate >= 0 ? 'rising' : 'falling', mistNow: +mistNow.toFixed(2),
         sunShading: sunShadingEnabled(), wind: windOn(), fps: save.settings.showFps,
-        ocean: sea.ocean, seaState: +SWELL.state.toFixed(2),
+        ocean: sea.ocean, seaState: +SWELL.state.toFixed(2), characters: skipper.variant,
       }),
       weather: (v) => {
         dev.weather = v;
@@ -859,6 +859,7 @@ hud.init({
       ocean: (v) => { sea.setOcean(v); try { localStorage.setItem(OCEAN_KEY, v); } catch { /* ignore */ } },
       wind: (on) => setWind(on),
       shells: (n) => { save.shells += n; writeSave(save); hud.setShells(save.shells); },
+      characters: (v) => { void skipper.load(v).then(() => { if (boat) skipper.attachTo(boat.modelObject); }); },
     },
     volume: (which, v) => { save.settings[which] = Math.min(1, Math.max(0, v)); writeSave(save); gameAudio.setVolumes(save.settings.music, save.settings.sound); },
     reset: () => { clearSave(); location.reload(); },
@@ -1355,6 +1356,7 @@ window.__debug = {
   /** slow the actor clock (captures): k = 1 normal */
   actorSlow: (k: number, ms = 60000) => { actorClock.slowUntil = performance.now() + ms; actorClock.slow = k; },
   skipperObj: () => skipper,
+  skipperVariant: (v: 'rigid' | 'skinned') => skipper.load(v).then(() => { if (boat) skipper.attachTo(boat.modelObject); return skipper.variant; }),
   /** the fish shadow vs the float: nose gap (m) — 0 means the mouth is on the float */
   shadowNose: () => fishing.shadowNoseGap(),
   /** captures (app icon etc.): override chase-camera tuning */
