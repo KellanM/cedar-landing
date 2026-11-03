@@ -6,10 +6,11 @@
  */
 import { AUDIO_TUNING, AudioEngine } from './engine';
 import { Ambience, BoatAudio, type Spot, type Zones } from './ambience';
-import { MusicDirector, compose, type Variant } from './music';
+import { MusicDirector, compose, type Guise, type MusicContext, type Variant } from './music';
 import { makeSfx, type Place, type Sfx } from './sfx';
 import { measure } from './dsp';
 import { makeFanfare, type Fanfare, type FanMods, type FanTier } from './fanfare';
+import { PAD_EXP } from './pads';
 
 export interface AudioFrame {
   cam: { x: number; z: number; yaw: number };
@@ -17,6 +18,8 @@ export interface AudioFrame {
   onFoot: boolean;
   feet?: { x: number; z: number };
   tod: string;
+  /** clock hour 0..24 (music: dawn / day / dusk / night) */
+  hour?: number;
   /** weather 0..1 (docs/rain_study.md) */
   rain?: number;
   storm?: number;
@@ -40,6 +43,11 @@ class GameAudio {
   private ctx: AudioContext | null = null;
   private vol = { music: 0.7, sound: 1 };
   private town: { x: number; z: number }[] = [];
+  /** music places: the village (its people) and Keeper's Cove (home mooring) */
+  private village: { x: number; z: number }[] = [];
+  private cove: { x: number; z: number }[] = [];
+  /** music place weights, eased like the ambience zones */
+  places = { village: 0, cove: 0 };
   private spots: Spot[] = [];
   private landNear: ((x: number, z: number, r: number) => boolean) | null = null;
   zones: Zones = { harbour: 0, shore: 0, open: 1, forest: 0 };
@@ -94,8 +102,13 @@ class GameAudio {
   }
 
   /** World data: town (harbour) points, bird / haul-out spots, a land test for the shore zone. */
-  setWorld(interacts: { kind: string; pos: number[] }[], birds: { species?: string; kind?: string; pos?: number[]; center?: number[] }[], mammals: { species?: string; kind?: string; pos?: number[] }[], landNear: (x: number, z: number, r: number) => boolean) {
+  setWorld(interacts: { kind: string; pos: number[]; name?: string }[], birds: { species?: string; kind?: string; pos?: number[]; center?: number[] }[], mammals: { species?: string; kind?: string; pos?: number[] }[], landNear: (x: number, z: number, r: number) => boolean, npcs?: { pos?: number[]; props?: Record<string, unknown> }[], spawn?: number[]) {
     this.town = interacts.filter((i) => TOWN_KINDS.has(i.kind)).map((i) => ({ x: i.pos[0], z: i.pos[2] }));
+    // music places: the village = where its people are; Keeper's Cove = the home mooring
+    this.village = (npcs ?? []).filter((n) => n.pos && n.props?.culture === 'village').map((n) => ({ x: n.pos![0], z: n.pos![2] }));
+    if (!this.village.length) this.village = interacts.filter((i) => /village/i.test(i.name ?? '')).map((i) => ({ x: i.pos[0], z: i.pos[2] }));
+    this.cove = interacts.filter((i) => /keeper/i.test(i.name ?? '')).map((i) => ({ x: i.pos[0], z: i.pos[2] }));
+    if (spawn) this.cove.push({ x: spawn[0], z: spawn[2] });
     const sp: Spot[] = [];
     for (const b of birds) {
       const p = b.center ?? b.pos;
@@ -125,6 +138,13 @@ class GameAudio {
     const k = 0.35;
     const Z = this.zones;
     Z.harbour += (harbour - Z.harbour) * k; Z.shore += (shore - Z.shore) * k; Z.forest += (forest - Z.forest) * k; Z.open += (open - Z.open) * k;
+    // music places: the village sits 25-45 m from the town's shops, so weigh nearness against the town
+    const near = (pts: { x: number; z: number }[]) => { let d = Infinity; for (const p of pts) d = Math.min(d, Math.hypot(p.x - x, p.z - z)); return d; };
+    const dv = near(this.village), dc = near(this.cove);
+    const vil = (1 - smooth(18, 45, dv)) * smooth(-6, 10, dt - dv);
+    const cove = 1 - smooth(30, 70, dc);
+    const P = this.places;
+    P.village += (vil - P.village) * k; P.cove += (cove - P.cove) * k;
   }
 
   frame(dt: number, f: AudioFrame) {
@@ -148,7 +168,14 @@ class GameAudio {
     const duck = 1 - 0.28 * Math.min(1, f.rain ?? 0) - 0.12 * (f.storm ?? 0);
     if (Math.abs(duck - e.musicDuck) > 0.02) { e.musicDuck = duck; e.applyLevels(); }
     const fighting = f.fishing.phase === 'reeling';
-    this.music!.update({ tod: f.tod, town: this.zones.harbour, fighting, tension: f.fishing.tension, thrashing: f.fishing.thrashing }, this.vol.music > 0);
+    this.music!.update(this.musicCtx(f, fighting), this.vol.music > 0);
+  }
+
+  private musicCtx(f: AudioFrame, fighting: boolean): MusicContext {
+    return {
+      tod: f.tod, hour: f.hour, town: Math.max(0, this.zones.harbour - this.places.village - this.places.cove), village: this.places.village, cove: this.places.cove,
+      rain: f.rain ?? 0, storm: f.storm ?? 0, fighting, tension: f.fishing.tension, thrashing: f.fishing.thrashing,
+    };
   }
 
   private bobberPlace(f: AudioFrame): Place {
@@ -241,6 +268,7 @@ class GameAudio {
     const tonic = this.music?.lastTonic ?? 62;
     if (this.vol.sound > 0) { this.sfx!.slap(this.at()); this.sfx!.chime(this.at() + 0.05, tonic, big); }
     if (this.vol.music > 0) this.music?.resolve(big);
+    this.music?.duck(big ? 4 : 2.5, 0.4); // whatever else plays sits under the catch sting
   }
   /** Catch victory (docs/catch_study.md F5): the fish leaves the water. lead = s until the reveal. */
   catchPullout(tier: FanTier, lead: number) {
@@ -301,6 +329,7 @@ class GameAudio {
     for (const ch of who) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     const pitch = /gran/i.test(who) ? 58 : 56 + (h % 10);
     this.sfx!.murmur(this.at(), text, pitch, undefined, secs, 14);
+    this.music?.duck(secs + 2.5, 0.5); // the score steps back under dialogue
   }
   private meow() {
     const e = this.e!;
@@ -324,7 +353,7 @@ class GameAudio {
       ctx: this.ctx?.state ?? 'none', ...this.status, vol: this.vol,
       time: e ? +e.now.toFixed(2) : 0,
       voices: e ? { active: e.active, peak: e.peakActive, dropped: e.dropped, pools: e.poolCounts() } : null,
-      music: m ? { state: m.state, piece: m.piece ? { variant: m.piece.variant, mode: m.piece.mode, bpm: m.piece.bpm, bars: m.piece.bars, form: m.piece.form, lead: m.piece.lead, length: +m.piece.length.toFixed(1) } : null, nextIn: +(m.nextAt - (e?.now ?? 0)).toFixed(1), history: m.history } : null,
+      music: m ? { state: m.state, piece: m.piece ? { variant: m.piece.variant, mode: m.piece.mode, bpm: m.piece.bpm, bars: m.piece.bars, form: m.piece.form, lead: m.piece.lead, motif: m.piece.motif, length: +m.piece.length.toFixed(1) } : null, nextIn: +(m.nextAt - (e?.now ?? 0)).toFixed(1), history: m.history, place: { ...this.places } } : null,
       buses: e ? Object.fromEntries(Object.entries(e.buses).map(([k, g]) => [k, +g.gain.value.toFixed(3)])) : null,
       zones: Object.fromEntries(Object.entries(this.zones).map(([k, v]) => [k, +v.toFixed(2)])),
       amb: this.amb?.levels ?? null,
@@ -335,6 +364,12 @@ class GameAudio {
     };
   }
   forceMusic(v: Variant) { this.music?.force(v); }
+  /** Title swell: call on the tap that starts the sepia -> colour bloom (the same gesture unlocks audio). */
+  title() { if (this.e && this.vol.music > 0) this.music?.title(); }
+  /** The Cedar Landing motif in a guise (e.g. 'gran' when Gran's notes open). */
+  motif(g: Guise) { if (this.e && this.running && this.vol.music > 0) this.music?.motif(g); }
+  /** Duck the score for `secs` (catch stings, cutscenes); depth = gain while ducked. */
+  duckMusic(secs = 2.5, depth = 0.45) { this.music?.duck(secs, depth); }
   setGap(min: number, max: number) { AUDIO_TUNING.gapMin = min; AUDIO_TUNING.gapMax = max; if (this.music && this.e) this.music.nextAt = Math.min(this.music.nextAt, this.e.now + max); }
 }
 
@@ -347,12 +382,14 @@ export const gameAudio = new GameAudio();
  * Returns 16-bit WAV (base64) + level stats.
  */
 export async function renderOffline(kind: string, secs: number, seed = 7) {
+  const gaps = { gapMin: AUDIO_TUNING.gapMin, gapMax: AUDIO_TUNING.gapMax }; // scenes may shorten them
   const sr = 44100;
   const ctx = new OfflineAudioContext(2, Math.floor(sr * secs), sr);
   const e = new AudioEngine(ctx);
   const S = makeSfx(e);
   const step = 0.1;
   const hooks: ((t: number) => void)[] = [];
+  let hookMs = 0; // main-thread JS time in the per-0.1 s hooks (composition, scheduling, sample synthesis)
   const at = (t: number, f: () => void) => hooks.push((now) => { if (now >= t && now < t + step) f(); });
   const every = (f: (t: number) => void) => hooks.push(f);
   const zones: Zones = { harbour: 0, shore: 0, open: 1, forest: 0 };
@@ -361,7 +398,12 @@ export async function renderOffline(kind: string, secs: number, seed = 7) {
     const m = new MusicDirector(e, 0.2);
     e.vol.sound = 0;
     let started = false;
-    every(() => { if (!started) { m.startPiece(v, seed); started = true; } m.update({ tod: v === 'night' ? 'night' : 'overcast', town: v === 'town' ? 1 : 0, fighting: false, tension: 0, thrashing: false }, true); });
+    const c = sceneCtx(v);
+    every(() => { if (!started) { m.startPiece(v, seed); started = true; } m.update(c, true); });
+  } else if (kind.startsWith('scene:')) {
+    const [nm, ...flags] = kind.slice(6).split('!');
+    Object.assign(PAD_EXP, { lfo: !flags.includes('nolfo'), hall: !flags.includes('nohall'), chorus: !flags.includes('nochorus'), formants: !flags.includes('nochoir'), wet: !flags.includes('nowet') });
+    sceneScript(nm, e, S, seed, every, at);
   } else if (kind === 'fight') {
     // a 3 s explore piece → hooked: 12 s fight with tension waves and thrashes → catch resolves
     const m = new MusicDirector(e, 0.2);
@@ -440,11 +482,15 @@ export async function renderOffline(kind: string, secs: number, seed = 7) {
   }
   for (let t = step; t < secs - step; t += step) {
     const tt = +t.toFixed(3);
-    ctx.suspend(tt).then(() => { for (const h of hooks) h(tt); ctx.resume(); });
+    ctx.suspend(tt).then(() => { const h0 = performance.now(); for (const h of hooks) h(tt); hookMs += performance.now() - h0; ctx.resume(); });
   }
-  const buf = await ctx.startRendering();
+  let buf: AudioBuffer;
+  const w0 = performance.now();
+  try { buf = await ctx.startRendering(); } finally { Object.assign(AUDIO_TUNING, gaps); Object.assign(PAD_EXP, { lfo: true, hall: true, chorus: true, formants: true, wet: true }); }
   const chs = [buf.getChannelData(0), buf.getChannelData(1)];
-  const stats = { ...measure(chs), peakVoices: e.peakActive, dropped: e.dropped, events: Object.keys(e.eventCount).length ? e.eventCount : undefined };
+  const wallMs = performance.now() - w0;
+  const stats = { ...measure(chs), peakVoices: e.peakActive, dropped: e.dropped, wallMs: Math.round(wallMs), hookMs: Math.round(hookMs), events: Object.keys(e.eventCount).length ? e.eventCount : undefined };
+  const log = e.events.filter((x) => x.name.startsWith('music')).map((x) => `${x.t}s ${x.name} ${x.detail ?? ''}`);
   // 16-bit PCM WAV → base64
   const n = buf.length, data = new DataView(new ArrayBuffer(44 + n * 4));
   const w = (o: number, s: string) => { for (let i = 0; i < s.length; i++) data.setUint8(o + i, s.charCodeAt(i)); };
@@ -455,7 +501,74 @@ export async function renderOffline(kind: string, secs: number, seed = 7) {
   const bytes = new Uint8Array(data.buffer);
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return { stats, wav: btoa(bin) };
+  return { stats, wav: btoa(bin), log };
+}
+
+/** A steady music context for a mood (offline renders). */
+function sceneCtx(v: string, extra: Partial<MusicContext> = {}): MusicContext {
+  const hour = v === 'dawn' ? 6.2 : v === 'dusk' ? 19.2 : v === 'night' ? 23.5 : 12.5;
+  return {
+    tod: v === 'night' ? 'night' : v === 'dusk' ? 'dusk' : v === 'fog' ? 'fog' : 'overcast', hour,
+    town: v === 'town' ? 1 : 0, village: v === 'village' ? 1 : 0, cove: v === 'cove' ? 1 : 0,
+    rain: v === 'rain' ? 0.8 : v === 'storm' ? 1 : 0, storm: v === 'storm' ? 1 : 0,
+    fighting: false, tension: 0, thrashing: false, ...extra,
+  };
+}
+
+/**
+ * Music scenes for the offline renders (scripts/music_render.mjs): the director runs as in game,
+ * driven by a context timeline. Music only (the sound bus is muted except for the catch chime).
+ */
+function sceneScript(name: string, e: AudioEngine, S: Sfx, seed: number, every: (f: (t: number) => void) => void, at: (t: number, f: () => void) => void) {
+  const m = new MusicDirector(e, 0.3);
+  e.vol.sound = 0;
+  if (name === 'silence') return; // the harness + master chain alone (CPU baseline)
+  const steady: Record<string, string> = { dawn_sea: 'dawn', day_town: 'town', dusk: 'dusk', night: 'night', rain: 'rain', storm: 'storm', village: 'village', cove: 'cove', day_sea: 'day', fog: 'fog' };
+  if (steady[name]) {
+    const c = sceneCtx(steady[name]);
+    let started = false;
+    every(() => { if (!started) { m.startPiece(m.variantFor(c), seed); started = true; } m.update(c, true); });
+    return;
+  }
+  if (name === 'title') {
+    // title swell on the tap, then the first cue arrives after a (shortened) rest
+    AUDIO_TUNING.gapMin = 6; AUDIO_TUNING.gapMax = 8;
+    const c = sceneCtx('day', { hour: 9.5 });
+    at(0.3, () => m.title());
+    every(() => m.update(c, true));
+    return;
+  }
+  if (name === 'fish_catch') {
+    // open water by day: a cue plays; hooked at 34 s, a 15 s fight, a big catch at 49 s, the score returns
+    AUDIO_TUNING.gapMin = 12; AUDIO_TUNING.gapMax = 14;
+    let started = false;
+    every((t) => {
+      if (!started) { m.startPiece('day', seed); started = true; }
+      const fighting = t > 34 && t < 49;
+      const tension = fighting ? 0.35 + 0.3 * Math.sin((t - 34) * 0.9) + (t > 43 ? 0.3 : 0) : 0;
+      m.update(sceneCtx('day', { fighting, tension, thrashing: fighting && Math.sin(t * 1.7) > 0.7 }), true);
+    });
+    at(49, () => { m.resolve(true); e.vol.sound = 1; e.applyLevels(true); S.chime(e.now + 0.05, m.lastTonic, true); m.duck(4, 0.4); });
+    return;
+  }
+  if (name === 'sail_in') {
+    // open water -> Cedar Landing (folk layer blooms in) -> the village (wood layer) -> back out; rain at the end
+    let started = false;
+    every((t) => {
+      if (!started) { m.startPiece('day', seed); started = true; }
+      const sm = (a: number, b: number) => Math.min(1, Math.max(0, (t - a) / (b - a)));
+      const town = sm(35, 45) * (1 - sm(75, 85));
+      const village = sm(75, 85) * (1 - sm(110, 120));
+      const rain = sm(125, 140) * 0.8;
+      m.update(sceneCtx('day', { town, village, rain }), true);
+    });
+    return;
+  }
+  if (name === 'dialogue') {
+    let started = false;
+    every(() => { if (!started) { m.startPiece('day', seed); started = true; } m.update(sceneCtx('day'), true); });
+    at(20, () => { m.duck(5, 0.5); e.vol.sound = 1; e.applyLevels(true); S.murmur(e.now, 'Gran always said the tide tells you where to look.', 58, undefined, 3, 14); });
+  }
 }
 
 /** Compose without rendering (tests can inspect form / event counts). */
