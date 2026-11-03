@@ -1389,6 +1389,8 @@ window.__debug = {
   /** ocean pass 2: seaState('auto' | 0..10) like the Dev slider (not persisted); seaLook; rough-sea / spray / GPU stats */
   seaState: (v?: 'auto' | number) => { if (v !== undefined) SWELL.mode = v; return swellStats(); },
   jStats: () => jacobianStats(),
+  /** camera check (ocean pass 2): height, roll (rad, + = right side up) and the boat's swell heave */
+  camInfo: () => { const r = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); return { y: +camera.position.y.toFixed(3), roll: +Math.asin(Math.max(-1, Math.min(1, r.y))).toFixed(4), heave: +(boat.root.position.y - WATER.y).toFixed(3), camY: +SWELL.camY.toFixed(3) }; },
   seaLook: (v?: 'smooth' | 'faceted') => { if (v) SWELL.facet = v === 'faceted' ? 1 : 0; return SWELL.facet; },
   roughStats: () => ({ danger: +rough.danger.toFixed(2), exposure: +rough.exposure.toFixed(2), tooRough: rough.tooRough, spray: spray.count, push: [+boat.push.x.toFixed(2), +boat.push.y.toFixed(2)], gpuMs: +oceanGpu.cost.toFixed(3), roughMs: +rough.cost.toFixed(3) }),
   hotspotStats: () => hotspotFX?.stats(),

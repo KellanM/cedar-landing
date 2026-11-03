@@ -419,3 +419,59 @@ alternative if the style needs it, but at calm states it is nearly indistinguish
   the sea is at 35% and the follow is reduced.
 - **Proposed, not built (needs Kellan's OK):** above S 9, an unsecured catch could slide out of
   the cooler (a "secure the catch" upgrade would stop it).
+
+## Pass 2 results and evaluation
+
+Captures come from `scripts/ocean_capture2.mjs`: pass 2 vs the v0.10.1 Swell (served from a
+build of main), at sea states 0, 3, 5, 8 and 10, phone and desktop. They include low side views
+at 8 and 10, Smooth vs Faceted at 5, and fishing at 3 and 8. `scripts/ocean_probe.mjs` was used
+for tuning. Output goes to `screenshots/ocean2/` (gitignored).
+
+**What changed while tuning:**
+1. *Foam.* The first threshold left the Jacobian never crossing it, so there was no foam. Measured
+   percentiles (`__debug.jStats()`): the 1st percentile of J is 0.97 at S1, 0.90 at S3, 0.76 at
+   S5, 0.46 at S8 and 0.19 at S10. The threshold table was set from those. The next try was
+   snow-white at S8, so the table came down a step and the persistent foam now fades in 1.6 s.
+2. *Detail.* The finest cascade at full weight read as busy noise. It is now at 55% and fades by
+   pixel footprint.
+3. *Wind streaks.* At S10 they dominated, so their threshold went up.
+4. *CPU.* The first version cost 5–17 µs per height query, ~180 queries per frame. Now: the 14
+   strongest waves per cascade, one fixed-point step (two when foam is wanted), and floaters only
+   query within 120 m (lean within 45 m). That is ~75–110 queries × ~4–5 µs ≈ 0.4 ms on the dev
+   desktop.
+
+**Judgement (my assessment, not player-tested):**
+- *Morphing:* gone. The surface has detail at three scales, the faces move sideways, foam
+  lingers and drifts, and the far sea keeps rolling normals. At S3 it reads as water, not a sheet.
+- *Swell amount:* the slider covers glassy → dangerous continuously. Auto stays within 1.2–6.
+- *Dangerous:* at 8–10 there are walls of water with foam rims and wind streaks, dark steep
+  faces, spray and spindrift. The boat pitches and rolls hard and shows its bottom paint on the
+  crests, and gets shoved. "Rough seas — head for shelter" shows, and the cast button reads "Too
+  rough". The camera never rolls (`scripts/ocean_camera_check.mjs`: max roll 0 at S10; camera
+  swing 1.3 m vs the boat's 2.8 m; Reduce motion takes the boat to 0.74 m and the camera to 0.16 m).
+- *Smooth vs Faceted:* at S5 the difference is subtle (the shape is the same; faceted adds triangle
+  value steps). **Smooth recommended** (see "Are they smooth?").
+
+**Perf** (`scripts/ocean_perf.mjs`): phone viewport, interleaved on one page, median of 7×90-frame
+synchronous benches, on a shared desktop GPU (±1 ms noise). The cascade passes are drawn
+separately each frame, so they are not inside the sea figure.
+
+| Quality | Classic sea | Swell S3 | Swell S8 | Added |
+|---|---|---|---|---|
+| Low | 0.22–0.29 ms | 0.61–0.83 ms | 0.29–0.92 ms | +0.1 to +0.7 ms |
+| High | 0.37–0.88 ms | 1.57–2.38 ms | 1.80–2.18 ms | +0.7 to +2.0 ms (over the +1 ms budget) |
+
+CPU: the cascade passes take ~0.25–0.3 ms to issue (5 tiny draws), rough-sea logic ≤ 0.1 ms, and
+height queries ~0.4 ms.
+
+**Weak spots / next:**
+- High quality is over budget in this emulation. The next step would be a 128² high grid, the fine
+  cascade only within ~40 m, and an on-device phone measurement (not done).
+- The CPU uses the 14 strongest waves per cascade, so a bobber or floater can sit a few cm off the
+  drawn surface in big seas. The boat hides it (heave springs + settling).
+- Spray is sparse at S5–6 and only reads in the dangerous band.
+- The phone chase camera frames the boat at the left edge after a teleport in both builds, so this
+  is the camera rework, not the sea.
+- Foam is per cascade on the GPU but uses the combined Jacobian on the CPU (spray, crest sprites).
+  They correlate but are not identical.
+- Not built: the ripple sim (layer 4) and the cooler slosh (needs Kellan's OK).
