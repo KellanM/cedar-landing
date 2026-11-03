@@ -34,6 +34,8 @@ check(/Update ready/.test(t3), `no reload loop when the page is still old → "$
   fake = null;
   const c2 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const p2 = await c2.newPage();
+  // a returning player (the 9-minute opening would otherwise own the screen and rightly hold the notice back)
+  await p2.addInitScript(() => { if (!localStorage.getItem('salish-sea-save-v1')) localStorage.setItem('salish-sea-save-v1', JSON.stringify({ reachedLanding: true, shells: 5 })); });
   const errs = []; p2.on('pageerror', (e) => errs.push(String(e)));
   // coordinate taps: the title button and lane slips animate, so Playwright's 'stable' wait never settles
   const tapAt = async (sel) => { const e = await p2.waitForSelector(sel, { state: 'visible' }); const b = await e.boundingBox(); await p2.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2); };
