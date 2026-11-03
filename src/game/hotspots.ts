@@ -256,6 +256,8 @@ const MAXN = 420;
 export class HotspotFX {
   group = new THREE.Group();
   mode: SpotMode;
+  /** 0..1 storm (rough-water spots get busier) */
+  storm = 0;
   private spots: Spot[] = [];
   private t = 0;
   private pool: Ev[] = [];
@@ -503,7 +505,9 @@ export class HotspotFX {
       }
       // ---- events: feeding comes in bursts (slow intensity per spot)
       const calm = hide ? 0.35 : 1;
-      const k = (0.45 + 1.25 * f * f) * HOTSPOT_FX.activity * calm * dt;
+      // storms (docs/rain_study.md): the rough outer grounds boil in a blow
+      const wx = sp.tier === 'rare' ? 1 + 1.6 * this.storm : 1;
+      const k = (0.45 + 1.25 * f * f) * HOTSPOT_FX.activity * calm * wx * dt;
       const rnd = sp.rnd;
       const cx = sp.x + sp.bx, cz = sp.z + sp.bz;
       const okAt = (x: number, z: number) => !clear || Math.hypot(x - clear.x, z - clear.z) > HOTSPOT_FX.clearR * 1.2;

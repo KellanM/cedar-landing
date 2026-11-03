@@ -174,11 +174,30 @@ const TIME_LINES: Record<'town' | 'village' | 'kid', Record<string, string[]>> =
   },
 };
 
+/** Lines about the weather (docs/rain_study.md): while it rains they replace the hour lines and come up more often. */
+const WEATHER_LINES: Record<'town' | 'village' | 'kid', Record<'drizzle' | 'rain' | 'storm', string[]>> = {
+  town: {
+    drizzle: ["Spitting again. You'll hardly notice. Until you do.", 'Drizzle like this, the salmon come right up.', "Wouldn't call this rain. My mother wouldn't either."],
+    rain: ["Rain's settled in for the afternoon, by the look of it.", "Mind the boardwalk, it's slick as a fish.", 'Good day to mend things under a roof.', 'Gutters are singing. Means the cistern fills.'],
+    storm: ["Hear that? Count the seconds to the thunder. Every five's a mile.", "Stay off the open water if your boat's small, love.", "The spires fish best in weather like this. If you've the hull for it.", 'Bring the washing in! Oh. Too late.'],
+  },
+  village: {
+    drizzle: ['Soft rain. The cedar likes it.', 'The fish rise to the drizzle. Watch the water.'],
+    rain: ['A day for weaving under the eaves.', 'The rain keeps the smokehouse slow. That is no bad thing.'],
+    storm: ['The canoes are pulled up high. We wait for it to pass.', 'Big wind. Listen to the trees talk to each other.'],
+  },
+  kid: {
+    drizzle: ["It's only drizzle. Mum says that doesn't count."],
+    rain: ['I found a puddle as big as a boat!', "I'm not wet. I'm a seal."],
+    storm: ["Did you see that flash?! I counted to six!", "I'm not scared of thunder. I'm just sitting here."],
+  },
+};
+
 /** Era names for the unnamed townsfolk (village fillers keep their role titles). */
 const KID_NAMES = ['Tilly', 'Bram', 'Nell', 'Otto', 'Lottie', 'Fitz'];
 const TOWN_NAMES = ['Hattie', 'Walt', 'Agnes', 'Ned', 'Mags', 'Clem', 'Ida', 'Percy', 'Winnie', 'Ruben', 'Opal', 'Gus', 'Dot', 'Amos'];
 
-let lineCtx: { tod: string; hour: number } = { tod: 'overcast', hour: 10.7 };
+let lineCtx: { tod: string; hour: number; weather: '' | 'drizzle' | 'rain' | 'storm' } = { tod: 'overcast', hour: 10.7, weather: '' };
 
 // ---- tides (src/game/tides.ts keeps this current): now and then folk remark on the water
 export type TideState = 'low' | 'falling' | 'rising' | 'high';
@@ -204,8 +223,8 @@ const TIDE_LINES: Record<'town' | 'village' | 'kid', Record<TideState, string[]>
     high: ["When's low tide? I want to look in the pools."],
   },
 };
-/** main.ts keeps this in sync with the game clock. */
-export function setLineContext(tod: string, hour: number) { lineCtx = { tod, hour }; }
+/** main.ts keeps this in sync with the game clock (and the weather). */
+export function setLineContext(tod: string, hour: number, weather: '' | 'drizzle' | 'rain' | 'storm' = '') { lineCtx = { tod, hour, weather }; }
 
 function hash(s: string) {
   let h = 2166136261;
@@ -276,14 +295,21 @@ export function npcLine(n: Npc, visit: number): string {
   const list = shuffled(pool, hash(role));
   const rr = roleRank.get(keyOf(n)) ?? { rank: hash(keyOf(n)) % list.length, count: 1 };
   const step = Math.max(1, Math.floor(list.length / Math.max(1, rr.count)));
+  const culture = String(n.props?.culture ?? '');
+  const group = /kid/.test(role) ? 'kid' : culture === 'village' ? 'village' : 'town';
+  const wx = lineCtx.weather;
+  // in the rain every other chat is about it (odd turns)
+  if (wx && role !== 'cat' && role !== 'crier' && (visit + rr.rank) % 2 === 1) {
+    const wl = WEATHER_LINES[group][wx];
+    return wl[(rr.rank + Math.floor(visit / 2)) % wl.length];
+  }
+  // every fourth chat, the tide
   if (role !== 'cat' && visit > 0 && (visit + rr.rank) % 4 === 0) {
-    const group = /kid/.test(role) ? 'kid' : String(n.props?.culture ?? '') === 'village' ? 'village' : 'town';
     const tl = TIDE_LINES[group][tideNow];
     return tl[(rr.rank + Math.floor(visit / 4)) % tl.length];
   }
-  if (role !== 'cat' && role !== 'crier' && visit > 0 && (visit + rr.rank) % 4 === 2) {
-    const culture = String(n.props?.culture ?? '');
-    const group = /kid/.test(role) ? 'kid' : culture === 'village' ? 'village' : 'town';
+  // the hour (not while it rains: the sunny lines stay away)
+  if (!wx && role !== 'cat' && role !== 'crier' && visit > 0 && (visit + rr.rank) % 4 === 2) {
     const tl = TIME_LINES[group][timeSlot()];
     if (tl?.length) return tl[(rr.rank + Math.floor(visit / 4)) % tl.length];
   }

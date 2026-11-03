@@ -153,6 +153,14 @@ function errandsTab(L: HTMLElement, R: HTMLElement) {
   <p class="hand">${esc(weatherNote())}</p>`;
 }
 function weatherNote() {
+  const night = ctx.tod === 'night';
+  switch (ctx.weather) {
+    case 'storm': return ctx.weatherTrend < 0
+      ? 'The storm is moving off. Count the seconds after the flash: further each time.'
+      : 'Thunder about. The rough outer grounds come alive in a blow, if your boat can take a chop. The Little Troller stays inside.';
+    case 'rain': return ctx.weatherTrend < 0 ? 'Rain easing off. The fish will rise once it stops dimpling the water.' : night ? 'Rain on the roof all night. Good for sleeping, better for fishing at first light.' : "Steady rain. Oilskins on. The fish don't mind getting wet.";
+    case 'drizzle': return ctx.weatherTrend > 0 ? 'Rain setting in. Gran always fished the first hour of it.' : 'Drizzle. Hardly counts as rain round here.';
+  }
   switch (ctx.tod) {
     case 'fog': return 'Fog this morning. Keep the shore on your left and listen for the bell.';
     case 'night': return 'Calm night. The rockfish come up to look at the moon.';

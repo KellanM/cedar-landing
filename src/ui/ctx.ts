@@ -47,6 +47,9 @@ export const ctx = {
   /** HUD clock text "HH:MM" and the words for the current look */
   clock: '10:40',
   clockWords: 'Grey and still',
+  /** weather (docs/rain_study.md): '' | 'drizzle' | 'rain' | 'storm', and -1 clearing / 0 / +1 building */
+  weather: '' as '' | 'drizzle' | 'rain' | 'storm',
+  weatherTrend: 0,
   worldInfo: 'placeholder',
   layout: 'portrait' as Layout,
   modal: null as Modal,

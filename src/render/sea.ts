@@ -458,6 +458,9 @@ export class Sea {
     cs.opacity = T.crest;
   }
 
+  /** weather 0..1, read by apply() */
+  rain = 0;
+  storm = 0;
   setQuality(q: 'high' | 'low') { this.low = q === 'low'; this.applyVariant(); }
 
   setShoreField(f: ShoreField | null) {
@@ -496,10 +499,17 @@ export class Sea {
     const g = /night|moon/.test(k) ? { amt: 0.7, col: 0xcfdcf4 } : /dusk|sunset|golden/.test(k) ? { amt: 1, col: 0xffd8a6 } : /dawn|sunrise/.test(k) ? { amt: 1, col: 0xffe2c4 }
       : /fog|mist|overcast|marine/.test(k) ? { amt: 0, col: 0xf4f6f4 } : { amt: 1, col: 0xfffaf0 };
     // eased: apply() runs every half second as the clock turns, so glints fade in over a few seconds
+    // weather (docs/rain_study.md): rain puts the sun away; steady rain dimples and calms the small sea,
+    // a storm whips it up (more caps, more wind lines)
+    g.amt *= Math.max(0, 1 - this.rain * 1.6);
     this.glintAmt = this.glintInit ? this.glintAmt + (g.amt - this.glintAmt) * 0.15 : g.amt;
     this.glintInit = true;
     this.wind.setTOD(key, haze);
     this.crests.todK = /night/.test(k) ? 0.5 : /fog|mist/.test(k) ? 0.6 : /dusk|sunset|golden/.test(k) ? 0.75 : /overcast|marine/.test(k) ? 1 : 0.85;
+    const calm = Math.max(0, this.rain - this.storm) * 0.55;
+    this.crests.todK = Math.min(1.6, this.crests.todK * (1 - calm) + this.storm * 1.0);
+    this.wind.amount = Math.min(1, this.wind.amount * (1 - calm * 0.7) + this.storm);
+    this.wind.rate = 1 + this.storm * 2.2;
     (u.uGlintCol.value as THREE.Color).set(g.col);
     this.applyVariant();
   }

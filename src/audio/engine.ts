@@ -43,7 +43,7 @@ export interface VoiceOpts {
   dest?: AudioNode;
 }
 
-const POOL_CAP: Record<string, number> = { music: 48, sfx: 24, amb: 14, ui: 10, engine: 8, blip: 36 };
+const POOL_CAP: Record<string, number> = { music: 48, sfx: 24, amb: 14, ui: 10, engine: 8, blip: 36, rain: 10, thunder: 24 };
 
 export class AudioEngine {
   readonly ctx: BaseAudioContext;
@@ -56,6 +56,8 @@ export class AudioEngine {
   private limiter: DynamicsCompressorNode;
   /** player volume (0..1) for music and for sound (sfx + amb + ui) */
   vol = { music: 0.7, sound: 1 };
+  /** weather softens the music (rain: 1 → ~0.7) */
+  musicDuck = 1;
   private cache = new Map<string, AudioBuffer>();
   private pools = new Map<string, number>();
   active = 0;
@@ -117,7 +119,7 @@ export class AudioEngine {
   applyLevels(instant = false) {
     const T = AUDIO_TUNING;
     const set = (g: AudioParam, v: number) => { if (instant) g.value = v; else g.setTargetAtTime(v, this.ctx.currentTime, 0.08); };
-    set(this.buses.music.gain, T.music * this.vol.music * this.vol.music); // squared: a perceptual taper
+    set(this.buses.music.gain, T.music * this.vol.music * this.vol.music * this.musicDuck); // squared: a perceptual taper
     const s = this.vol.sound * this.vol.sound;
     set(this.buses.sfx.gain, T.sfx * s);
     set(this.buses.amb.gain, T.amb * s);
