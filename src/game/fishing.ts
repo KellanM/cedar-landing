@@ -53,6 +53,10 @@ export const HOLD = {
   outset: 0.05, // m the one-hand fish is shifted out from the grip, so the nose sits at the cheek, not the mouth
   front: 0.1, // m toward the camera from the hand (in front of the face plane, never inside it)
   present: 0.82, // flatfish/crab held up: 0 = lying flat, 1 = eyed side square to the camera
+  // direction-A skipper (big round head, short arms: raised fists only reach the hat brim): the two-hand
+  // hoist lifts the fish a little and brings it toward the camera so the sou'wester and face stay readable
+  hoistLift: 0.07, // m extra above the fists
+  hoistFront: 0.14, // m toward the camera
 };
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
@@ -538,7 +542,9 @@ export class Fishing {
     const bottom = (b ? b.belly : 0.1) * s; // hold point → belly (fins hang in front of the fists)
     if (this.holdMode === 'hoist' || !this.headPos) {
       g.position.copy(grip);
-      g.position.y += HOLD.fist + bottom * (fm.isFlat ? 0.85 : 0.9);
+      g.position.y += HOLD.fist + bottom * (fm.isFlat ? 0.85 : 0.9) + HOLD.hoistLift;
+      const hl = Math.hypot(cx, cz) || 1;
+      g.position.x += (cx / hl) * HOLD.hoistFront; g.position.z += (cz / hl) * HOLD.hoistFront;
       g.rotation.set(0, yaw, 0.08);
       return;
     }
