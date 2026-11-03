@@ -522,7 +522,7 @@ export class Sea {
     SWELL_U.uSwOn.value = SWELL.on ? 1 : 0;
     this.classicGeo ??= this.near.geometry;
     if (mode === 'swell') {
-      const n = this.low ? 128 : 176;
+      const n = this.low ? 112 : 144;
       if (!this.swellGeo || this.swellGeo.userData.n !== n) { this.swellGeo?.dispose(); this.swellGeo = swellGrid(n); }
       this.swellCell = this.swellGeo.userData.cell;
       this.near.geometry = this.swellGeo;
@@ -656,7 +656,7 @@ export class Sea {
 
 /**
  * Ocean experiment: the near patch as a warped grid, x = 160·(0.3u + 0.7u³) per axis, so cells are
- * ~0.55 m round the boat (176²) and ~5 m at the edge, where only the long swell is left.
+ * ~0.67 m round the boat (144²; 112² on low) and ~5 m at the edge, where only the long swell is left.
  */
 function swellGrid(n: number) {
   const g = new THREE.PlaneGeometry(2, 2, n, n).rotateX(-Math.PI / 2);

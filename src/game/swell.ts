@@ -111,6 +111,7 @@ vec2 swellEval(vec2 xz) {
   for (int i = 0; i < ${NW}; i++) {
     vec4 K = uSwK[i], P = uSwP[i];
     float w = g * (1.0 - smoothstep(0.45 * P.z, P.z, d)) * (P.w > 0.5 ? sh.y : sh.x);
+    if (w <= 0.0) continue; // past this wave's fade radius (most of the outer grid) or sheltered
     float th = dot(K.xy, xz) - P.x;
     float sn = sin(th), cs = cos(th);
     float e = exp(K.w * (sn - 1.0));

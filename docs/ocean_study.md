@@ -164,8 +164,8 @@ every ~0.6 s. Direct clip download was blocked (YouTube 403). Frames live outsid
   Amplitude is set through slope (kA): chop 0.035 (calm) → 0.085 (storm), plus swell A 0.05 → 0.55 m.
 - **Shelter.** The shore field (shared with the sea shader) gives chop `ss(2, 24, sd)·ss(0.3, 3, depth)`
   and swell `ss(0.5, 14, sd)·ss(0.2, 2, depth)`.
-- **Mesh.** A camera-following near grid, 176² (high) or 128² (low), warped
-  `x = 160·(0.3u + 0.7u³)`: ~0.55 m cells at the boat, ~5 m at the edge. It snaps to the centre cell
+- **Mesh.** A camera-following near grid, 144² (high) or 112² (low; first tried 176²/128², see Results), warped
+  `x = 160·(0.3u + 0.7u³)`: ~0.67 m cells at the boat, ~5 m at the edge. It snaps to the centre cell
   size so near vertices stay world-locked. Each wave fades out at a radius proportional to its
   wavelength, so short waves are gone before cells get too coarse to carry them. Everything fades
   flat by 135 m, where the flat far ring takes over.
@@ -175,6 +175,69 @@ every ~0.6 s. Direct clip download was blocked (YouTube 403). Frames live outsid
   apron, broken by noise.
 - **Buoyancy** (`Buoyancy` in `swell.ts`): see finding 6.
 
-## Results
+## Results and evaluation
 
-See the "Results and evaluation" section below (filled in after the experiment).
+Captures come from `scripts/ocean_capture.mjs` (Classic vs Swell). The scenes are open water in
+clear, rain and storm, each idle and under way, plus fishing in calm and in a storm, at phone
+(390×844 @3) and desktop (1280×800) sizes. `scripts/ocean_gif.py` turns them into side-by-side
+GIFs at the captured real-time pace. `scripts/ocean_probe.mjs` gives a low side view of the hull.
+Output goes to `screenshots/ocean/` (gitignored).
+
+**What changed during the experiment (and why):**
+1. *First whitecaps were sheets of white "ice floes"* (threshold 0.28 g, solid fill). The long-swell
+   crest pushed the metric over the threshold along its whole length, which drew one continuous
+   ribbon. Three fixes: the swell's share of the metric dropped to 35% (it lifts the chop toward
+   breaking but does not break by itself), the storm threshold went up to 0.34 g, and the foam is
+   now **drawn like our crests**: a white rim stroke round each breaking patch with a bead-tinted
+   wash inside. That reads as WW-style drawn foam rather than photoreal coverage.
+2. *Facets were invisible* at a 0.9 slope gain, because real slopes are only a few %. The gain went
+   to 2.2 (clamped −12% / +9%). Calm water now shows soft, large triangular value shifts that roll
+   with the swell. Storms show clear faceting.
+3. *The hull perched on the waves* (the bottom paint showed in the side view). The heave springs
+   were stiffened (ω 6.5 light / 4.2 Packer), and the hull settles 3–12 cm deeper as the sea builds.
+4. *Cost.* The high grid went from 176² to 144² (0.67 m cells at the boat; 112² on low). Waves
+   past their fade radius are skipped in the vertex shader.
+
+**Judgement against the criteria (my assessment; not tested with players):**
+1. Swell reads: yes in motion. The boat heaves and rolls, the flag swings, and wave sets move
+   through. In a single top-down phone still the long swell is subtle. It shows as broad facet
+   bands, not as visible humps, because the chase camera looks almost straight down. The side
+   view shows it clearly.
+2. Weather tells: yes. Calm is soft facets with no whitecaps. Rain adds a stronger, slower
+   banding. A storm adds drawn whitecaps everywhere, a visibly rocking boat, and crest sprites born
+   on the wave tops.
+3. Shelter: the harbour and the water within ~20 m of shore flatten. Surf bands and the shore foam
+   are unchanged.
+4. One truth: the boat, float, floaters, birds, crest sprites, rain marks, hotspot marks and wake
+   all ride `waterHeight` / `swellEval`. The CPU and GPU share the same constants each frame.
+5. Look: unlit, faceted and muted. The whitecaps use the crest and bead colours from the TOD.
+6. Comfort: the camera never rolls or pitches with the boat. Its target follows half the heave,
+   low-passed over 1.4 s. Reduced motion takes the sea to 35%.
+
+**Perf** (`scripts/ocean_perf.mjs`): phone viewport, storm, open water, chase view. Swell and
+Classic are interleaved on the same page, with the median of 7×90-frame synchronous benches. This
+desktop GPU was shared with other agents, so single numbers swing by ±1 ms. Read these as ranges:
+- quality **low**: the Classic sea costs 0.45–0.52 ms. Swell costs 1.23–1.30 ms in a storm and
+  0.74–0.82 ms flat, so it adds **+0.3 to +0.8 ms**.
+- quality **high**: four paired runs ranged from −1.2 to +1.2 ms against Classic. That is within
+  the noise. Expect it to be above low, since it has 145² vs 113² vertices.
+- CPU: ~0.12 µs per `waterHeight()` query. The boat uses 5 per frame, and floaters, the float and
+  birds a few dozen, so the total is under 0.01 ms.
+- The whitecap branch itself is not measurable (Swell with and without foam are within the noise).
+- The phone-hardware cost is **not yet measured on a real phone**. The +1 ms budget is met on the
+  low profile in this emulation, but high is unverified.
+
+**Weak spots / next steps:**
+- The phone chase camera is high and steep, so the long swell's *shape* barely reads in stills.
+  Possible fixes: a little more swell amplitude, or more facet gain on the long waves only.
+- Wildlife sea creatures and the splash FX still sit on `WATER.y` (they are small and brief).
+  Moored boats are `dynamic.glb` floaters and ride the swell; the docks do not (they are fixed
+  structures).
+- The wave directions follow the eased wind, so a sudden wind change swings the whole sea. A
+  fixed westerly for the long swell (the Juan de Fuca entrance) would be more truthful.
+- Layer 4 (the interactive ripple sim for wake, splashes and rain) is not built. The plan is a
+  camera-centred 128² height-field ripple texture (2 ping-pong render targets, ~0.2 ms, as
+  SoT's deck sim), added to the sea's height and normal only within ~25 m of the boat.
+- Hotspot marks in **Classic** do not follow the tide (their shader ignores the group's y). That
+  is a pre-existing issue, which the `tides2` branch may be fixing. In Swell they sit on tide +
+  swell.

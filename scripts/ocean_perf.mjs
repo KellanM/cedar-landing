@@ -1,43 +1,31 @@
-// Ocean perf A/B (docs/ocean_study.md): node scripts/ocean_perf.mjs [baseUrl] [oceans=classic,swell] [viewport=phone|desktop] [quality=high|low] [weather=clear|storm]
-// For each ocean mode (full sea variant): loads the game, holds three views (open water, harbour, chase cam under way) and reports
-// steady fps, draw calls, tris and a synchronous GPU bench (ms per frame with and without the sea, 5 x 120 frames, median).
+// Ocean perf (docs/ocean_study.md): node scripts/ocean_perf.mjs [high|low]   (BASE env = game url)
+// Phone viewport (390x844 @3), storm, open water, chase view. Same page, interleaved, twice: Swell / Swell without
+// whitecaps / Swell flat (state 0) / Classic, median of 7 x 90-frame synchronous GPU benches each, plus µs per waterHeight().
 import { chromium } from 'playwright';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-const BASE = process.argv[2] ?? 'http://localhost:5198/cedar-landing/';
-const VARIANTS = (process.argv[3] ?? 'classic,swell').split(',');
-const WX = process.argv[6] ?? 'clear';
-const VP = process.argv[4] ?? 'phone';
-const Q = process.argv[5] ?? 'high';
+const Q = process.argv[2] ?? 'high';
 const root = path.join(os.homedir(), 'AppData/Local/ms-playwright');
 const d = fs.readdirSync(root).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse()[0];
-const browser = await chromium.launch({ executablePath: process.env.CHROME ?? path.join(root, d, 'chrome-win64', 'chrome.exe'), args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const views = { open: { pos: [135, 5, 205], target: [138, 0, 260] }, harbour: { pos: [62, 15, 90], target: [21, 0, 131] }, chase: null };
-const phone = VP === 'phone';
-for (const v of VARIANTS) {
-  const ctx = await browser.newContext({ viewport: phone ? { width: 390, height: 844 } : { width: 1280, height: 800 }, deviceScaleFactor: phone ? 3 : 1, isMobile: phone, hasTouch: phone });
-  const page = await ctx.newPage();
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(`${BASE}?debug&ocean=${v}`);
-  await page.evaluate((q) => { localStorage.clear(); localStorage.setItem('salish-sea-save-v1', JSON.stringify({ settings: { quality: q } })); }, Q);
-  await page.reload();
-  await page.waitForFunction(() => window.__debug && window.__debug.state.chunks > 0, null, { timeout: 120000 });
-  await page.evaluate((wx) => { window.__debug.markRevealSeen(); window.__debug.skipShot(); if (wx === 'storm') { window.__debug.storm(1); window.__debug.weatherSnap(false); } window.__debug.swellSnap(); }, WX);
-  const out = [];
-  for (const [name, c] of Object.entries(views)) {
-    await page.evaluate((c) => window.__debug.cam(c ? { ...c, fov: 50 } : null), c);
-    if (!c) await page.evaluate(() => window.__debug.teleport(135, 215, Math.PI));
-    await sleep(2500);
-    const r = await page.evaluate(() => {
-      const runs = []; for (let i = 0; i < 5; i++) runs.push(window.__debug.benchFrame(120));
-      const med = (k) => runs.map((x) => x[k]).sort((a, b) => a - b)[2];
-      const s = window.__debug.state;
-      return { fps: s.fps, draws: s.drawCalls, tris: s.tris, full: med('full'), noSea: med('noSea'), sea: +(med('full') - med('noSea')).toFixed(3) };
-    });
-    out.push(`${name}: fps ${r.fps} draws ${r.draws} tris ${(r.tris / 1000).toFixed(0)}k frame ${r.full}ms sea ${r.sea}ms`);
-  }
-  console.log(`[${VP} ${Q} ${WX}] ${v.padEnd(7)} | ${out.join(' | ')} | errors ${errors.length}`);
-  await ctx.close();
+const browser = await chromium.launch({ executablePath: path.join(root, d, 'chrome-win64', 'chrome.exe'), args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] });
+const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })).newPage();
+await page.goto(`${process.env.BASE ?? 'http://localhost:5238/cedar-landing/'}?debug&ocean=swell`);
+await page.evaluate((q) => { localStorage.clear(); localStorage.setItem('salish-sea-save-v1', JSON.stringify({ settings: { quality: q } })); }, Q);
+await page.reload();
+await page.waitForFunction(() => window.__debug && window.__debug.state.chunks > 0, null, { timeout: 120000 });
+await page.evaluate(() => { window.__debug.markRevealSeen(); window.__debug.skipShot(); window.__debug.storm(1); window.__debug.weatherSnap(false); window.__debug.teleport(135, 215, Math.PI); window.__debug.swellSnap(); });
+await new Promise((r) => setTimeout(r, 2500));
+const b = () => page.evaluate(() => { const r = []; for (let i = 0; i < 7; i++) r.push(window.__debug.benchFrame(90)); const m = (k) => r.map((x) => x[k]).sort((a, b) => a - b)[3]; return { full: m('full'), sea: +(m('full') - m('noSea')).toFixed(3) }; });
+const out = {};
+for (let rep = 0; rep < 2; rep++) {
+  await page.evaluate(() => window.__debug.ocean('swell')); await new Promise((r) => setTimeout(r, 800));
+  out['swell' + rep] = await b();
+  await page.evaluate(() => { const t = window.__debug.swellTune; t._a = t.foamCalm; t._b = t.foamStorm; t.foamCalm = t.foamStorm = 99; window.__debug.swellSnap(); }); await new Promise((r) => setTimeout(r, 500));
+  out['nofoam' + rep] = await b();
+  await page.evaluate(() => { const t = window.__debug.swellTune; t.foamCalm = t._a; t.foamStorm = t._b; window.__debug.swell(0); }); await new Promise((r) => setTimeout(r, 500));
+  out['flat' + rep] = await b();
+  await page.evaluate(() => { window.__debug.swell(null); window.__debug.swellSnap(); window.__debug.ocean('classic'); }); await new Promise((r) => setTimeout(r, 800));
+  out['classic' + rep] = await b();
 }
+out.cpu = await page.evaluate(() => window.__debug.swellCpu());
+console.log(Q, JSON.stringify(out));
 await browser.close();
