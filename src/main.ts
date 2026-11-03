@@ -46,6 +46,7 @@ import { createUpgrades } from './game/progression/upgrades';
 import { gameAudio, renderOffline, composePiece, surfaceFromColor } from './audio';
 import { Tides } from './game/tides';
 import { WATER, tideAt, tideTurns } from './game/tide';
+import { SWELL, SWELL_TUNE, snapSwell, swellStats, updateSwell, waterHeight } from './game/swell';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -85,6 +86,12 @@ const save: SaveData = loadSave();
 let quality = QUALITY[save.settings.quality];
 gameAudio.setVolumes(save.settings.music, save.settings.sound);
 sea.setQuality(save.settings.quality);
+// Ocean experiment (docs/ocean_study.md): Log > Developer > Ocean, or ?ocean=swell|classic; default Classic
+const OCEAN_KEY = 'salish-ocean';
+let oceanMode: 'classic' | 'swell' = 'classic';
+try { oceanMode = localStorage.getItem(OCEAN_KEY) === 'swell' ? 'swell' : 'classic'; } catch { /* private mode */ }
+{ const q = new URLSearchParams(location.search).get('ocean'); if (q === 'swell' || q === 'classic') oceanMode = q; }
+sea.setOcean(oceanMode);
 /** title screen only: the harbour as a sepia drawing, colour blooming in on "set out" (off after) */
 const sepia = new SepiaTitle();
 sepia.setQuality(save.settings.quality);
@@ -714,6 +721,7 @@ hud.init({
         weather: dev.weather, mist: dev.mist, tide: dev.tide, clock: clockText(clockHour), day: save.day ?? 0,
         weatherWords: weatherWords(weatherNow) ?? lookWords(look.key), tideLevel: +WATER.y.toFixed(2), tideTrend: WATER.rate >= 0 ? 'rising' : 'falling', mistNow: +mistNow.toFixed(2),
         sunShading: sunShadingEnabled(), wind: windOn(), fps: save.settings.showFps,
+        ocean: sea.ocean, seaState: +SWELL.state.toFixed(2),
       }),
       weather: (v) => {
         dev.weather = v;
@@ -727,6 +735,7 @@ hud.init({
       nextDay: () => { save.day = (save.day ?? 0) + 1; writeSave(save); applyTOD(); },
       lightning: (near) => { rain.strike(near, camera); },
       sunShading: (on) => setSunShading(on),
+      ocean: (v) => { sea.setOcean(v); try { localStorage.setItem(OCEAN_KEY, v); } catch { /* ignore */ } },
       wind: (on) => setWind(on),
       shells: (n) => { save.shells += n; writeSave(save); hud.setShells(save.shells); },
     },
@@ -925,6 +934,7 @@ function frame(now: number) {
     }
     if (boat.moored && Math.abs(throttle) > 0.3) { boat.moored = false; hud.toast('Cast off!'); }
 
+    updateSwell(dt, weatherNow, LIGHT_U.uWindDir.value, reduceMotion()); // ocean experiment: before anything reads the water
     boat.update(dt, throttle, steer, land);
     lastThrottle = throttle;
     const adt = dt * actorScale(now);
@@ -1132,6 +1142,14 @@ window.__debug = {
     return r;
   },
   crestStats: () => sea.crests.stats(),
+  /** ocean experiment: ocean('swell'|'classic'), swell(state 0..1 | null = weather) pins the sea state, waterAt(x,z) */
+  ocean: (v?: 'classic' | 'swell') => { if (v) sea.setOcean(v); return sea.ocean; },
+  swell: (v?: number | null, snap = true) => { if (v !== undefined) { SWELL.pinned = v; SWELL.target = v ?? SWELL.target; if (snap && v !== null) snapSwell(); } return swellStats(); },
+  waterAt: (x: number, z: number) => waterHeight(x, z),
+  swellSnap: () => { snapSwell(); return swellStats(); },
+  /** µs per waterHeight() query near the boat (CPU cost of the swell for floaters / bobber / birds) */
+  swellCpu: (n = 20000) => { const t = performance.now(); let acc = 0; for (let i = 0; i < n; i++) acc += waterHeight(boat.pos.x + (i % 40) - 20, boat.pos.z + ((i / 40) % 40) - 20); return { us: +(((performance.now() - t) * 1000) / n).toFixed(3), acc }; },
+  swellTune: SWELL_TUNE,
   hotspotStats: () => hotspotFX?.stats(),
   hotspotObj: () => hotspotFX,
   /** slow the actor clock (captures): k = 1 normal */

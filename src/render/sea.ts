@@ -5,6 +5,7 @@ import { WATER } from '../game/tide';
 import { LIGHT_U } from './lighting';
 import { WindLines } from './windlines';
 import { CrestSprites, CREST_GLSL, CREST_TUNE } from './crests';
+import { SWELL, SWELL_GLSL, SWELL_U, setSwellField } from '../game/swell';
 
 /**
  * Stylised sea (docs/water_study.md). One unlit shader on two meshes (near patch + far ring), no
@@ -82,12 +83,22 @@ const VERT = /* glsl */ `
 uniform float uTime;
 uniform float uWave;
 varying vec3 vWorld;
+#ifdef SWELL
+${SWELL_GLSL}
+varying vec2 vSw;
+#endif
 #include <fog_pars_vertex>
 void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
+#ifdef SWELL
+  // ocean experiment (src/game/swell.ts): the real swell replaces the decorative ripple
+  vSw = swellEval(wp.xz);
+  wp.y += vSw.x;
+#else
   float w = sin(wp.x * 0.21 + uTime * 0.9) * 0.5 + sin(wp.z * 0.17 - uTime * 0.7) * 0.35 + sin((wp.x + wp.z) * 0.43 + uTime * 1.6) * 0.15;
   float fade = 1.0 - smoothstep(60.0, 140.0, length(wp.xz - cameraPosition.xz));
   wp.y += w * 0.07 * fade * uWave;
+#endif
   vWorld = wp.xyz;
   vec4 mvPosition = viewMatrix * wp;
   gl_Position = projectionMatrix * mvPosition;
@@ -131,6 +142,11 @@ uniform float uMotion;
 uniform float uLow;
 uniform float uDebug;
 varying vec3 vWorld;
+#ifdef SWELL
+varying vec2 vSw;
+uniform float uSwFoam;
+uniform float uSwState;
+#endif
 #include <fog_pars_fragment>
 
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -261,6 +277,23 @@ void main() {
     col *= 1.0 + tone * uSwell * nearK;
   }
 
+#ifdef SWELL
+  // ---- swell facets (docs/ocean_study.md): flat per-triangle normal, a few % of value toward the
+  // sun, and a lighter backlit tint high on the waves (SoT's subsurface mask, muted)
+  if (dist < 140.0) {
+    vec3 fn = normalize(cross(dFdx(wp), dFdy(wp)));
+    if (fn.y < 0.0) fn = -fn;
+    vec3 L = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.3), uSunDir.z));
+    float near2 = 1.0 - smoothstep(60.0, 135.0, dist);
+    col *= 1.0 + clamp((dot(fn, L) - L.y) * 2.2, -0.12, 0.09) * near2;
+    vec2 vd = -toCam.xz / max(dist, 1e-3);
+    vec2 sd2 = uSunDir.xz / max(length(uSunDir.xz), 1e-3);
+    float back = 0.35 + 0.65 * clamp(dot(vd, sd2), 0.0, 1.0);
+    float hi = smoothstep(0.04, 0.22 + 0.45 * uSwState, vSw.x);
+    col = mix(col, uShallow, hi * back * 0.24 * near2);
+  }
+#endif
+
   // ---- drawn crests (two layers, wind space)
   float crest = 0.0;
   // mask + fades first: most sea pixels skip the crest maths entirely
@@ -293,6 +326,23 @@ void main() {
     crest = max(cA, cB) * crestK;
   }
   col = mix(col, uCrestCol, crest);
+
+#ifdef SWELL
+  // ---- whitecaps where the crest's downward acceleration passes ~0.5 g (lower in storms): a
+  // crest-coloured core and a bead-coloured apron, broken by noise (our crest colours, not photoreal foam)
+  if (dist < 120.0 && vSw.y > uSwFoam * 0.6) {
+    vec4 fz = texture2D(uNoise, wp.xz * 0.11 + uWind * uTime * 0.02);
+    float fm = vSw.y + (fz.b - 0.5) * 0.22;
+    float fw = max(fwidth(fm), 1e-3);
+    float fk = (1.0 - smoothstep(70.0, 120.0, dist)) * smoothstep(2.0, 6.0, sd);
+    // drawn like the crests: a white stroke round the breaking patch, a bead-tinted wash inside
+    float inside = smoothstep(uSwFoam - fw, uSwFoam + fw, fm);
+    float rim = inside * (1.0 - smoothstep(uSwFoam + 0.045 - fw, uSwFoam + 0.045 + fw, fm));
+    float core = smoothstep(uSwFoam + 0.2 - fw, uSwFoam + 0.2 + fw, fm);
+    col = mix(col, uBeadCol, inside * 0.55 * fk);
+    col = mix(col, uCrestCol, max(rim, core) * fk);
+  }
+#endif
 
   // ---- shore foam: broken waterline + surf bands rolling in
   if (uShore > 0.0 && sd < uSurfReach + 2.0) {
@@ -383,6 +433,7 @@ export class Sea {
       uDebug: { value: variant === 'field' ? 1 : 0 },
     }]);
     this.uniforms.uNoise.value = noiseTexture();
+    Object.assign(this.uniforms, SWELL_U); // ocean experiment: shared by reference
     // both meshes share one uniform set
     const mk = (factor: number) => new THREE.ShaderMaterial({
       uniforms: this.uniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true,
@@ -458,10 +509,38 @@ export class Sea {
     cs.opacity = T.crest;
   }
 
+  // ---------------------------------------------------------------- ocean experiment (docs/ocean_study.md)
+  ocean: 'classic' | 'swell' = 'classic';
+  private classicGeo: THREE.BufferGeometry | null = null;
+  private swellGeo: THREE.BufferGeometry | null = null;
+  private swellCell = 1;
+  /** Classic (the shipped sea) or Swell (rolling height field, src/game/swell.ts). */
+  setOcean(mode: 'classic' | 'swell') {
+    if (mode === this.ocean && (mode === 'classic' || this.swellGeo)) return;
+    this.ocean = mode;
+    SWELL.on = mode === 'swell';
+    SWELL_U.uSwOn.value = SWELL.on ? 1 : 0;
+    this.classicGeo ??= this.near.geometry;
+    if (mode === 'swell') {
+      const n = this.low ? 128 : 176;
+      if (!this.swellGeo || this.swellGeo.userData.n !== n) { this.swellGeo?.dispose(); this.swellGeo = swellGrid(n); }
+      this.swellCell = this.swellGeo.userData.cell;
+      this.near.geometry = this.swellGeo;
+    } else this.near.geometry = this.classicGeo;
+    for (const m of [this.mat, this.farMat]) {
+      if (mode === 'swell') m.defines.SWELL = ''; else delete m.defines.SWELL;
+      m.needsUpdate = true;
+    }
+  }
+
   /** weather 0..1, read by apply() */
   rain = 0;
   storm = 0;
-  setQuality(q: 'high' | 'low') { this.low = q === 'low'; this.applyVariant(); }
+  setQuality(q: 'high' | 'low') {
+    this.low = q === 'low';
+    this.applyVariant();
+    if (this.ocean === 'swell') { this.ocean = 'classic'; this.setOcean('swell'); } // grid density follows quality
+  }
 
   setShoreField(f: ShoreField | null) {
     this.field?.texture.dispose();
@@ -471,6 +550,7 @@ export class Sea {
     u.uHasField.value = f ? 1 : 0;
     this.crests.setField(f);
     if (f) u.uFieldRect.value.set(f.min.x, f.min.y, 1 / f.size.x, 1 / f.size.y);
+    setSwellField(f, u.uTideMix.value as THREE.Vector3);
   }
 
   /** Colours from the time of day: deep = the TOD sea, shallow = the TOD shallow (or a lighter, greener sea). */
@@ -560,8 +640,11 @@ export class Sea {
     if (cam) this.wind.update(dt, cam, u.uWind.value as THREE.Vector2);
     this.crests.motion = this.reduceMotion ? this.motion : 1;
     if (cam) this.crests.update(dt, cam, focus, u.uWind.value as THREE.Vector2);
-    // Snap to a 5 m grid so the vertex ripple does not swim with the camera.
-    const sx = Math.round(focus.x / 5) * 5, sz = Math.round(focus.z / 5) * 5;
+    // Snap to a 5 m grid so the vertex ripple does not swim with the camera (swell: to the grid's
+    // centre cell, so the vertices round the boat stay world-locked)
+    const step = this.ocean === 'swell' ? this.swellCell : 5;
+    const sx = Math.round(focus.x / step) * step, sz = Math.round(focus.z / step) * step;
+    SWELL.cx = sx; SWELL.cz = sz; SWELL_U.uSwCenter.value.set(sx, sz);
     this.near.position.x = sx; this.near.position.z = sz;
     this.far.position.x = sx; this.far.position.z = sz;
     // ---- tides (src/game/tide.ts): the surface sits at the water level; the field blends its waterlines
@@ -569,4 +652,19 @@ export class Sea {
     u.uTideY.value = WATER.y;
     if (this.field) (u.uTideMix.value as THREE.Vector3).fromArray(levelMix(this.field.levels, WATER.y));
   }
+}
+
+/**
+ * Ocean experiment: the near patch as a warped grid, x = 160·(0.3u + 0.7u³) per axis, so cells are
+ * ~0.55 m round the boat (176²) and ~5 m at the edge, where only the long swell is left.
+ */
+function swellGrid(n: number) {
+  const g = new THREE.PlaneGeometry(2, 2, n, n).rotateX(-Math.PI / 2);
+  const p = g.getAttribute('position') as THREE.BufferAttribute;
+  const warp = (u: number) => 160 * (0.3 * u + 0.7 * u * u * u);
+  for (let i = 0; i < p.count; i++) p.setXYZ(i, warp(p.getX(i)), 0, warp(p.getZ(i)));
+  g.computeBoundingSphere();
+  g.userData.n = n;
+  g.userData.cell = 160 * 0.3 * (2 / n);
+  return g;
 }
