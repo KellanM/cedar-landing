@@ -174,9 +174,11 @@ export class Floaters {
       }
       const a = it.a, w = a.freq;
       // ocean experiment (src/game/swell.ts): afloat items ride the swell and lean with its slope
-      const sw = SWELL.on && it.floats && ty <= WATER.y + 1e-6 ? swellAt(b.x, b.z) : 0;
+      // (CPU: the height within 120 m of the camera, the lean only within 45 m: ~2 queries per near item)
+      const cd2 = (b.x - cam.x) ** 2 + (b.z - cam.z) ** 2;
+      const sw = SWELL.on && it.floats && ty <= WATER.y + 1e-6 && cd2 < 120 * 120 ? swellAt(b.x, b.z) : 0;
       let sx = 0, sz = 0;
-      if (sw !== 0) { const e = 0.5; sx = (swellAt(b.x + e, b.z) - swellAt(b.x - e, b.z)) / (2 * e); sz = (swellAt(b.x, b.z + e) - swellAt(b.x, b.z - e)) / (2 * e); }
+      if (sw !== 0 && cd2 < 45 * 45) { const e = 0.6; sx = (swellAt(b.x + e, b.z) - sw) / e; sz = (swellAt(b.x, b.z + e) - sw) / e; }
       it.o.position.set(b.x, b.y + ty + sw + Math.sin(t * w * 1.3 + it.ph) * a.bob + Math.sin(t * w * 2.1 + it.ph2) * a.bob * 0.4, b.z);
       this.e.set(
         Math.sin(t * w + it.ph) * a.tilt + Math.atan(sz) * 0.8,

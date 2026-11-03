@@ -241,3 +241,237 @@ desktop GPU was shared with other agents, so single numbers swing by ±1 ms. Rea
 - Hotspot marks in **Classic** do not follow the tide (their shader ignores the group's y). That
   is a pre-existing issue, which the `tides2` branch may be fixing. In Swell they sit on tide +
   swell.
+
+---
+
+# Pass 2: from "a morphing sheet" to a spectrum ocean (branch `ocean2`, from v0.10.1)
+
+Kellan, after trying pass 1: *"The sea mesh looks like it is just getting morphed. How do other
+ocean sims create their physically based looking ocean renders? I think we need to add noise
+textures for the height map. And are they smooth? We need to iterate on the swells more; please
+add a slider that allows me to adjust the amount. It should feel dangerous after a certain level."*
+
+**Diagnosis of pass 1.** It had six smooth waves on a coarse grid, and every bit of shading came
+from the triangles themselves. The eye read one rubber sheet bending, because nothing in it was
+finer than the mesh: there was no small-scale surface texture, no horizontal motion, and no foam
+that outlived a crest.
+
+## How the physically based oceans are actually built (sources inspected)
+
+| Source | Access | What it contributes |
+|---|---|---|
+| J. Tessendorf, *Simulating Ocean Water* (course notes 1999–2004) | **Read**: §4.2 dispersion, §4.3 the FFT patch and its tiling, §4.6 choppy waves and the Jacobian | The foundation everyone cites |
+| Mihelich (Grapeshot) & Tcheblokov (NVIDIA), *Wakes, Explosions and Lighting: Interactive Water Simulation in Atlas*, GDC 2019 ([slides](https://gpuopen.com/gdc-presentations/2019/gdc-2019-agtd6-interactive-water-simulation-in-atlas.pdf)) | **Read all 75 slides** (text) | A production recipe: bands, spectrum, buoyancy, shading, foam, spray |
+| Acerola, *I Tried Simulating The Entire Ocean* (YouTube `yPfagLeUa7k`, 27 min) and *How Games Fake Water* (`PH9q0HNBjT4`) | **Captions read**; frames watched at 15:30, 23:40, 24:30, 26:15 | A practitioner rebuilding SoT-style FFT water and showing each step and its failure |
+| Rare, *The Technical Art of Sea of Thieves* (paper + talk) | Read in pass 1 | Foam, scatter, stylising on top of a correct sim |
+| Crest Ocean (Unity) docs ([waves](https://crest.readthedocs.io/en/4.20/user/waves.html), system notes) | Search summaries of the docs (not opened directly) | LOD cascades, per-wavelength shape LODs, shallow-water damping |
+| Unreal Engine Water plugin: `UGerstnerWaterWaveGeneratorSpectrum` ([API](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Plugins/Water/UGerstnerWaterWaveGeneratorSpect-)) | API page (via search) | Gerstner *octaves* (each one doubles the wavelength), generated from known ocean spectra |
+| Real dangerous sea: North Sea storm from a ship's bridge (`AvxFzD2rZv4` @ 5:02–5:07, 15:02–15:07) | **Watched** (frames ~0.6 s apart) | What "dangerous" looks like |
+| *Assassin's Creed IV* ocean talk; *Ghost of Tsushima* water | **Not found.** Wronski's GDC 2014 talk is on AC4 graphics generally, and no Sucker Punch water talk turned up | No claims made |
+| Crest 5.7 trailer (`meMmaogDL4U`) | Watched; the windows hit a waterfall and a lake, not open sea | No claims made |
+
+### Findings (claim / evidence / interpretation / application)
+
+1. **The ocean is a sum of thousands of waves, chosen by a spectrum, not a few hand-picked sines.**
+   - *Claim:* Tessendorf builds a height field from a spectrum by inverse FFT. Atlas slide 8 gives
+     the loop: "generate spectrum, evolve in frequency domain, inverse FFT, rinse and repeat".
+     Acerola (~7:46–9:49) uses JONSWAP after Atlas: "basically better in every conceivable
+     fashion". It has wind speed, fetch, peak, spreading, amplitude override and a low-pass.
+   - *Evidence:* his scenes at 26:15 range from calm to storm off one parameter set.
+   - *Application:* a JONSWAP-shaped spectrum drives everything. The sea state sets the
+     significant height Hs and the peak wavelength; energy is spread over ~100 waves.
+
+2. **One tile always tiles; cascades of different sizes hide it.**
+   - *Claim:* Tessendorf says the patch "can be tiled seamlessly... an artificial periodicity...
+     may be apparent as repeated structures across the field of view". Atlas slide 11 uses "small
+     FFTs, split spectrum to 4 frequency bands... recombine in the shaders". Acerola (~23:30–24:24)
+     says "you can still see the tiling" until "four simulations of differing scales... with
+     different tiling rates".
+   - *Evidence:* his frame at 23:40 shows the diagonal repetition clearly.
+   - *Application:* three cascades with tiles of 256 m, 53.7 m and 11.3 m. The sizes are
+     incommensurate, so the tiles never line up. Each cascade holds only its own wavelength band.
+
+3. **"Noise textures for the height map" is close: per-band height/normal textures.**
+   - *Claim:* the FFT outputs are textures, a displacement map plus slopes. Atlas slide 38 shows
+     them as RGBA16F arrays: displacement XYZ, slopes, foam, Jacobian.
+   - *Interpretation:* the convincing detail is **per-pixel normals from those textures**, not
+     more geometry. Static noise would just scroll; a spectrum texture *evolves*, because each
+     wave moves at its own dispersion speed.
+   - *Application:* each frame, every cascade is rendered into a 64² **displacement** texture
+     (dx, h, dz) and a **slope + Jacobian** texture. The sea samples them per vertex (shape) and
+     per pixel (normals and foam).
+   - On WebGL2 a real FFT would need ~7 butterfly passes per axis per output per cascade, so instead
+     each texel sums its cascade's ~36 lattice waves directly: a sparse inverse DFT. The wave
+     vectors sit on the tile's lattice, so every texture tiles exactly.
+
+4. **Choppiness is horizontal displacement, and it gives you foam for free.**
+   - *Claim:* Tessendorf §4.6 says peaks are "sharply peaked at their tops and flattened at the
+     bottoms... (slope > ~1/6) eventually break". Points move by λ·D(x), and the Jacobian of that
+     map tells you where the surface folds: "a useful effect to signal the production of spray,
+     foam and/or breaking waves". Acerola (~15:14) says that with height alone "it looks kind of
+     weird and the movement feels too linear".
+   - *Application:* the vertices move in x/z as well as y, with λ 0.55 → 1.0 by sea state. The
+     Jacobian per texel drives the foam.
+
+5. **Foam persists: inject where the Jacobian dips, then decay and blur.**
+   - *Claim:* Atlas slide 56 says "inject 'turbulent energy'... dissipate over time (blur + fade)".
+     Acerola (~22:45) applies "an exponential decay function to the whole texture... foam
+     accumulating in busier areas". Rare blurs progressively and blends artist textures.
+   - *Application:* a foam ping-pong per displaced cascade (decay 1/e in 1.6 s, a 5-tap blur,
+     drifting 0.35 m/s downwind). It is drawn in our crest style: a white rim stroke and a
+     bead-coloured wash, broken by noise.
+
+6. **Shading: microfacet normals, Fresnel, crest scatter.**
+   - *Claim:* Atlas slides 30–55: sun specular, sky reflection weighted by Fresnel, and a fake
+     scatter term driven by wave height H, view-toward-sun and normal-toward-view. Rare's
+     subsurface mask comes from the choppiness offsets.
+   - *Application, kept unlit and muted:* a few % of value toward the sun; Fresnel (Schlick, n=5)
+     to a sky/haze colour from the time of day; Atlas' scatter term, scaled down, to a greener tint
+     high on the crests; the star glints reflect off the per-pixel normal.
+
+7. **Distance: fade the bands, or the surface crawls.**
+   - *Claim:* Atlas slide 60 fades displacements at distance: "bands start fading away at ~30
+     world space periods". Crest gives each wavelength its own LOD.
+   - *Application:* cascade 1 displacement fades over 38–75 m, everything is flat by 140 m (where
+     the flat far ring takes over), and each band's normals fade with pixel footprint. The far ring
+     keeps the long cascade's normals, so the horizon still rolls.
+
+8. **Buoyancy: samples → plane → spring, for "epic wave size without making players sick".**
+   - *Claim:* Atlas slides 25–28: physical forces were "noisy... add latency and instability",
+     so they fit a plane to the samples and "apply spring to filter noise". Getting the height
+     under a choppy surface needs an "iterative approximation".
+   - *Application:* this is the pass-1 Buoyancy (five samples and springs), now softer in big seas.
+     `waterHeight()` inverts the horizontal displacement by fixed-point steps on the CPU, using the
+     same waves as the GPU.
+
+9. **What dangerous looks like (North Sea, from a ship's bridge).**
+   - *Evidence:* at 5:02–5:07 and 15:02–15:07 the wave faces rise above the horizon and fill the
+     window. The faces are dark slate with **white streaks running down them along the wind**, and
+     spindrift flies off the crests. The horizon swings from mid-frame to out of shot in about 3 s
+     as the bow climbs.
+   - *Application (sea state 7–10):* heights up to Hs 5 m (crest to trough ~6 m+); faces that
+     darken toward a green-grey; wind-streak foam lines; spindrift and crest spray; bow slams
+     that throw water over the deck.
+
+### "Are they smooth?" (Kellan's question)
+
+**Yes.** Every PB ocean above renders a *smooth* surface: dense, smooth geometry carrying very
+detailed per-pixel normals (Tessendorf's renders use 2.5–10 cm facets; Atlas and Acerola use
+tessellation or concentric LOD rings). The detail lives in the normals, not the triangles. Our
+pass-1 look was faceted, with large triangles doing all the shading, and that is exactly what read
+as "morphing".
+
+Pass 2 offers both, on a Dev toggle "Sea look":
+- **Smooth** (default): the shape from the cascades plus per-pixel normals from all three bands.
+- **Faceted but detailed**: flat triangle normals for the large shape, plus the finest cascade's
+  normals on top, so facets still read but each one shimmers like water.
+
+**Recommendation: Smooth.** It is what makes the sea read as water. The game's other water is
+already unlit and stylised (crest sprites, drawn foam, surf bands, star glints), so the low-poly
+identity survives in the drawn layers. Faceted reads as low-poly at storm heights. It is a valid
+alternative if the style needs it, but at calm states it is nearly indistinguishable.
+
+## Build (pass 2)
+
+- `src/game/swell.ts` (rewritten, same API):
+  - **Sea state S 0–10.** A table maps S to Hs and peak wavelength: 0 glassy (0.03 m),
+    3 normal (0.48 m, λp 14 m), 5 storm (1.05 m), 8 (2.8 m, λp 55 m), 10 (5 m, λp 85 m).
+  - **Spectrum.** JONSWAP shape in wavenumber (Pierson–Moskowitz × peak enhancement γ = 3.3) ×
+    directional spreading cos² round the wind, normalised so Σa²/2 = (Hs/4)².
+  - **Waves.** Three cascades, 36 + 40 + 32 lattice waves, chosen once and stratified in log k.
+    Choppiness λ goes from 0.55 to 1.0.
+  - **Whitecaps.** The threshold on the Jacobian is tuned from its measured percentiles: none
+    calm, scattered at 3, a few % at 5, ~10% at 8.
+  - **CPU.** It uses each displaced cascade's 14 strongest waves, one fixed-point step for
+    height, two when foam is wanted.
+  - **Auto.** Weather maps rain/storm to S 1.2–6 (`autoMax` 6). The dangerous band is reachable
+    only from the slider for now.
+- `src/render/oceangpu.ts`: per frame, three 64² MRT passes (displacement; slope + Jacobian) and
+  two foam ping-pongs. Low quality skips the fine cascade.
+- `src/render/sea.ts` (SWELL path only; Classic is untouched):
+  - the vertex shader displaces in x/y/z;
+  - the fragment shader adds per-pixel normals, Smooth/Faceted, Fresnel to the sky, crest scatter,
+    the danger tint, persistent drawn foam, wind streaks and glints off the wave normal;
+  - the fake 3-tone "swell banding" is off in Swell.
+- `src/render/spray.ts`: one instanced draw of off-white flecks, stretched along their velocity:
+  crest spray, spindrift and bow-slam bursts. Off on low quality.
+- `src/game/roughsea.ts`: the dangerous-sea gameplay (below).
+- Log > Developer:
+  - Ocean (Classic/Swell);
+  - Sea look (Smooth/Faceted);
+  - Sea state: an **Auto** button plus a 0–10 slider in 0.5 steps, with words from "Glassy" to
+    "Dangerous". The slider, look and ocean mode all persist.
+
+### Dangerous seas, cozy-safe (what S 7–10 does; all reversible, nothing lost)
+- **The boat is shoved.** Wave slope and wind push her about (≤ 3.5 m/s, decaying), and bow slams
+  kick her heading. She still steers.
+- **Bow slams.** When the bow buries itself in a rising face: a spray burst over the bow (and
+  "green water" over the deck when it's bad), a crash sound, a small camera shake (skipped
+  under Reduce motion), and the hull creaks every few seconds.
+- **Too rough to fish.** The cast button shows "Too rough", and pressing it says "Too rough to
+  fish — find calmer water".
+- **HUD warning.** "Rough seas — head for shelter" (every 25 s while exposed), and "Calmer water
+  in the lee" once sheltered.
+- **Shelter really works.** Danger = the sea's danger × exposure from the shore field, so the lee
+  of an island, the harbour and the shallows are the refuge.
+- **Weather on.** A dangerous sea drives any rain harder and whips up the wind lines and crests.
+- **Camera.** It follows more of the heave (50% → 75%, low-passed); it never rolls. Reduce motion:
+  the sea is at 35% and the follow is reduced.
+- **Proposed, not built (needs Kellan's OK):** above S 9, an unsecured catch could slide out of
+  the cooler (a "secure the catch" upgrade would stop it).
+
+## Pass 2 results and evaluation
+
+Captures come from `scripts/ocean_capture2.mjs`: pass 2 vs the v0.10.1 Swell (served from a
+build of main), at sea states 0, 3, 5, 8 and 10, phone and desktop. They include low side views
+at 8 and 10, Smooth vs Faceted at 5, and fishing at 3 and 8. `scripts/ocean_probe.mjs` was used
+for tuning. Output goes to `screenshots/ocean2/` (gitignored).
+
+**What changed while tuning:**
+1. *Foam.* The first threshold left the Jacobian never crossing it, so there was no foam. Measured
+   percentiles (`__debug.jStats()`): the 1st percentile of J is 0.97 at S1, 0.90 at S3, 0.76 at
+   S5, 0.46 at S8 and 0.19 at S10. The threshold table was set from those. The next try was
+   snow-white at S8, so the table came down a step and the persistent foam now fades in 1.6 s.
+2. *Detail.* The finest cascade at full weight read as busy noise. It is now at 55% and fades by
+   pixel footprint.
+3. *Wind streaks.* At S10 they dominated, so their threshold went up.
+4. *CPU.* The first version cost 5–17 µs per height query, ~180 queries per frame. Now: the 14
+   strongest waves per cascade, one fixed-point step (two when foam is wanted), and floaters only
+   query within 120 m (lean within 45 m). That is ~75–110 queries × ~4–5 µs ≈ 0.4 ms on the dev
+   desktop.
+
+**Judgement (my assessment, not player-tested):**
+- *Morphing:* gone. The surface has detail at three scales, the faces move sideways, foam
+  lingers and drifts, and the far sea keeps rolling normals. At S3 it reads as water, not a sheet.
+- *Swell amount:* the slider covers glassy → dangerous continuously. Auto stays within 1.2–6.
+- *Dangerous:* at 8–10 there are walls of water with foam rims and wind streaks, dark steep
+  faces, spray and spindrift. The boat pitches and rolls hard and shows its bottom paint on the
+  crests, and gets shoved. "Rough seas — head for shelter" shows, and the cast button reads "Too
+  rough". The camera never rolls (`scripts/ocean_camera_check.mjs`: max roll 0 at S10; camera
+  swing 1.3 m vs the boat's 2.8 m; Reduce motion takes the boat to 0.74 m and the camera to 0.16 m).
+- *Smooth vs Faceted:* at S5 the difference is subtle (the shape is the same; faceted adds triangle
+  value steps). **Smooth recommended** (see "Are they smooth?").
+
+**Perf** (`scripts/ocean_perf.mjs`): phone viewport, interleaved on one page, median of 7×90-frame
+synchronous benches, on a shared desktop GPU (±1 ms noise). The cascade passes are drawn
+separately each frame, so they are not inside the sea figure.
+
+| Quality | Classic sea | Swell S3 | Swell S8 | Added |
+|---|---|---|---|---|
+| Low | 0.22–0.29 ms | 0.61–0.83 ms | 0.29–0.92 ms | +0.1 to +0.7 ms |
+| High | 0.37–0.88 ms | 1.57–2.38 ms | 1.80–2.18 ms | +0.7 to +2.0 ms (over the +1 ms budget) |
+
+CPU: the cascade passes take ~0.25–0.3 ms to issue (5 tiny draws), rough-sea logic ≤ 0.1 ms, and
+height queries ~0.4 ms.
+
+**Weak spots / next:**
+- High quality is over budget in this emulation. The next step would be a 128² high grid, the fine
+  cascade only within ~40 m, and an on-device phone measurement (not done).
+- The CPU uses the 14 strongest waves per cascade, so a bobber or floater can sit a few cm off the
+  drawn surface in big seas. The boat hides it (heave springs + settling).
+- Spray is sparse at S5–6 and only reads in the dangerous band.
+- The phone chase camera frames the boat at the left edge after a teleport in both builds, so this
+  is the camera rework, not the sea.
+- Foam is per cascade on the GPU but uses the combined Jacobian on the CPU (spray, crest sprites).
+  They correlate but are not identical.
+- Not built: the ripple sim (layer 4) and the cooler slosh (needs Kellan's OK).

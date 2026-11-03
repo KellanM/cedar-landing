@@ -54,6 +54,8 @@ export interface FrameState {
   fishing: FishingView;
   canCast: boolean;
   slowEnough: boolean;
+  /** ocean pass 2: dangerous seas, casting waits for calmer water */
+  tooRough?: boolean;
   coolerFull: boolean;
   /** context button; pos null = no world marker (on-foot contexts) */
   interact: { label: string; kind: string; pos: number[] | null; /** world point for the name tag (on-foot targets have no marker) */ tag?: number[] | null } | null;
@@ -393,6 +395,7 @@ export function frame(dt: number, s: FrameState) {
       else if (!s.canCast) { label = 'Cast'; enabled = false; away = true; }
       // a full cooler no longer stops the fishing (P3): the catch card offers a swap instead
       else if (!s.slowEnough) { label = 'Slow down'; enabled = false; }
+      else if (s.tooRough) { label = 'Too rough'; enabled = false; }
       break;
     case 'casting': case 'waiting': case 'missed': label = 'Wait…'; mode = 'wait'; break;
     case 'bite': label = 'Strike!'; mode = 'strike'; break;

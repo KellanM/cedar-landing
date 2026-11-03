@@ -438,6 +438,18 @@ function settingsTab(L: HTMLElement, R: HTMLElement) {
 // ------------------------------------------------------------------ Developer (temporary)
 const CLOCK_PRESETS: [string, string][] = [['6.67', 'Dawn'], ['10.67', 'Morning'], ['13.33', 'Afternoon'], ['19.83', 'Dusk'], ['23.17', 'Night']];
 const stack = (row: string) => row.replace('class="set-row"', 'class="set-row stack"');
+// ocean pass 2 (docs/ocean_study.md): sea state 0–10, Auto follows the weather (storms ≈ 5–6)
+const SEA_WORDS = ['Glassy', 'Calm', 'Light chop', 'Normal', 'Choppy', 'Storm', 'Heavy sea', 'Rough', 'Very rough', 'High seas', 'Dangerous'];
+const seaWords = (v: number) => `${v.toFixed(1)} · ${SEA_WORDS[Math.round(Math.min(10, Math.max(0, v)))]}`;
+function seaRows(st: ReturnType<NonNullable<typeof ctx.h>['dev']['state']>) {
+  const auto = st.seaMode === 'auto', v = auto ? st.seaState : Number(st.seaMode);
+  return `${stack(seg('dev-sealook', [['smooth', 'Smooth'], ['faceted', 'Faceted']], st.seaLook, 'Sea look'))}
+    <div class="set-row stack"><span>Sea state <span class="small" id="dev-sea-lab">${esc(seaWords(v))}${auto ? ' (weather)' : ''}</span></span>
+      <span class="row-btns" style="display:flex;gap:10px;align-items:center;width:100%">
+        <button class="btn ghost${auto ? ' on' : ''}" id="dev-seaauto">${auto ? 'Auto ✓' : 'Auto'}</button>
+        <input type="range" id="dev-sea" min="0" max="10" step="0.5" value="${v}" aria-label="Sea state" style="flex:1;accent-color:#2c4450;min-height:32px">
+      </span></div>`;
+}
 function devTab(L: HTMLElement, R: HTMLElement) {
   const d = ctx.h?.dev;
   if (!d) { L.innerHTML = '<h3 class="page-title">Developer</h3><p class="hand">Not ready yet.</p>'; R.innerHTML = ''; return; }
@@ -455,7 +467,8 @@ function devTab(L: HTMLElement, R: HTMLElement) {
   R.innerHTML = `<h3 class="page-title">Tide &amp; rendering</h3>
   <div class="settings">
     ${stack(seg('dev-tide', [['auto', 'Auto'], ['high', 'High'], ['mid', 'Mid'], ['low', 'Low'], ['lowest', 'Lowest']], st.tide, `Tide (${st.tideLevel.toFixed(2)} m, ${st.tideTrend})`))}
-    ${stack(seg('dev-ocean', [['classic', 'Classic'], ['swell', 'Swell']], st.ocean, `Ocean (experiment${st.ocean === 'swell' ? `, sea ${Math.round(st.seaState * 100)}%` : ''})`))}
+    ${stack(seg('dev-ocean', [['classic', 'Classic'], ['swell', 'Swell']], st.ocean, 'Ocean (experiment)'))}
+    ${st.ocean === 'swell' ? seaRows(st) : ''}
     ${stack(seg('dev-wobble', [['0', '0 rigid'], ['0.5', '0.5'], ['1', '1 gentle'], ['1.5', '1.5'], ['2', '2 friendslop']], String(st.wobble), 'Character wobble'))}
     ${toggle('dev-sun', st.sunShading, 'Sun shading')}
     ${toggle('dev-wind', st.wind, 'Wind in trees')}
@@ -472,6 +485,14 @@ function devTab(L: HTMLElement, R: HTMLElement) {
   sg('dev-tide', (v) => d.tide(v as DevTide));
   sg('dev-ocean', (v) => d.ocean(v as 'classic' | 'swell'));
   sg('dev-wobble', (v) => d.wobble(Number(v)));
+  sg('dev-sealook', (v) => d.seaLook(v as 'smooth' | 'faceted'));
+  bt('dev-seaauto', () => d.seaState(st.seaMode === 'auto' ? Math.round(st.seaState * 2) / 2 : 'auto'));
+  const rng = document.getElementById('dev-sea') as HTMLInputElement | null;
+  if (rng) {
+    const lab = document.getElementById('dev-sea-lab');
+    rng.oninput = () => { const v = Number(rng.value); if (lab) lab.textContent = seaWords(v); d.seaState(v); };
+    rng.onchange = () => re();
+  }
   bt('dev-nextday', () => d.nextDay());
   bt('dev-bolt-far', () => d.lightning(false));
   bt('dev-bolt-near', () => d.lightning(true));
