@@ -192,7 +192,8 @@ export class Fishing {
   /** debug: distance from the shadow's nose (the end facing the float) to the float */
   shadowNoseGap() {
     const half = this.shadow.scale.z;
-    const dx = this.bobberPos.x - this.shadowPos.x, dz = this.bobberPos.z - this.shadowPos.z, d = Math.hypot(dx, dz);
+    const fx = this.phase === 'reeling' ? this.bobber.position.x : this.bobberPos.x, fz = this.phase === 'reeling' ? this.bobber.position.z : this.bobberPos.z;
+    const dx = fx - this.shadow.position.x, dz = fz - this.shadow.position.z, d = Math.hypot(dx, dz);
     const w = waterHeight(this.shadowPos.x, this.shadowPos.z) - this.group.position.y;
     return { centre: +d.toFixed(2), half: +half.toFixed(2), gap: +(d - half).toFixed(2), phase: this.phase,
       tiltX: +this.shadow.rotation.x.toFixed(3), tiltZ: +this.shadow.rotation.z.toFixed(3), aboveWater: +(this.shadow.position.y - w).toFixed(3), yaw: +this.shadowYaw.toFixed(2) };
@@ -447,7 +448,6 @@ export class Fishing {
     // the shadow lives in the rig's water space (the group rides the tide): sit it just on the
     // surface where it is — the swell moves the surface, a fixed 0.01 m would cut through the waves
     const sy = waterHeight(this.shadowPos.x, this.shadowPos.z) - this.group.position.y + 0.03;
-    this.shadow.position.set(this.shadowPos.x, sy, this.shadowPos.z);
     this.shadow.visible = this.phase !== 'casting' && this.phase !== 'landed';
     // heading: a yaw only (lookAt with a world-space target tipped it nose-up whenever the tide moved
     // the group). Approaching: nose to the float. Reeling: the float rides on the fish, so it faces
@@ -456,7 +456,9 @@ export class Fishing {
     let hx: number, hz: number;
     const mvx = this.shadowPos.x - this.shadowPrev.x, mvz = this.shadowPos.z - this.shadowPrev.z;
     this.shadowPrev.copy(this.shadowPos);
-    if (this.phase === 'reeling') { hx = this.shadowPos.x - this.tip.x; hz = this.shadowPos.z - this.tip.z; }
+    // reeling: shadowPos is the line's end = the hooked MOUTH; the fish is hauled in nose-first, so it
+    // faces the rod tip and its body trails behind the mouth (the float sits at the mouth, not mid-body)
+    if (this.phase === 'reeling') { hx = this.tip.x - this.shadowPos.x; hz = this.tip.z - this.shadowPos.z; }
     else if (mvx * mvx + mvz * mvz > (0.4 * dt) ** 2) { hx = mvx; hz = mvz; } // swimming: nose where it's going
     else { hx = this.bobberPos.x - this.shadowPos.x; hz = this.bobberPos.z - this.shadowPos.z; }
     if (hx * hx + hz * hz > 0.04) {
@@ -466,6 +468,10 @@ export class Fishing {
       this.shadowYaw += d * Math.min(1, dt * 8);
     }
     this.shadow.rotation.set(0, this.shadowYaw, 0);
+    // place the body: on approach shadowPos is already the centre (mouthTarget); in the fight it's the
+    // mouth, so the centre sits half a length behind it along the heading
+    const back = this.phase === 'reeling' ? this.shadow.scale.z * 0.92 : 0;
+    this.shadow.position.set(this.shadowPos.x - Math.sin(this.shadowYaw) * back, sy, this.shadowPos.z - Math.cos(this.shadowYaw) * back);
 
     // line: rod tip → float tip (or the fish during the landing arc)
     const lineTo = this.land_ && !this.land_.done ? this.fish.group.position : this.float.top;
