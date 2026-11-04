@@ -5,6 +5,7 @@ import type { Hotspot } from '../world/types';
 import { Bobber, LineRibbon } from './tackle';
 import { SplashFX } from './splash';
 import { FishModel, shownLength } from './fishmodel';
+import { waterHeight } from './swell';
 
 export type Phase = 'idle' | 'casting' | 'waiting' | 'bite' | 'missed' | 'reeling' | 'landed';
 
@@ -112,6 +113,8 @@ export class Fishing {
   bobberPos = new THREE.Vector3();
   private shadowFrom = new THREE.Vector3();
   private shadowPos = new THREE.Vector3();
+  private shadowYaw = 0;
+  private shadowPrev = new THREE.Vector3();
   /** where the line meets the fish (reeling) — the camera frames this */
   readonly lineEnd = new THREE.Vector3();
   /** set by main each frame while landed: the grip point — both wrists (hoist) or the right wrist (hand); null → boat deck */
@@ -190,7 +193,9 @@ export class Fishing {
   shadowNoseGap() {
     const half = this.shadow.scale.z;
     const dx = this.bobberPos.x - this.shadowPos.x, dz = this.bobberPos.z - this.shadowPos.z, d = Math.hypot(dx, dz);
-    return { centre: +d.toFixed(2), half: +half.toFixed(2), gap: +(d - half).toFixed(2), phase: this.phase };
+    const w = waterHeight(this.shadowPos.x, this.shadowPos.z) - this.group.position.y;
+    return { centre: +d.toFixed(2), half: +half.toFixed(2), gap: +(d - half).toFixed(2), phase: this.phase,
+      tiltX: +this.shadow.rotation.x.toFixed(3), tiltZ: +this.shadow.rotation.z.toFixed(3), aboveWater: +(this.shadow.position.y - w).toFixed(3), yaw: +this.shadowYaw.toFixed(2) };
   }
   /** where the shadow's centre must sit for its nose to touch the float: half its length back along the approach */
   private mouthTarget(out: THREE.Vector3) {
@@ -209,6 +214,8 @@ export class Fishing {
     const ang = Math.random() * Math.PI * 2;
     this.shadowFrom.set(this.bobberPos.x + Math.cos(ang) * 6, 0.01, this.bobberPos.z + Math.sin(ang) * 6);
     this.shadowPos.copy(this.shadowFrom);
+    this.shadowYaw = Math.atan2(this.bobberPos.x - this.shadowFrom.x, this.bobberPos.z - this.shadowFrom.z);
+    this.shadowPrev.copy(this.shadowFrom);
     const approach = rand(T.approachMin, T.approachMax) * gear.wait; // Gran's lures: the Ember is quick, the Mossback slow
     // 0–2 nibbles after the shadow arrives (rare+ fish are decisive: 0–1), then the bite
     const n = Math.floor(Math.random() * (this.species.rarity === 'rare' || this.species.rarity === 'legendary' ? 2 : 3));
@@ -437,11 +444,28 @@ export class Fishing {
     this.float.update(dt, this.bobber.position.x, this.bobber.position.z, camD, this.held, (lx / ll) * lean, (lz / ll) * lean, onWater, airY);
     this.float.group.visible = this.phase !== 'landed';
     this.bobber.position.y = this.phase === 'casting' ? airY : 0.25;
-    this.shadow.position.set(this.shadowPos.x, 0.01, this.shadowPos.z);
+    // the shadow lives in the rig's water space (the group rides the tide): sit it just on the
+    // surface where it is — the swell moves the surface, a fixed 0.01 m would cut through the waves
+    const sy = waterHeight(this.shadowPos.x, this.shadowPos.z) - this.group.position.y + 0.03;
+    this.shadow.position.set(this.shadowPos.x, sy, this.shadowPos.z);
     this.shadow.visible = this.phase !== 'casting' && this.phase !== 'landed';
-    // face the float; once nose-to-float keep the approach heading (lookAt at ~0 distance would spin)
-    const fdx = this.bobberPos.x - this.shadowPos.x, fdz = this.bobberPos.z - this.shadowPos.z;
-    if (fdx * fdx + fdz * fdz > 0.04) this.shadow.lookAt(this.bobberPos.x, 0.01, this.bobberPos.z);
+    // heading: a yaw only (lookAt with a world-space target tipped it nose-up whenever the tide moved
+    // the group). Approaching: nose to the float. Reeling: the float rides on the fish, so it faces
+    // away from the rod tip (it is being hauled in tail-first... nose out, pulling against the line),
+    // turned by the side-to-side pull. Once nose-to-float, keep the heading (no spin at ~0 distance).
+    let hx: number, hz: number;
+    const mvx = this.shadowPos.x - this.shadowPrev.x, mvz = this.shadowPos.z - this.shadowPrev.z;
+    this.shadowPrev.copy(this.shadowPos);
+    if (this.phase === 'reeling') { hx = this.shadowPos.x - this.tip.x; hz = this.shadowPos.z - this.tip.z; }
+    else if (mvx * mvx + mvz * mvz > (0.4 * dt) ** 2) { hx = mvx; hz = mvz; } // swimming: nose where it's going
+    else { hx = this.bobberPos.x - this.shadowPos.x; hz = this.bobberPos.z - this.shadowPos.z; }
+    if (hx * hx + hz * hz > 0.04) {
+      const want = Math.atan2(hx, hz);
+      // ease toward it (no snapping), the short way round
+      let d = want - this.shadowYaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      this.shadowYaw += d * Math.min(1, dt * 8);
+    }
+    this.shadow.rotation.set(0, this.shadowYaw, 0);
 
     // line: rod tip → float tip (or the fish during the landing arc)
     const lineTo = this.land_ && !this.land_.done ? this.fish.group.position : this.float.top;
