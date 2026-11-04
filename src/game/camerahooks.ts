@@ -47,7 +47,7 @@ const subV = new THREE.Vector3();
 export function cameraSubject(c: { chase: ChaseCamera; foot: OnFoot; boat: Boat; titleOpen: boolean; debugCam: boolean }): { at: THREE.Vector3; r: number } | null {
   if (c.titleOpen || c.debugCam || c.chase.inShot || document.body.classList.contains('photo-mode')) return null;
   if (c.foot.active) { const r = c.foot.cam.subject(subV); return { at: subV, r }; }
-  if (c.chase.landingK > 0.3) return null; // the hold-up shot frames the skipper on the deck
+  if (c.chase.landingK > 0.3 || c.chase.inCut) return null; // the hold-up and the strike close-up frame the skipper himself
   subV.set(c.boat.pos.x, c.boat.root.position.y + 1.1, c.boat.pos.z);
   return { at: subV, r: Math.max(2.4, c.boat.halfLen * 1.05) };
 }
