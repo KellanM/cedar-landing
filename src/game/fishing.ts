@@ -175,6 +175,7 @@ export class Fishing {
   }
 
   cancel() {
+    this.grace = 0;
     this.phase = 'idle';
     this.forceHoist = false;
     this.landArc = { dur: FIGHT_FX.landArc, h: 1.4 };
@@ -224,6 +225,8 @@ export class Fishing {
     this.shownLen = shownLength(L);
   }
   private biteAt = 0;
+  /** s the fight clock holds (strike close-up): no tension / distance / thrash timer */
+  grace = 0;
   private approachDur = 2;
 
   /** Action button pressed (tap). Returns true if consumed. */
@@ -371,6 +374,14 @@ export class Fishing {
       case 'reeling': {
         if (this.autoReel) held = this.tension < (this.thrashing ? 0.3 : 0.68);
         this.reelHeld = held;
+        // strike close-up (game/closeup.ts): the fight clock holds while the player can't see the
+        // float; the reel button's state carries straight through when it ends
+        if (this.grace > 0) {
+          this.grace -= dt;
+          this.nextThrash += dt; this.thrashEnd += dt;
+          this.fightFX(dt);
+          break;
+        }
         if (!this.thrashing && this.t >= this.nextThrash) this.startThrash();
         else if (this.thrashing && this.t >= this.thrashEnd) {
           this.thrashing = false;

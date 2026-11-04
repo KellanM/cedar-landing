@@ -282,6 +282,19 @@ export class ChaseCamera {
     L.dolly = this.motion ? 0.1 * tight : 0; // slow creep toward the subject during the hold
     L.dollyT = 0;
   }
+  /** Authored cut (game/closeup.ts): while set, the camera sits exactly here (hard cut in). */
+  cut: { eye: THREE.Vector3; at: THREE.Vector3; fov: number } | null = null;
+  private cutLast = { eye: new THREE.Vector3(), at: new THREE.Vector3(), fov: 40 };
+  private cutOut = 0;
+  private cutOutDur = 0;
+  /** leave the cut: ease back to the live chase pose over `out` s (0 = hard cut) */
+  endCut(out = 0.15) {
+    if (!this.cut) return;
+    this.cutLast.eye.copy(this.cut.eye); this.cutLast.at.copy(this.cut.at); this.cutLast.fov = this.cut.fov;
+    this.cut = null;
+    this.cutOut = this.cutOutDur = out;
+  }
+  get inCut() { return !!this.cut; }
   endLanding() { if (this.land.k > 0 || this.land.dir > 0) this.land.dir = -1; }
   get landingK() { return this.land.k; }
 
@@ -330,6 +343,7 @@ export class ChaseCamera {
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
     this.noiseT += dt;
     this.leanC.lerp(this.leanT, 1 - Math.exp(-dt * 3));
+    this.cutOut = Math.max(0, this.cutOut - dt);
     const L = this.land;
     if (L.dir) {
       L.k = Math.min(1, Math.max(0, L.k + (L.dir * dt) / (L.dir > 0 ? L.inT : 0.8)));
@@ -374,13 +388,24 @@ export class ChaseCamera {
       this.cam.position.y += Math.sin(e * Math.PI) * 0.12 * la; // lift over the gunwale/cabin mid-swing
       this.st.lerp(L.at, e);
     }
+    // authored cut (strike / miss close-up): the chase rig keeps running underneath, so leaving the
+    // cut lands exactly on the live fishing view
+    let cutFov = -1;
+    if (this.cut) {
+      this.cam.position.copy(this.cut.eye); this.st.copy(this.cut.at); cutFov = this.cut.fov;
+    } else if (this.cutOut > 0 && this.cutOutDur > 0) {
+      const u = 1 - this.cutOut / this.cutOutDur, k = u * u * (3 - 2 * u);
+      this.cam.position.lerpVectors(this.cutLast.eye, this.cam.position, k);
+      this.st.lerpVectors(this.cutLast.at, this.st, k);
+      cutFov = THREE.MathUtils.lerp(this.cutLast.fov, THREE.MathUtils.lerp(this.targetFov(), FISH_CAM.landFov, e), k);
+    }
     if (this.trauma > 0) {
       const s = FISH_CAM.shake * this.trauma * this.trauma, t = this.noiseT * 23;
       this.cam.position.x += s * (Math.sin(t) * 0.6 + Math.sin(t * 2.3 + 1) * 0.4);
       this.cam.position.y += s * (Math.sin(t * 1.7 + 2) * 0.6 + Math.sin(t * 3.1) * 0.4);
       this.cam.position.z += s * (Math.sin(t * 1.3 + 4) * 0.6 + Math.sin(t * 2.9 + 3) * 0.4);
     }
-    const f = THREE.MathUtils.lerp(this.targetFov(), FISH_CAM.landFov, e) - this.fovKick;
+    const f = cutFov > 0 ? cutFov : THREE.MathUtils.lerp(this.targetFov(), FISH_CAM.landFov, e) - this.fovKick;
     if (Math.abs(this.cam.fov - f) > 0.01) { this.cam.fov = f; this.cam.updateProjectionMatrix(); }
     this.cam.lookAt(this.st);
   }

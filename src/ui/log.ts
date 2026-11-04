@@ -470,6 +470,7 @@ function devTab(L: HTMLElement, R: HTMLElement) {
     ${stack(seg('dev-ocean', [['classic', 'Classic'], ['swell', 'Swell']], st.ocean, 'Ocean (experiment)'))}
     ${st.ocean === 'swell' ? seaRows(st) : ''}
     ${stack(seg('dev-wobble', [['0', '0 rigid'], ['0.5', '0.5'], ['1', '1 gentle'], ['1.5', '1.5'], ['2', '2 friendslop']], String(st.wobble), 'Character wobble'))}
+    ${stack(seg('dev-closeup', [['always', 'Always'], ['smart', 'Smart'], ['off', 'Off']], st.closeup, 'Strike close-up'))}
     ${toggle('dev-sun', st.sunShading, 'Sun shading')}
     ${toggle('dev-wind', st.wind, 'Wind in trees')}
     ${toggle('dev-fps', st.fps, 'Show FPS')}
@@ -485,6 +486,7 @@ function devTab(L: HTMLElement, R: HTMLElement) {
   sg('dev-tide', (v) => d.tide(v as DevTide));
   sg('dev-ocean', (v) => d.ocean(v as 'classic' | 'swell'));
   sg('dev-wobble', (v) => d.wobble(Number(v)));
+  sg('dev-closeup', (v) => d.closeup(v as 'always' | 'smart' | 'off'));
   sg('dev-sealook', (v) => d.seaLook(v as 'smooth' | 'faceted'));
   bt('dev-seaauto', () => d.seaState(st.seaMode === 'auto' ? Math.round(st.seaState * 2) / 2 : 'auto'));
   const rng = document.getElementById('dev-sea') as HTMLInputElement | null;

@@ -37,6 +37,8 @@ export interface DevState {
   ocean: 'classic' | 'swell'; seaState: number; seaMode: 'auto' | number; seaLook: 'smooth' | 'faceted';
   /** character wobble 0..2 (docs/character_study.md, Friendslop) */
   wobble: number;
+  /** strike / miss close-up (game/closeup.ts) */
+  closeup: 'always' | 'smart' | 'off';
 }
 export interface DevHandlers {
   state(): DevState;
@@ -53,6 +55,7 @@ export interface DevHandlers {
   wind(on: boolean): void;
   shells(n: number): void;
   wobble(k: number): void;
+  closeup(m: 'always' | 'smart' | 'off'): void;
 }
 
 export interface ChartSource {
